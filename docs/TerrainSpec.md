@@ -19,17 +19,15 @@ MVPでは地形数を最小限にし、移動範囲計算と戦闘補正が正�
 
 ## 地形タイプ
 
-```csharp
-public enum TerrainType
-{
-    Plain,
-    Forest,
-    Mountain,
-    Road,
-    City,
-    Factory,
-    Headquarters
-}
+```typescript
+export type TerrainType =
+  | "plain"
+  | "forest"
+  | "mountain"
+  | "road"
+  | "city"
+  | "factory"
+  | "headquarters";
 ```
 
 ## 地形共通パラメータ
