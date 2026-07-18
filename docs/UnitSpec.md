@@ -31,24 +31,14 @@ MVPではユニット数を絞り、移動・攻撃・占領・生産の基本�
 
 ## ユニット種別
 
-```csharp
-public enum UnitType
-{
-    Infantry,
-    Tank,
-    Artillery
-}
+```typescript
+export type UnitType = "infantry" | "tank" | "artillery";
 ```
 
 ## 所属軍
 
-```csharp
-public enum ArmyType
-{
-    Player,
-    Enemy,
-    Neutral
-}
+```typescript
+export type ArmyType = "player" | "enemy" | "neutral";
 ```
 
 ## 移動タイプ

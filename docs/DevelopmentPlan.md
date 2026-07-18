@@ -26,42 +26,45 @@
 - `docs/TerrainSpec.md`
 - `docs/DevelopmentPlan.md`
 
-## Phase 1: Unityプロジェクト初期構築
+## Phase 1: プロジェクト初期構築
 
 ### 目的
 
-Unityで開発できる土台を作ります。
+TypeScript + Phaser + Vite で開発できる土台を作ります。
 
 ### タスク
 
-- Unityプロジェクトを作成する
-- 2Dプロジェクトとして設定する
-- Git管理対象と除外対象を整理する
-- 基本シーンを作成する
-- Tilemapを導入する
-- カメラを設定する
+- Vite + TypeScriptプロジェクトを作成する
+- Phaserを導入する
+- Git管理対象と除外対象を整理する(`.gitignore` をNode向けに整備)
+- Vitestを導入し、テストが実行できることを確認する
+- ESLint / Prettierを設定する
+- 基本シーン(Phaser Scene)を作成する
 - 基本フォルダ構成を作る
+- GitHub Pagesへのデプロイ(GitHub Actions)を設定する
 
 ### 推奨フォルダ構成
 
 ```text
-Assets/
-  Audio/
-  Prefabs/
-  Scenes/
-  ScriptableObjects/
-  Scripts/
-    AI/
-    Battle/
-    Core/
-    Data/
-    Map/
-    Turn/
-    UI/
-    Units/
-  Sprites/
-  Tiles/
+src/
+  core/      // ゲームロジック(描画非依存。ユニットテスト対象)
+    ai/
+    battle/
+    economy/
+    map/
+    turn/
+    units/
+  data/      // ユニット・地形・マップのJSONデータ定義
+  scenes/    // PhaserのScene(タイトル・メイン・リザルト)
+  ui/        // UI表示コンポーネント
+  assets/    // スプライト・タイル・効果音
+tests/       // Vitestによるロジックのテスト
 ```
+
+### 設計方針
+
+ゲームロジック(`src/core/`)はPhaserに依存させず、純粋なTypeScriptとして実装します。
+これにより移動範囲計算・ダメージ計算・AIをブラウザなしでテストできます。
 
 ## Phase 2: マップ表示
 
@@ -71,8 +74,8 @@ Assets/
 
 ### タスク
 
-- Tilemapでマップを表示する
-- グリッド座標とUnity座標を変換する
+- Phaserのタイルマップ機能でマップを表示する
+- グリッド座標と画面座標を変換する
 - 地形データを定義する
 - マスクリックを検出する
 - 選択中マスをハイライトする
@@ -257,13 +260,14 @@ Assets/
 |---|---|
 | 最初から仕様を大きくしすぎる | MVPを小さく保つ |
 | AI実装が難航する | まずはプレイヤー同士で動く状態を作る |
-| バランス調整に時間がかかる | ScriptableObjectでデータ調整しやすくする |
+| バランス調整に時間がかかる | パラメータをJSONデータとして外部化し、調整しやすくする |
 | 原作再現に寄りすぎる | 固有表現はオリジナル化する |
 
 ## 次の具体的な作業
 
-1. Unityバージョンを決定する
-2. Unityプロジェクトを作成する
-3. `.gitignore` をUnity向けに整備する
-4. `Assets/Scenes/Main.unity` を作成する
-5. Tilemapで10x10の仮マップを表示する
+1. Vite + TypeScriptプロジェクトを作成する
+2. Phaser・Vitest・ESLint / Prettierを導入する
+3. `.gitignore` をNode向けに整備する
+4. メインシーン(`src/scenes/MainScene.ts`)を作成する
+5. 10x10の仮マップをタイル描画で表示する
+6. GitHub Pagesへの自動デプロイを設定する
