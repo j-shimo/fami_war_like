@@ -1,0 +1,7 @@
+dist/
+node_modules/
+coverage/
+
+# ドキュメントは手書きの日本語 Markdown のため整形対象外
+*.md
+docs/
