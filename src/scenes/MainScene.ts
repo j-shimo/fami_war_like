@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import { equals, type GridPosition } from '@/core/map/GridPosition';
-import { gridToWorld, worldToGrid } from '@/core/map/coordinates';
+import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
+import type { ArmyType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
+import { UnitManager } from '@/core/units/UnitManager';
 import {
   GAME_HEIGHT,
   INFO_PANEL_WIDTH,
@@ -13,12 +15,20 @@ import {
 import { TEST_MAP } from '@/data/maps/testMap';
 import { getTerrainData } from '@/data/terrainData';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
+import { formatUnitInfo } from '@/ui/unitInfo';
 
 /** 占領地形の所有者を示す枠の色 */
 const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
   player: 0x3a7bd5,
   enemy: 0xd53a3a,
   neutral: 0xdddddd,
+};
+
+/** ユニット本体を軍勢ごとに塗り分ける色 */
+const UNIT_BODY_COLOR: Record<ArmyType, number> = {
+  player: 0x2f5fae,
+  enemy: 0xae2f2f,
+  neutral: 0x777777,
 };
 
 /**
@@ -28,6 +38,8 @@ const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
+  private units!: UnitManager;
+  private unitLayer!: Phaser.GameObjects.Container;
   private highlight!: Phaser.GameObjects.Graphics;
   private infoText!: Phaser.GameObjects.Text;
   private selected: GridPosition | null = null;
@@ -38,9 +50,11 @@ export class MainScene extends Phaser.Scene {
 
   create(): void {
     this.map = MapManager.fromDefinition(TEST_MAP);
+    this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
 
     this.drawTerrain();
     this.drawGridLines();
+    this.drawUnits();
     this.createHighlight();
     this.createInfoPanel();
     this.setupInput();
@@ -91,6 +105,51 @@ export class MainScene extends Phaser.Scene {
     for (let row = 0; row <= this.map.rows; row++) {
       const y = row * TILE_SIZE;
       graphics.lineBetween(0, y, MAP_WIDTH, y);
+    }
+  }
+
+  /**
+   * 全ユニットをグリッド上に描画する。
+   * コンテナにまとめて描くことで、移動・撃破時に再描画しやすくする。
+   */
+  private drawUnits(): void {
+    if (!this.unitLayer) {
+      this.unitLayer = this.add.container(0, 0);
+    }
+    this.unitLayer.removeAll(true);
+
+    const graphics = this.add.graphics();
+    this.unitLayer.add(graphics);
+
+    const radius = TILE_SIZE * 0.32;
+    for (const unit of this.units.getAllUnits()) {
+      const { x, y } = gridToWorldCenter(unit.position, TILE_SIZE);
+
+      graphics.fillStyle(UNIT_BODY_COLOR[unit.armyType], 1);
+      graphics.fillCircle(x, y, radius);
+      graphics.lineStyle(2, 0xffffff, 0.9);
+      graphics.strokeCircle(x, y, radius);
+
+      const label = this.add
+        .text(x, y, unit.unitName.charAt(0), {
+          fontFamily: 'sans-serif',
+          fontSize: '18px',
+          color: '#ffffff',
+        })
+        .setOrigin(0.5);
+      this.unitLayer.add(label);
+
+      // HP が減っている場合のみ右下に数値を表示する
+      if (unit.currentHp < unit.maxHp) {
+        const hp = this.add
+          .text(x + radius, y + radius, String(unit.currentHp), {
+            fontFamily: 'sans-serif',
+            fontSize: '12px',
+            color: '#ffe08a',
+          })
+          .setOrigin(1, 1);
+        this.unitLayer.add(hp);
+      }
     }
   }
 
@@ -148,7 +207,19 @@ export class MainScene extends Phaser.Scene {
 
     this.selected = pos;
     this.drawSelectionHighlight(pos);
-    this.infoText.setText(formatTerrainInfo(tile));
+    this.infoText.setText(this.buildInfo(tile));
+  }
+
+  /**
+   * 選択マスの情報テキストを組み立てる。
+   * ユニットがいる場合はユニット情報を先頭に、続けて地形情報を並べる。
+   */
+  private buildInfo(tile: TileData): string[] {
+    const unit = this.units.getUnitAt(tile.position);
+    if (unit) {
+      return [...formatUnitInfo(unit), '', ...formatTerrainInfo(tile)];
+    }
+    return formatTerrainInfo(tile);
   }
 
   /** 選択を解除する */

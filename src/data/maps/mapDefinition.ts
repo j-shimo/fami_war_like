@@ -1,6 +1,7 @@
 // マップ定義のデータ表現。コードから分離した外部データとして扱う。
 
 import type { ArmyType, TerrainType } from '@/core/map/TerrainType';
+import type { UnitPlacement } from '@/core/units/UnitManager';
 
 /**
  * 地形を 1 文字で表す記号。マップを人間が読みやすい形で定義するために使う。
@@ -44,4 +45,6 @@ export interface MapDefinition {
   readonly terrain: readonly string[];
   /** 拠点の所有者指定。未指定の占領可能地形は中立(neutral)になる */
   readonly owners?: readonly OwnerOverride[];
+  /** ユニットの初期配置。未指定ならユニットなしで開始する */
+  readonly units?: readonly UnitPlacement[];
 }

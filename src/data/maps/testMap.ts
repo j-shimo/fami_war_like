@@ -27,4 +27,14 @@ export const TEST_MAP: MapDefinition = {
     { col: 5, row: 9, owner: 'player' }, // 工場
     { col: 4, row: 9, owner: 'player' }, // 都市
   ],
+  units: [
+    // 敵軍の初期部隊(上、row 1 付近)
+    { col: 2, row: 1, unitType: 'infantry', army: 'enemy' },
+    { col: 3, row: 1, unitType: 'tank', army: 'enemy' },
+    { col: 4, row: 1, unitType: 'artillery', army: 'enemy' },
+    // 自軍の初期部隊(下、row 8 付近)
+    { col: 5, row: 8, unitType: 'infantry', army: 'player' },
+    { col: 6, row: 8, unitType: 'tank', army: 'player' },
+    { col: 7, row: 8, unitType: 'artillery', army: 'player' },
+  ],
 };
