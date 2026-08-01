@@ -18,7 +18,12 @@ import type { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
 import {
+  VictoryConditionChecker,
+  type VictoryResult,
+} from '@/core/victory/VictoryConditionChecker';
+import {
   GAME_HEIGHT,
+  GAME_WIDTH,
   INFO_PANEL_WIDTH,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -33,6 +38,7 @@ import {
   formatProductionLabel,
   formatProductionLog,
 } from '@/ui/economyInfo';
+import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
@@ -71,6 +77,9 @@ const ACTION_BUTTON_GAP = 6;
  * Phase 7: 拠点の占領・収入・生産を追加する。
  *   歩兵で拠点を占領し、ターン開始時に所有拠点数に応じた収入を得て、
  *   工場・本拠地で資金を消費してユニットを生産する。
+ * Phase 8: 攻撃・占領のたびに勝敗を判定する。
+ *   敵本拠地の占領・敵軍全滅で勝利、自軍本拠地の占領・自軍全滅で敗北とし、
+ *   決着したら結果オーバーレイを表示して以降の操作を止める。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -80,6 +89,7 @@ export class MainScene extends Phaser.Scene {
   private economy!: EconomyManager;
   private capture!: CaptureSystem;
   private production!: ProductionManager;
+  private victory!: VictoryConditionChecker;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -99,6 +109,8 @@ export class MainScene extends Phaser.Scene {
   private commandUnit: Unit | null = null;
   /** 動的に生成する占領・生産コマンドのボタン群 */
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
+  /** 勝敗が決したかどうか。決着後は操作を受け付けない */
+  private gameOver = false;
 
   constructor() {
     super('MainScene');
@@ -112,6 +124,7 @@ export class MainScene extends Phaser.Scene {
     this.economy = new EconomyManager();
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
+    this.victory = new VictoryConditionChecker(this.map, this.units);
 
     this.createTerrainLayer();
     this.drawTerrain();
@@ -323,6 +336,10 @@ export class MainScene extends Phaser.Scene {
    * 手番が移ったあと、その軍の所有拠点数に応じた収入を計上する。
    */
   private handleEndTurn(): void {
+    // 勝敗が決した後はターン終了も受け付けない
+    if (this.gameOver) {
+      return;
+    }
     this.clearSelection();
     this.turn.endTurn();
     this.economy.collectIncome(this.turn.currentArmy, this.map);
@@ -335,6 +352,10 @@ export class MainScene extends Phaser.Scene {
   /** クリック入力を設定する */
   private setupInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      // 勝敗が決した後はマップ操作を受け付けない
+      if (this.gameOver) {
+        return;
+      }
       // マップ描画領域外(情報パネル側)のクリックは無視する
       if (pointer.x >= MAP_WIDTH || pointer.y >= MAP_HEIGHT) {
         return;
@@ -492,6 +513,8 @@ export class MainScene extends Phaser.Scene {
     this.resetSelection();
     this.drawUnits();
     this.infoText.setText(this.buildBattleLog(result));
+    // 撃破により全滅が発生していないか判定する
+    this.checkGameEnd();
   }
 
   /** 指定ユニットで拠点を占領し、結果を表示する */
@@ -503,6 +526,55 @@ export class MainScene extends Phaser.Scene {
     this.drawTerrain();
     this.drawUnits();
     this.infoText.setText(formatCaptureLog(result));
+    // 本拠地の占領により勝敗が決していないか判定する
+    this.checkGameEnd();
+  }
+
+  /**
+   * 現在の盤面で勝敗が決していないか判定する。
+   * 決着していれば結果オーバーレイを表示し、以降の操作を止める。
+   */
+  private checkGameEnd(): void {
+    const result = this.victory.check();
+    if (result.outcome === 'ongoing') {
+      return;
+    }
+    this.gameOver = true;
+    this.resetSelection();
+    this.showResultOverlay(result);
+  }
+
+  /** 勝敗結果を画面中央のオーバーレイとして表示する */
+  private showResultOverlay(result: VictoryResult): void {
+    const isVictory = result.outcome === 'player_victory';
+    const message = formatResultMessage(result);
+
+    // 画面全体を暗くする半透明オーバーレイ
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.6);
+    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
+
+    // 見出し(勝利は金色、敗北は赤色)
+    this.add
+      .text(centerX, centerY - 24, message.title, {
+        fontFamily: 'sans-serif',
+        fontSize: '48px',
+        fontStyle: 'bold',
+        color: isVictory ? '#ffd479' : '#ff6a6a',
+      })
+      .setOrigin(0.5);
+
+    // 決着理由の説明
+    this.add
+      .text(centerX, centerY + 28, message.detail, {
+        fontFamily: 'sans-serif',
+        fontSize: '20px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
   }
 
   /** ユニットのいない自軍生産拠点の生産メニューを表示する */
