@@ -95,6 +95,22 @@ export class UnitManager {
     return this.getUnitAt(pos) !== undefined;
   }
 
+  /**
+   * ユニットを指定マスへ移動させ、行動済み状態にする。
+   * 他ユニットが占有しているマスへは移動できない(データ不整合として例外)。
+   * 移動範囲の妥当性(移動力・地形コスト)は呼び出し側で MovementRange により判定する。
+   */
+  moveUnit(unit: Unit, dest: GridPosition): void {
+    const occupant = this.getUnitAt(dest);
+    if (occupant && occupant !== unit) {
+      throw new Error(
+        `他ユニットが占有するマスへは移動できません(col ${dest.col}, row ${dest.row})`,
+      );
+    }
+    unit.position = gridPosition(dest.col, dest.row);
+    unit.hasActed = true;
+  }
+
   /** ユニットを管理対象から取り除く(撃破時などに使う) */
   removeUnit(unit: Unit): void {
     const index = this.units.indexOf(unit);
