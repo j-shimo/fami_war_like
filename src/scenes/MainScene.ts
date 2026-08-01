@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { EnemyAi } from '@/core/ai/EnemyAi';
 import { findAttackableTargets } from '@/core/battle/AttackRange';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -40,6 +41,7 @@ import {
   formatProductionLog,
   formatRepairLog,
 } from '@/ui/economyInfo';
+import { formatEnemyTurnSummary } from '@/ui/aiInfo';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
@@ -84,6 +86,8 @@ const ACTION_BUTTON_GAP = 6;
  *   決着したら結果オーバーレイを表示して以降の操作を止める。
  * 修理: ターン開始時、自軍拠点(都市・工場・本拠地)上のダメージユニットを
  *   資金を消費して回復する(収入計上の直後に実行)。
+ * Phase 9: ターン終了で敵軍に手番が移ると、敵軍AIが自動で行動する。
+ *   AI は攻撃→占領→接近→生産の優先順位で行動し、終わると自軍へ手番が戻る。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -95,6 +99,7 @@ export class MainScene extends Phaser.Scene {
   private production!: ProductionManager;
   private repair!: RepairManager;
   private victory!: VictoryConditionChecker;
+  private ai!: EnemyAi;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -131,6 +136,13 @@ export class MainScene extends Phaser.Scene {
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
     this.victory = new VictoryConditionChecker(this.map, this.units);
+    this.ai = new EnemyAi({
+      map: this.map,
+      units: this.units,
+      battle: this.battle,
+      capture: this.capture,
+      production: this.production,
+    });
 
     this.createTerrainLayer();
     this.drawTerrain();
@@ -342,8 +354,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * ターンを終了し、次の軍勢へ手番を移す。
-   * 手番が移ったあと、その軍の収入計上と拠点上ユニットの修理を行う。
+   * 自軍のターンを終了する。
+   * 敵軍へ手番を移して敵軍AIを自動実行し、決着しなければ自軍へ手番を戻す。
+   * 手番が移るたびに、その軍の収入計上と拠点上ユニットの修理を行う。
    */
   private handleEndTurn(): void {
     // 勝敗が決した後はターン終了も受け付けない
@@ -351,15 +364,45 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     this.clearSelection();
+
+    // 自軍 → 敵軍。敵軍の開始時経済処理(収入・修理)を行う。
+    this.turn.endTurn();
+    this.runTurnStartEconomy();
+    this.drawUnits();
+
+    // 敵軍AIを実行する。占領・撃破で勝敗が決したらそこで止める。
+    this.runEnemyTurn();
+    if (this.gameOver) {
+      return;
+    }
+
+    // 敵軍 → 自軍。自軍の開始時経済処理を行い、表示を更新する。
     this.turn.endTurn();
     const repairs = this.runTurnStartEconomy();
     this.updateTurnText();
     this.updateFundsText();
-    // 新しい手番軍の行動済み状態リセットと修理での HP 変化を反映するため再描画する
+    // 占領による所有者変更・修理での HP 変化・行動済みリセットを反映して再描画する
+    this.drawTerrain();
     this.drawUnits();
+    // 修理があればその内容を、なければ敵軍の行動サマリを表示したままにする
     if (repairs.length > 0) {
       this.infoText.setText(formatRepairLog(repairs));
     }
+  }
+
+  /**
+   * 敵軍AIの手番を実行する。
+   * AI が盤面を更新したあと表示を再描画し、行動サマリを表示して勝敗を判定する。
+   */
+  private runEnemyTurn(): void {
+    const actions = this.ai.run();
+    // 占領で所有者が、移動・撃破でユニット配置が変わるため再描画する
+    this.drawTerrain();
+    this.drawUnits();
+    this.updateFundsText();
+    this.infoText.setText(formatEnemyTurnSummary(actions));
+    // 敵軍の占領・撃破で勝敗が決していないか判定する
+    this.checkGameEnd();
   }
 
   /**
