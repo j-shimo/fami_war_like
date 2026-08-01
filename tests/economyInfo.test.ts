@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+import type { CaptureResult } from '@/core/economy/CaptureSystem';
+import type { ProductionResult } from '@/core/economy/ProductionManager';
+import { gridPosition } from '@/core/map/GridPosition';
+import { INITIAL_CAPTURE_HP, type TileData } from '@/core/map/TileData';
+import { Unit } from '@/core/units/Unit';
+import {
+  formatCaptureLog,
+  formatFunds,
+  formatProductionLabel,
+  formatProductionLog,
+} from '@/ui/economyInfo';
+
+function makeInfantry(): Unit {
+  return new Unit({
+    id: 'p-inf',
+    unitType: 'infantry',
+    armyType: 'player',
+    position: gridPosition(0, 0),
+  });
+}
+
+function makeCityTile(captureHp = INITIAL_CAPTURE_HP): TileData {
+  return {
+    position: gridPosition(0, 0),
+    terrainType: 'city',
+    owner: 'neutral',
+    captureHp,
+  };
+}
+
+describe('economyInfo', () => {
+  it('資金を軍名つきで整形する', () => {
+    expect(formatFunds('player', 12000)).toBe('資金(自軍): 12000');
+    expect(formatFunds('enemy', 0)).toBe('資金(敵軍): 0');
+  });
+
+  it('生産ボタンのラベルは名前とコストを表示する', () => {
+    expect(formatProductionLabel('infantry')).toBe('歩兵 (1000)');
+    expect(formatProductionLabel('tank')).toBe('戦車 (7000)');
+  });
+
+  it('占領未完了は残り耐久を表示する', () => {
+    const result: CaptureResult = {
+      tile: makeCityTile(10),
+      unit: makeInfantry(),
+      reduced: 10,
+      remainingHp: 10,
+      captured: false,
+    };
+    const lines = formatCaptureLog(result);
+    expect(lines).toContain('残り耐久: 10');
+    expect(lines).not.toContain('占領完了');
+  });
+
+  it('占領完了は完了メッセージを表示する', () => {
+    const result: CaptureResult = {
+      tile: makeCityTile(INITIAL_CAPTURE_HP),
+      unit: makeInfantry(),
+      reduced: 8,
+      remainingHp: 0,
+      captured: true,
+    };
+    expect(formatCaptureLog(result)).toContain('占領完了');
+  });
+
+  it('生産結果は名称と消費資金を表示する', () => {
+    const result: ProductionResult = {
+      unit: makeInfantry(),
+      cost: 1000,
+    };
+    const lines = formatProductionLog(result);
+    expect(lines).toContain('歩兵 を生産');
+    expect(lines).toContain('消費資金: 1000');
+  });
+});

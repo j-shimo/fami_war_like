@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import { findAttackableTargets } from '@/core/battle/AttackRange';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
+import { CaptureSystem } from '@/core/economy/CaptureSystem';
+import { EconomyManager } from '@/core/economy/EconomyManager';
+import { ProductionManager } from '@/core/economy/ProductionManager';
 import { equals, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
@@ -13,6 +16,7 @@ import {
 import { TurnManager } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
+import type { UnitType } from '@/core/units/UnitType';
 import {
   GAME_HEIGHT,
   INFO_PANEL_WIDTH,
@@ -22,6 +26,13 @@ import {
 } from '@/data/gameConfig';
 import { TEST_MAP } from '@/data/maps/testMap';
 import { getTerrainData } from '@/data/terrainData';
+import { PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
+import {
+  formatCaptureLog,
+  formatFunds,
+  formatProductionLabel,
+  formatProductionLog,
+} from '@/ui/economyInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
@@ -40,6 +51,13 @@ const UNIT_BODY_COLOR: Record<ArmyType, number> = {
   neutral: 0x777777,
 };
 
+/** コマンド・生産ボタンの描画開始 Y 座標(情報パネル内) */
+const ACTION_BUTTON_TOP = 300;
+/** コマンド・生産ボタン 1 個の高さ */
+const ACTION_BUTTON_HEIGHT = 30;
+/** コマンド・生産ボタンの縦間隔 */
+const ACTION_BUTTON_GAP = 6;
+
 /**
  * ゲーム本体のメインシーン。
  * Phase 2: 10x10 のマップを地形色で描画し、マスをクリックで選択して情報表示する。
@@ -50,16 +68,25 @@ const UNIT_BODY_COLOR: Record<ArmyType, number> = {
  *   クリックで攻撃する。ダメージ・撃破・反撃を処理して行動済みにする。
  * Phase 6: 現在の手番の軍勢とターン数を管理し、ターン終了ボタンで手番を切り替える。
  *   操作できるのは手番の軍勢の未行動ユニットのみで、手番開始時に行動済み状態をリセットする。
+ * Phase 7: 拠点の占領・収入・生産を追加する。
+ *   歩兵で拠点を占領し、ターン開始時に所有拠点数に応じた収入を得て、
+ *   工場・本拠地で資金を消費してユニットを生産する。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
   private units!: UnitManager;
   private battle!: BattleManager;
   private turn!: TurnManager;
+  private economy!: EconomyManager;
+  private capture!: CaptureSystem;
+  private production!: ProductionManager;
+  private terrainGraphics!: Phaser.GameObjects.Graphics;
+  private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
   private turnText!: Phaser.GameObjects.Text;
+  private fundsText!: Phaser.GameObjects.Text;
   private infoText!: Phaser.GameObjects.Text;
   private selected: GridPosition | null = null;
   /** 移動対象として選択中の自軍ユニット(未選択なら null) */
@@ -68,6 +95,10 @@ export class MainScene extends Phaser.Scene {
   private movementRange: MovementRange | null = null;
   /** movingUnit が現在位置から攻撃できる敵ユニット */
   private attackTargets: Unit[] = [];
+  /** 移動後に占領/待機の選択待ちになっているユニット(いなければ null) */
+  private commandUnit: Unit | null = null;
+  /** 動的に生成する占領・生産コマンドのボタン群 */
+  private actionButtons: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super('MainScene');
@@ -78,7 +109,11 @@ export class MainScene extends Phaser.Scene {
     this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
+    this.economy = new EconomyManager();
+    this.capture = new CaptureSystem();
+    this.production = new ProductionManager(this.units, this.economy);
 
+    this.createTerrainLayer();
     this.drawTerrain();
     this.drawGridLines();
     this.createRangeOverlay();
@@ -86,8 +121,18 @@ export class MainScene extends Phaser.Scene {
     this.createHighlight();
     this.createInfoPanel();
     this.createEndTurnButton();
+
+    // 開始時(自軍第1ターン)の収入を計上する
+    this.economy.collectIncome(this.turn.currentArmy, this.map);
     this.updateTurnText();
+    this.updateFundsText();
     this.setupInput();
+  }
+
+  /** 地形描画用のグラフィックスとラベルコンテナを用意する(最背面) */
+  private createTerrainLayer(): void {
+    this.terrainGraphics = this.add.graphics();
+    this.terrainLabels = this.add.container(0, 0);
   }
 
   /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
@@ -95,20 +140,24 @@ export class MainScene extends Phaser.Scene {
     this.rangeGraphics = this.add.graphics();
   }
 
-  /** 地形を種別ごとの色で塗り、占領拠点には所有者を示す枠を描く */
+  /**
+   * 地形を種別ごとの色で塗り、占領拠点には所有者を示す枠を描く。
+   * 占領で所有者が変わったときに再描画できるよう、永続グラフィックスへ描く。
+   */
   private drawTerrain(): void {
-    const graphics = this.add.graphics();
+    this.terrainGraphics.clear();
+    this.terrainLabels.removeAll(true);
 
     this.map.forEachTile((tile) => {
       const data = getTerrainData(tile.terrainType);
       const { x, y } = gridToWorld(tile.position, TILE_SIZE);
 
-      graphics.fillStyle(data.color, 1);
-      graphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      this.terrainGraphics.fillStyle(data.color, 1);
+      this.terrainGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
       if (data.canCapture) {
-        graphics.lineStyle(3, OWNER_COLOR[tile.owner], 1);
-        graphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        this.terrainGraphics.lineStyle(3, OWNER_COLOR[tile.owner], 1);
+        this.terrainGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
         this.drawTerrainLabel(tile);
       }
     });
@@ -119,13 +168,14 @@ export class MainScene extends Phaser.Scene {
     const data = getTerrainData(tile.terrainType);
     const { x, y } = gridToWorld(tile.position, TILE_SIZE);
     const initial = data.terrainName.charAt(0);
-    this.add
+    const label = this.add
       .text(x + TILE_SIZE / 2, y + TILE_SIZE / 2, initial, {
         fontFamily: 'sans-serif',
         fontSize: '20px',
         color: '#ffffff',
       })
       .setOrigin(0.5);
+    this.terrainLabels.add(label);
   }
 
   /** マスの区切り線を描画する */
@@ -211,13 +261,20 @@ export class MainScene extends Phaser.Scene {
       fontStyle: 'bold',
     });
 
-    this.add.text(MAP_WIDTH + 12, 48, 'マス情報', {
+    // 現在手番の軍勢の資金
+    this.fundsText = this.add.text(MAP_WIDTH + 12, 36, '', {
+      fontFamily: 'sans-serif',
+      fontSize: '14px',
+      color: '#ffe08a',
+    });
+
+    this.add.text(MAP_WIDTH + 12, 64, 'マス情報', {
       fontFamily: 'sans-serif',
       fontSize: '16px',
       color: '#ffd479',
     });
 
-    this.infoText = this.add.text(MAP_WIDTH + 12, 80, 'マスを選択してください', {
+    this.infoText = this.add.text(MAP_WIDTH + 12, 92, 'マスを選択してください', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
       color: '#eaeaea',
@@ -255,11 +312,22 @@ export class MainScene extends Phaser.Scene {
     this.turnText.setText(formatTurnBanner(this.turn.state));
   }
 
-  /** ターンを終了し、次の軍勢へ手番を移して表示を更新する */
+  /** 現在手番の軍勢の資金表示を更新する */
+  private updateFundsText(): void {
+    const army = this.turn.currentArmy;
+    this.fundsText.setText(formatFunds(army, this.economy.getFunds(army)));
+  }
+
+  /**
+   * ターンを終了し、次の軍勢へ手番を移す。
+   * 手番が移ったあと、その軍の所有拠点数に応じた収入を計上する。
+   */
   private handleEndTurn(): void {
     this.clearSelection();
     this.turn.endTurn();
+    this.economy.collectIncome(this.turn.currentArmy, this.map);
     this.updateTurnText();
+    this.updateFundsText();
     // 新しい手番軍の行動済み状態がリセットされるため、ユニットの見た目も更新する
     this.drawUnits();
   }
@@ -278,6 +346,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * マスクリックを処理する。行動対象を選択中かどうかで挙動を分岐させる。
+   * 0. 移動後に占領/待機の選択待ち中なら、マップクリックは待機として確定する
    * 1. 行動対象を選択中で、クリック先が攻撃対象の敵 → 攻撃する
    * 2. 行動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
    * 3. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら行動対象にする)
@@ -286,6 +355,11 @@ export class MainScene extends Phaser.Scene {
     const tile = this.map.getTile(pos);
     if (!tile) {
       return;
+    }
+
+    // 移動後の占領/待機選択待ち中にマップをクリックしたら、待機として確定する
+    if (this.commandUnit) {
+      this.commitWait();
     }
 
     // 行動対象を選択中なら、攻撃・移動を優先して判定する
@@ -302,7 +376,7 @@ export class MainScene extends Phaser.Scene {
         return;
       }
       if (this.movementRange?.canReach(pos)) {
-        this.moveSelectedUnit(pos);
+        this.moveSelectedUnit(pos, tile);
         return;
       }
       // 範囲外クリックはいったん選択解除し、通常選択に切り替える
@@ -312,7 +386,7 @@ export class MainScene extends Phaser.Scene {
     this.selectTile(pos, tile);
   }
 
-  /** 指定マスを選択し、ハイライト・移動範囲・情報表示を更新する */
+  /** 指定マスを選択し、ハイライト・移動範囲・情報表示・コマンドを更新する */
   private selectTile(pos: GridPosition, tile: TileData): void {
     // 同じマスを再度クリックしたら選択を解除する
     if (this.selected && equals(this.selected, pos)) {
@@ -320,33 +394,91 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
+    this.clearActionButtons();
     this.selected = pos;
     this.drawSelectionHighlight(pos);
     this.infoText.setText(this.buildInfo(tile));
 
-    // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     const unit = this.units.getUnitAt(pos);
+    // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     if (unit && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
       this.movingUnit = unit;
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
       this.attackTargets = findAttackableTargets(unit, this.units);
       this.drawActionRange(this.movementRange, this.attackTargets);
-    } else {
-      this.movingUnit = null;
-      this.movementRange = null;
-      this.attackTargets = [];
-      this.rangeGraphics.clear();
+      // すでに占領対象の拠点上にいる歩兵なら、その場で占領コマンドを出せる
+      if (this.capture.canCapture(unit, tile)) {
+        this.addActionButton(0, '占領する', true, () => this.executeCapture(unit, tile));
+      }
+      return;
+    }
+
+    this.movingUnit = null;
+    this.movementRange = null;
+    this.attackTargets = [];
+    this.rangeGraphics.clear();
+
+    // ユニットのいない自軍の生産拠点を選んだら生産メニューを表示する
+    if (!unit && this.production.canProduceAt(this.turn.currentArmy, tile)) {
+      this.renderProductionMenu(tile);
     }
   }
 
-  /** 選択中ユニットを指定マスへ移動し、行動済みにして再描画する */
-  private moveSelectedUnit(pos: GridPosition): void {
+  /**
+   * 選択中ユニットを指定マスへ移動する。
+   * 移動先が自軍所有でない占領可能拠点なら、行動済みにせず占領/待機を選ばせる。
+   * それ以外はその場で行動済みにして選択を解除する。
+   */
+  private moveSelectedUnit(pos: GridPosition, tile: TileData): void {
     const unit = this.movingUnit;
     if (!unit) {
       return;
     }
+
+    const canOfferCapture =
+      unit.canCapture &&
+      getTerrainData(tile.terrainType).canCapture &&
+      tile.owner !== unit.armyType;
+
+    if (canOfferCapture) {
+      this.units.moveUnit(unit, pos, { markActed: false });
+      this.enterCaptureCommand(unit, tile);
+      this.drawUnits();
+      return;
+    }
+
     this.units.moveUnit(unit, pos);
     this.clearSelection();
+    this.drawUnits();
+  }
+
+  /** 移動後、占領対象の拠点上で占領/待機を選ばせる状態に入る */
+  private enterCaptureCommand(unit: Unit, tile: TileData): void {
+    this.movingUnit = null;
+    this.movementRange = null;
+    this.attackTargets = [];
+    this.rangeGraphics.clear();
+    this.clearActionButtons();
+
+    this.commandUnit = unit;
+    this.selected = unit.position;
+    this.drawSelectionHighlight(unit.position);
+    this.infoText.setText([
+      'コマンド選択',
+      `${unit.unitName}`,
+      `占領耐久: ${tile.captureHp}`,
+    ]);
+    this.addActionButton(0, '占領する', true, () => this.executeCapture(unit, tile));
+    this.addActionButton(1, '待機', true, () => this.commitWait());
+  }
+
+  /** 占領を選択待ちのユニットを待機として確定する */
+  private commitWait(): void {
+    if (this.commandUnit) {
+      this.commandUnit.hasActed = true;
+    }
+    this.resetSelection();
+    this.infoText.setText('マスを選択してください');
     this.drawUnits();
   }
 
@@ -357,9 +489,44 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     const result = this.battle.attack(attacker, target);
-    this.clearSelection();
+    this.resetSelection();
     this.drawUnits();
     this.infoText.setText(this.buildBattleLog(result));
+  }
+
+  /** 指定ユニットで拠点を占領し、結果を表示する */
+  private executeCapture(unit: Unit, tile: TileData): void {
+    const result = this.capture.capture(unit, tile);
+    this.commandUnit = null;
+    this.resetSelection();
+    // 所有者が変わった場合に備えて地形の枠を描き直す
+    this.drawTerrain();
+    this.drawUnits();
+    this.infoText.setText(formatCaptureLog(result));
+  }
+
+  /** ユニットのいない自軍生産拠点の生産メニューを表示する */
+  private renderProductionMenu(tile: TileData): void {
+    const army = this.turn.currentArmy;
+    PRODUCIBLE_UNIT_TYPES.forEach((unitType, index) => {
+      const affordable = this.production.canProduce(army, tile, unitType);
+      this.addActionButton(index, formatProductionLabel(unitType), affordable, () =>
+        this.executeProduction(tile, unitType),
+      );
+    });
+  }
+
+  /** 選択中の生産拠点で unitType を生産し、資金・表示を更新する */
+  private executeProduction(tile: TileData, unitType: UnitType): void {
+    const army = this.turn.currentArmy;
+    if (!this.production.canProduce(army, tile, unitType)) {
+      return;
+    }
+    const result = this.production.produce(army, tile, unitType);
+    this.resetSelection();
+    this.updateFundsText();
+    this.drawUnits();
+    this.infoText.setText(formatProductionLog(result));
   }
 
   /** 攻撃結果を情報パネル用のテキストに整形する */
@@ -415,14 +582,63 @@ export class MainScene extends Phaser.Scene {
     return formatTerrainInfo(tile);
   }
 
-  /** 選択を解除し、移動範囲・攻撃範囲の表示も消す */
-  private clearSelection(): void {
+  /** 占領・生産コマンドのボタンを 1 つ追加する(無効時はグレー表示) */
+  private addActionButton(
+    index: number,
+    label: string,
+    enabled: boolean,
+    onClick: () => void,
+  ): void {
+    const width = INFO_PANEL_WIDTH - 24;
+    const x = MAP_WIDTH + 12;
+    const y = ACTION_BUTTON_TOP + index * (ACTION_BUTTON_HEIGHT + ACTION_BUTTON_GAP);
+
+    const fill = enabled ? 0x2f7f4f : 0x3a3a44;
+    const stroke = enabled ? 0x8affb0 : 0x666666;
+    const rect = this.add
+      .rectangle(x, y, width, ACTION_BUTTON_HEIGHT, fill)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, stroke);
+
+    const text = this.add
+      .text(x + width / 2, y + ACTION_BUTTON_HEIGHT / 2, label, {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: enabled ? '#ffffff' : '#999999',
+      })
+      .setOrigin(0.5);
+
+    if (enabled) {
+      rect.setInteractive({ useHandCursor: true });
+      rect.on(Phaser.Input.Events.POINTER_DOWN, onClick);
+    }
+
+    this.actionButtons.push(rect, text);
+  }
+
+  /** 動的に生成した占領・生産ボタンをすべて破棄する */
+  private clearActionButtons(): void {
+    for (const button of this.actionButtons) {
+      button.destroy();
+    }
+    this.actionButtons = [];
+  }
+
+  /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
+  private resetSelection(): void {
     this.selected = null;
     this.movingUnit = null;
     this.movementRange = null;
     this.attackTargets = [];
+    this.commandUnit = null;
     this.highlight.setVisible(false);
     this.rangeGraphics.clear();
+    this.clearActionButtons();
+  }
+
+  /** 選択を解除し、移動範囲・攻撃範囲・コマンドの表示も消す */
+  private clearSelection(): void {
+    this.resetSelection();
     this.infoText.setText('マスを選択してください');
   }
 
