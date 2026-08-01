@@ -10,6 +10,7 @@ import {
   calculateMovementRange,
   type MovementRange,
 } from '@/core/movement/MovementRange';
+import { TurnManager } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
 import {
@@ -22,6 +23,7 @@ import {
 import { TEST_MAP } from '@/data/maps/testMap';
 import { getTerrainData } from '@/data/terrainData';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
+import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 
 /** 占領地形の所有者を示す枠の色 */
@@ -46,14 +48,18 @@ const UNIT_BODY_COLOR: Record<ArmyType, number> = {
  *   範囲内のマスをクリックで移動して行動済みにする。
  * Phase 5: 選択中の自軍ユニットの射程内に敵がいれば攻撃対象として強調表示し、
  *   クリックで攻撃する。ダメージ・撃破・反撃を処理して行動済みにする。
+ * Phase 6: 現在の手番の軍勢とターン数を管理し、ターン終了ボタンで手番を切り替える。
+ *   操作できるのは手番の軍勢の未行動ユニットのみで、手番開始時に行動済み状態をリセットする。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
   private units!: UnitManager;
   private battle!: BattleManager;
+  private turn!: TurnManager;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
+  private turnText!: Phaser.GameObjects.Text;
   private infoText!: Phaser.GameObjects.Text;
   private selected: GridPosition | null = null;
   /** 移動対象として選択中の自軍ユニット(未選択なら null) */
@@ -71,6 +77,7 @@ export class MainScene extends Phaser.Scene {
     this.map = MapManager.fromDefinition(TEST_MAP);
     this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
     this.battle = new BattleManager(this.map, this.units);
+    this.turn = new TurnManager(this.units);
 
     this.drawTerrain();
     this.drawGridLines();
@@ -78,6 +85,8 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
     this.createHighlight();
     this.createInfoPanel();
+    this.createEndTurnButton();
+    this.updateTurnText();
     this.setupInput();
   }
 
@@ -194,19 +203,65 @@ export class MainScene extends Phaser.Scene {
     panel.fillStyle(0x12121e, 1);
     panel.fillRect(MAP_WIDTH, 0, INFO_PANEL_WIDTH, GAME_HEIGHT);
 
-    this.add.text(MAP_WIDTH + 12, 12, 'マス情報', {
+    // 現在のターン数と手番の軍勢を示す見出し
+    this.turnText = this.add.text(MAP_WIDTH + 12, 12, '', {
+      fontFamily: 'sans-serif',
+      fontSize: '16px',
+      color: '#8ad0ff',
+      fontStyle: 'bold',
+    });
+
+    this.add.text(MAP_WIDTH + 12, 48, 'マス情報', {
       fontFamily: 'sans-serif',
       fontSize: '16px',
       color: '#ffd479',
     });
 
-    this.infoText = this.add.text(MAP_WIDTH + 12, 44, 'マスを選択してください', {
+    this.infoText = this.add.text(MAP_WIDTH + 12, 80, 'マスを選択してください', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
       color: '#eaeaea',
       lineSpacing: 6,
       wordWrap: { width: INFO_PANEL_WIDTH - 24 },
     });
+  }
+
+  /** ターン終了ボタンを情報パネル下部に作成する */
+  private createEndTurnButton(): void {
+    const width = INFO_PANEL_WIDTH - 24;
+    const height = 40;
+    const x = MAP_WIDTH + 12;
+    const y = GAME_HEIGHT - height - 12;
+
+    const button = this.add
+      .rectangle(x, y, width, height, 0x2f5fae)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x8ad0ff)
+      .setInteractive({ useHandCursor: true });
+
+    this.add
+      .text(x + width / 2, y + height / 2, 'ターン終了', {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => this.handleEndTurn());
+  }
+
+  /** 手番の見出しを現在のターン状態に合わせて更新する */
+  private updateTurnText(): void {
+    this.turnText.setText(formatTurnBanner(this.turn.state));
+  }
+
+  /** ターンを終了し、次の軍勢へ手番を移して表示を更新する */
+  private handleEndTurn(): void {
+    this.clearSelection();
+    this.turn.endTurn();
+    this.updateTurnText();
+    // 新しい手番軍の行動済み状態がリセットされるため、ユニットの見た目も更新する
+    this.drawUnits();
   }
 
   /** クリック入力を設定する */
@@ -269,9 +324,9 @@ export class MainScene extends Phaser.Scene {
     this.drawSelectionHighlight(pos);
     this.infoText.setText(this.buildInfo(tile));
 
-    // 自軍の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
+    // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     const unit = this.units.getUnitAt(pos);
-    if (unit && unit.armyType === 'player' && !unit.hasActed) {
+    if (unit && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
       this.movingUnit = unit;
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
       this.attackTargets = findAttackableTargets(unit, this.units);
