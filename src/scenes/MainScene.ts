@@ -4,6 +4,7 @@ import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
 import { ProductionManager } from '@/core/economy/ProductionManager';
+import { RepairManager, type RepairResult } from '@/core/economy/RepairManager';
 import { equals, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
@@ -37,6 +38,7 @@ import {
   formatFunds,
   formatProductionLabel,
   formatProductionLog,
+  formatRepairLog,
 } from '@/ui/economyInfo';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
@@ -80,6 +82,8 @@ const ACTION_BUTTON_GAP = 6;
  * Phase 8: 攻撃・占領のたびに勝敗を判定する。
  *   敵本拠地の占領・敵軍全滅で勝利、自軍本拠地の占領・自軍全滅で敗北とし、
  *   決着したら結果オーバーレイを表示して以降の操作を止める。
+ * 修理: ターン開始時、自軍拠点(都市・工場・本拠地)上のダメージユニットを
+ *   資金を消費して回復する(収入計上の直後に実行)。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -89,6 +93,7 @@ export class MainScene extends Phaser.Scene {
   private economy!: EconomyManager;
   private capture!: CaptureSystem;
   private production!: ProductionManager;
+  private repair!: RepairManager;
   private victory!: VictoryConditionChecker;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private terrainLabels!: Phaser.GameObjects.Container;
@@ -124,6 +129,7 @@ export class MainScene extends Phaser.Scene {
     this.economy = new EconomyManager();
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
+    this.repair = new RepairManager(this.map, this.units, this.economy);
     this.victory = new VictoryConditionChecker(this.map, this.units);
 
     this.createTerrainLayer();
@@ -135,10 +141,14 @@ export class MainScene extends Phaser.Scene {
     this.createInfoPanel();
     this.createEndTurnButton();
 
-    // 開始時(自軍第1ターン)の収入を計上する
-    this.economy.collectIncome(this.turn.currentArmy, this.map);
+    // 開始時(自軍第1ターン)の収入計上と拠点上ユニットの修理を行う
+    const repairs = this.runTurnStartEconomy();
     this.updateTurnText();
     this.updateFundsText();
+    if (repairs.length > 0) {
+      this.drawUnits();
+      this.infoText.setText(formatRepairLog(repairs));
+    }
     this.setupInput();
   }
 
@@ -333,7 +343,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * ターンを終了し、次の軍勢へ手番を移す。
-   * 手番が移ったあと、その軍の所有拠点数に応じた収入を計上する。
+   * 手番が移ったあと、その軍の収入計上と拠点上ユニットの修理を行う。
    */
   private handleEndTurn(): void {
     // 勝敗が決した後はターン終了も受け付けない
@@ -342,11 +352,25 @@ export class MainScene extends Phaser.Scene {
     }
     this.clearSelection();
     this.turn.endTurn();
-    this.economy.collectIncome(this.turn.currentArmy, this.map);
+    const repairs = this.runTurnStartEconomy();
     this.updateTurnText();
     this.updateFundsText();
-    // 新しい手番軍の行動済み状態がリセットされるため、ユニットの見た目も更新する
+    // 新しい手番軍の行動済み状態リセットと修理での HP 変化を反映するため再描画する
     this.drawUnits();
+    if (repairs.length > 0) {
+      this.infoText.setText(formatRepairLog(repairs));
+    }
+  }
+
+  /**
+   * ターン開始時の経済処理をまとめて実行する。
+   * 現在手番の軍勢の所有拠点数に応じた収入を計上したあと、
+   * 自軍拠点上のダメージユニットを資金を消費して修理する。
+   * 実行した修理の結果を返す(呼び出し側で表示更新に使う)。
+   */
+  private runTurnStartEconomy(): RepairResult[] {
+    this.economy.collectIncome(this.turn.currentArmy, this.map);
+    return this.repair.repairAll(this.turn.currentArmy);
   }
 
   /** クリック入力を設定する */

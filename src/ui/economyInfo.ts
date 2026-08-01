@@ -4,6 +4,7 @@
 import type { CaptureResult } from '@/core/economy/CaptureSystem';
 import type { EconomyArmy } from '@/core/economy/EconomyManager';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
+import type { RepairResult } from '@/core/economy/RepairManager';
 import { armyLabel } from '@/ui/terrainInfo';
 import { getUnitData } from '@/data/unitData';
 import type { UnitType } from '@/core/units/UnitType';
@@ -33,4 +34,22 @@ export function formatCaptureLog(result: CaptureResult): string[] {
 /** 生産結果を情報パネル用の複数行テキストに整形する */
 export function formatProductionLog(result: ProductionResult): string[] {
   return ['生産', `${result.unit.unitName} を生産`, `消費資金: ${result.cost}`];
+}
+
+/**
+ * ターン開始時の修理結果を情報パネル用の複数行テキストに整形する。
+ * 修理が 1 件もなければ空配列を返す(表示しない)。
+ */
+export function formatRepairLog(results: readonly RepairResult[]): string[] {
+  if (results.length === 0) {
+    return [];
+  }
+  const lines = ['修理'];
+  let total = 0;
+  for (const result of results) {
+    lines.push(`${result.unit.unitName} +${result.healedHp} (HP${result.currentHp})`);
+    total += result.cost;
+  }
+  lines.push(`消費資金: ${total}`);
+  return lines;
 }
