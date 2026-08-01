@@ -16,9 +16,21 @@ export interface UnitPlacement {
   readonly army: 'player' | 'enemy';
 }
 
+/** 生産で新規ユニットを生成するためのパラメータ */
+export interface SpawnParams {
+  readonly unitType: UnitType;
+  /** 所属軍。生産できるのは自軍・敵軍のみ */
+  readonly army: 'player' | 'enemy';
+  readonly position: GridPosition;
+  /** 生成時に行動済みにするか(生産直後は行動できないため通常 true) */
+  readonly hasActed?: boolean;
+}
+
 /** マップ上のユニット集合を保持し、参照・更新の手段を提供する */
 export class UnitManager {
   private readonly units: Unit[] = [];
+  /** 生産で生成したユニットに一意な ID を振るための連番 */
+  private spawnCounter = 0;
 
   /**
    * 初期配置定義から UnitManager を生成する。
@@ -96,11 +108,13 @@ export class UnitManager {
   }
 
   /**
-   * ユニットを指定マスへ移動させ、行動済み状態にする。
+   * ユニットを指定マスへ移動させる。
+   * 既定では移動後に行動済み状態にするが、移動後に占領などの追加コマンドを
+   * 選ばせたい場合は markActed を false にして行動済み化を保留できる。
    * 他ユニットが占有しているマスへは移動できない(データ不整合として例外)。
    * 移動範囲の妥当性(移動力・地形コスト)は呼び出し側で MovementRange により判定する。
    */
-  moveUnit(unit: Unit, dest: GridPosition): void {
+  moveUnit(unit: Unit, dest: GridPosition, options?: { markActed?: boolean }): void {
     const occupant = this.getUnitAt(dest);
     if (occupant && occupant !== unit) {
       throw new Error(
@@ -108,7 +122,30 @@ export class UnitManager {
       );
     }
     unit.position = gridPosition(dest.col, dest.row);
-    unit.hasActed = true;
+    if (options?.markActed ?? true) {
+      unit.hasActed = true;
+    }
+  }
+
+  /**
+   * 生産により新規ユニットを生成し、管理対象に加える。
+   * 生成先マスが埋まっている場合はデータ不整合として例外を投げる。
+   */
+  spawnUnit(params: SpawnParams): Unit {
+    if (this.isOccupied(params.position)) {
+      throw new Error(
+        `ユニットのいるマスには生産できません(col ${params.position.col}, row ${params.position.row})`,
+      );
+    }
+    const unit = new Unit({
+      id: `spawn-${params.army}-${this.spawnCounter++}`,
+      unitType: params.unitType,
+      armyType: params.army,
+      position: params.position,
+      hasActed: params.hasActed ?? true,
+    });
+    this.units.push(unit);
+    return unit;
   }
 
   /** ユニットを管理対象から取り除く(撃破時などに使う) */

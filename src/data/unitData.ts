@@ -67,3 +67,10 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
 export function getUnitData(unitType: UnitType): UnitData {
   return UNIT_DATA[unitType];
 }
+
+/** 工場・本拠地で生産できるユニット種別の一覧(生産メニューの表示順) */
+export const PRODUCIBLE_UNIT_TYPES: readonly UnitType[] = [
+  'infantry',
+  'tank',
+  'artillery',
+];
