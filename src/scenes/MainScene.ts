@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { findAttackableTargets } from '@/core/battle/AttackRange';
+import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { equals, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
@@ -42,10 +44,13 @@ const UNIT_BODY_COLOR: Record<ArmyType, number> = {
  * Phase 3: ユニットを配置し、選択でユニット情報を表示する。
  * Phase 4: 自軍の未行動ユニットを選択すると移動可能範囲を表示し、
  *   範囲内のマスをクリックで移動して行動済みにする。
+ * Phase 5: 選択中の自軍ユニットの射程内に敵がいれば攻撃対象として強調表示し、
+ *   クリックで攻撃する。ダメージ・撃破・反撃を処理して行動済みにする。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
   private units!: UnitManager;
+  private battle!: BattleManager;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
@@ -55,6 +60,8 @@ export class MainScene extends Phaser.Scene {
   private movingUnit: Unit | null = null;
   /** movingUnit の移動可能範囲 */
   private movementRange: MovementRange | null = null;
+  /** movingUnit が現在位置から攻撃できる敵ユニット */
+  private attackTargets: Unit[] = [];
 
   constructor() {
     super('MainScene');
@@ -63,6 +70,7 @@ export class MainScene extends Phaser.Scene {
   create(): void {
     this.map = MapManager.fromDefinition(TEST_MAP);
     this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
+    this.battle = new BattleManager(this.map, this.units);
 
     this.drawTerrain();
     this.drawGridLines();
@@ -73,7 +81,7 @@ export class MainScene extends Phaser.Scene {
     this.setupInput();
   }
 
-  /** 移動可能範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
+  /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
   private createRangeOverlay(): void {
     this.rangeGraphics = this.add.graphics();
   }
@@ -214,9 +222,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * マスクリックを処理する。移動対象を選択中かどうかで挙動を分岐させる。
-   * 1. 移動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
-   * 2. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら移動対象にする)
+   * マスクリックを処理する。行動対象を選択中かどうかで挙動を分岐させる。
+   * 1. 行動対象を選択中で、クリック先が攻撃対象の敵 → 攻撃する
+   * 2. 行動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
+   * 3. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら行動対象にする)
    */
   private handleClick(pos: GridPosition): void {
     const tile = this.map.getTile(pos);
@@ -224,14 +233,20 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // 移動対象を選択中なら、移動先クリックを優先して判定する
-    if (this.movingUnit && this.movementRange) {
-      // 移動対象ユニット自身を再クリックしたら選択解除
+    // 行動対象を選択中なら、攻撃・移動を優先して判定する
+    if (this.movingUnit) {
+      // 攻撃対象の敵をクリックしたら攻撃する
+      const target = this.attackTargets.find((t) => equals(t.position, pos));
+      if (target) {
+        this.attackTarget(target);
+        return;
+      }
+      // 行動対象ユニット自身を再クリックしたら選択解除
       if (equals(this.movingUnit.position, pos)) {
         this.clearSelection();
         return;
       }
-      if (this.movementRange.canReach(pos)) {
+      if (this.movementRange?.canReach(pos)) {
         this.moveSelectedUnit(pos);
         return;
       }
@@ -254,15 +269,17 @@ export class MainScene extends Phaser.Scene {
     this.drawSelectionHighlight(pos);
     this.infoText.setText(this.buildInfo(tile));
 
-    // 自軍の未行動ユニットを選択したら移動可能範囲を表示する
+    // 自軍の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     const unit = this.units.getUnitAt(pos);
     if (unit && unit.armyType === 'player' && !unit.hasActed) {
       this.movingUnit = unit;
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
-      this.drawMovementRange(this.movementRange);
+      this.attackTargets = findAttackableTargets(unit, this.units);
+      this.drawActionRange(this.movementRange, this.attackTargets);
     } else {
       this.movingUnit = null;
       this.movementRange = null;
+      this.attackTargets = [];
       this.rangeGraphics.clear();
     }
   }
@@ -278,9 +295,42 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
   }
 
-  /** 移動可能範囲を半透明の塗りで表示する(移動対象マス自身は除く) */
-  private drawMovementRange(range: MovementRange): void {
+  /** 選択中ユニットで対象を攻撃し、結果を表示して行動済みにする */
+  private attackTarget(target: Unit): void {
+    const attacker = this.movingUnit;
+    if (!attacker) {
+      return;
+    }
+    const result = this.battle.attack(attacker, target);
+    this.clearSelection();
+    this.drawUnits();
+    this.infoText.setText(this.buildBattleLog(result));
+  }
+
+  /** 攻撃結果を情報パネル用のテキストに整形する */
+  private buildBattleLog(result: AttackResult): string[] {
+    const lines = [
+      '戦闘結果',
+      `${result.attacker.unitName} → ${result.defender.unitName}`,
+      `与ダメージ: ${result.damageDealt}`,
+    ];
+    if (result.defenderDefeated) {
+      lines.push(`${result.defender.unitName}を撃破`);
+    }
+    if (result.counterDamage > 0) {
+      lines.push(`反撃ダメージ: ${result.counterDamage}`);
+    }
+    if (result.attackerDefeated) {
+      lines.push(`${result.attacker.unitName}は反撃で撃破された`);
+    }
+    return lines;
+  }
+
+  /** 移動可能範囲(青)と攻撃可能な敵(赤)を重ねて表示する */
+  private drawActionRange(range: MovementRange, targets: readonly Unit[]): void {
     this.rangeGraphics.clear();
+
+    // 移動可能範囲を半透明の青塗りで表示する(行動対象マス自身は除く)
     this.rangeGraphics.fillStyle(0x3a7bd5, 0.35);
     for (const { position } of range.tiles) {
       if (this.movingUnit && equals(this.movingUnit.position, position)) {
@@ -288,6 +338,13 @@ export class MainScene extends Phaser.Scene {
       }
       const { x, y } = gridToWorld(position, TILE_SIZE);
       this.rangeGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    }
+
+    // 攻撃可能な敵マスを赤枠で強調表示する
+    this.rangeGraphics.lineStyle(3, 0xff5a5a, 0.95);
+    for (const target of targets) {
+      const { x, y } = gridToWorld(target.position, TILE_SIZE);
+      this.rangeGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
     }
   }
 
@@ -303,11 +360,12 @@ export class MainScene extends Phaser.Scene {
     return formatTerrainInfo(tile);
   }
 
-  /** 選択を解除し、移動範囲表示も消す */
+  /** 選択を解除し、移動範囲・攻撃範囲の表示も消す */
   private clearSelection(): void {
     this.selected = null;
     this.movingUnit = null;
     this.movementRange = null;
+    this.attackTargets = [];
     this.highlight.setVisible(false);
     this.rangeGraphics.clear();
     this.infoText.setText('マスを選択してください');
