@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CaptureResult } from '@/core/economy/CaptureSystem';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
+import type { RepairResult } from '@/core/economy/RepairManager';
 import { gridPosition } from '@/core/map/GridPosition';
 import { INITIAL_CAPTURE_HP, type TileData } from '@/core/map/TileData';
 import { Unit } from '@/core/units/Unit';
@@ -9,6 +10,7 @@ import {
   formatFunds,
   formatProductionLabel,
   formatProductionLog,
+  formatRepairLog,
 } from '@/ui/economyInfo';
 
 function makeInfantry(): Unit {
@@ -72,5 +74,21 @@ describe('economyInfo', () => {
     const lines = formatProductionLog(result);
     expect(lines).toContain('歩兵 を生産');
     expect(lines).toContain('消費資金: 1000');
+  });
+
+  it('修理がなければ空配列を返す', () => {
+    expect(formatRepairLog([])).toEqual([]);
+  });
+
+  it('修理結果はユニットごとの回復量と合計消費資金を表示する', () => {
+    const results: RepairResult[] = [
+      { unit: makeInfantry(), healedHp: 2, cost: 200, currentHp: 8 },
+      { unit: makeInfantry(), healedHp: 1, cost: 100, currentHp: 10 },
+    ];
+    const lines = formatRepairLog(results);
+    expect(lines).toContain('修理');
+    expect(lines).toContain('歩兵 +2 (HP8)');
+    expect(lines).toContain('歩兵 +1 (HP10)');
+    expect(lines).toContain('消費資金: 300');
   });
 });

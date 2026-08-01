@@ -190,12 +190,14 @@ tests/       // Vitestによるロジックのテスト
 - 工場での生産UIを作る
 - 資金を消費してユニットを生産する
 - 工場上にユニットがいる場合は生産不可にする
+- ターン開始時に自軍拠点上のダメージユニットを資金を消費して修理する
 
 ### 主なクラス案
 
 - `CaptureSystem`
 - `EconomyManager`
 - `ProductionManager`
+- `RepairManager`
 
 ## Phase 8: 勝敗判定
 

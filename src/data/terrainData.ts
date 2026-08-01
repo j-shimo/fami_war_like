@@ -21,6 +21,8 @@ export interface TerrainData {
   readonly canCapture: boolean;
   /** ユニットを生産できるかどうか */
   readonly canProduce: boolean;
+  /** この地形の上で自軍ユニットをターン開始時に修理できるかどうか(都市・工場・本拠地) */
+  readonly canRepair: boolean;
   /** 移動タイプ別の移動コスト。null(IMPASSABLE) は進入不可 */
   readonly moveCost: Readonly<Record<MovementType, number | null>>;
   /** 描画時の塗り色 */
@@ -35,6 +37,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 1,
     canCapture: false,
     canProduce: false,
+    canRepair: false,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0x6b8f3a,
   },
@@ -44,6 +47,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 2,
     canCapture: false,
     canProduce: false,
+    canRepair: false,
     moveCost: { infantry: 1, vehicle: 2 },
     color: 0x2f5d34,
   },
@@ -53,6 +57,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 3,
     canCapture: false,
     canProduce: false,
+    canRepair: false,
     moveCost: { infantry: 2, vehicle: IMPASSABLE },
     color: 0x8a6a45,
   },
@@ -62,6 +67,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 0,
     canCapture: false,
     canProduce: false,
+    canRepair: false,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0xb7a98a,
   },
@@ -71,6 +77,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 2,
     canCapture: true,
     canProduce: false,
+    canRepair: true,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0x9a9aa8,
   },
@@ -80,6 +87,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 2,
     canCapture: true,
     canProduce: true,
+    canRepair: true,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0x7a7a86,
   },
@@ -89,6 +97,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     defense: 3,
     canCapture: true,
     canProduce: true,
+    canRepair: true,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0xc0603a,
   },
