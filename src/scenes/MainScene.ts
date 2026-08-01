@@ -4,6 +4,11 @@ import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordina
 import { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
+import {
+  calculateMovementRange,
+  type MovementRange,
+} from '@/core/movement/MovementRange';
+import type { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
 import {
   GAME_HEIGHT,
@@ -33,16 +38,23 @@ const UNIT_BODY_COLOR: Record<ArmyType, number> = {
 
 /**
  * ゲーム本体のメインシーン。
- * Phase 2: 10x10 のマップを地形色で描画し、マスをクリックで選択して
- * その地形情報を右側パネルに表示する。
+ * Phase 2: 10x10 のマップを地形色で描画し、マスをクリックで選択して情報表示する。
+ * Phase 3: ユニットを配置し、選択でユニット情報を表示する。
+ * Phase 4: 自軍の未行動ユニットを選択すると移動可能範囲を表示し、
+ *   範囲内のマスをクリックで移動して行動済みにする。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
   private units!: UnitManager;
   private unitLayer!: Phaser.GameObjects.Container;
+  private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
   private infoText!: Phaser.GameObjects.Text;
   private selected: GridPosition | null = null;
+  /** 移動対象として選択中の自軍ユニット(未選択なら null) */
+  private movingUnit: Unit | null = null;
+  /** movingUnit の移動可能範囲 */
+  private movementRange: MovementRange | null = null;
 
   constructor() {
     super('MainScene');
@@ -54,10 +66,16 @@ export class MainScene extends Phaser.Scene {
 
     this.drawTerrain();
     this.drawGridLines();
+    this.createRangeOverlay();
     this.drawUnits();
     this.createHighlight();
     this.createInfoPanel();
     this.setupInput();
+  }
+
+  /** 移動可能範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
+  private createRangeOverlay(): void {
+    this.rangeGraphics = this.add.graphics();
   }
 
   /** 地形を種別ごとの色で塗り、占領拠点には所有者を示す枠を描く */
@@ -124,10 +142,12 @@ export class MainScene extends Phaser.Scene {
     const radius = TILE_SIZE * 0.32;
     for (const unit of this.units.getAllUnits()) {
       const { x, y } = gridToWorldCenter(unit.position, TILE_SIZE);
+      // 行動済みのユニットは半透明にして待機中と区別する
+      const bodyAlpha = unit.hasActed ? 0.45 : 1;
 
-      graphics.fillStyle(UNIT_BODY_COLOR[unit.armyType], 1);
+      graphics.fillStyle(UNIT_BODY_COLOR[unit.armyType], bodyAlpha);
       graphics.fillCircle(x, y, radius);
-      graphics.lineStyle(2, 0xffffff, 0.9);
+      graphics.lineStyle(2, 0xffffff, unit.hasActed ? 0.5 : 0.9);
       graphics.strokeCircle(x, y, radius);
 
       const label = this.add
@@ -136,7 +156,8 @@ export class MainScene extends Phaser.Scene {
           fontSize: '18px',
           color: '#ffffff',
         })
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setAlpha(unit.hasActed ? 0.5 : 1);
       this.unitLayer.add(label);
 
       // HP が減っている場合のみ右下に数値を表示する
@@ -188,17 +209,41 @@ export class MainScene extends Phaser.Scene {
         return;
       }
       const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
-      this.selectTile(pos);
+      this.handleClick(pos);
     });
   }
 
-  /** 指定マスを選択し、ハイライトと情報表示を更新する */
-  private selectTile(pos: GridPosition): void {
+  /**
+   * マスクリックを処理する。移動対象を選択中かどうかで挙動を分岐させる。
+   * 1. 移動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
+   * 2. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら移動対象にする)
+   */
+  private handleClick(pos: GridPosition): void {
     const tile = this.map.getTile(pos);
     if (!tile) {
       return;
     }
 
+    // 移動対象を選択中なら、移動先クリックを優先して判定する
+    if (this.movingUnit && this.movementRange) {
+      // 移動対象ユニット自身を再クリックしたら選択解除
+      if (equals(this.movingUnit.position, pos)) {
+        this.clearSelection();
+        return;
+      }
+      if (this.movementRange.canReach(pos)) {
+        this.moveSelectedUnit(pos);
+        return;
+      }
+      // 範囲外クリックはいったん選択解除し、通常選択に切り替える
+      this.clearSelection();
+    }
+
+    this.selectTile(pos, tile);
+  }
+
+  /** 指定マスを選択し、ハイライト・移動範囲・情報表示を更新する */
+  private selectTile(pos: GridPosition, tile: TileData): void {
     // 同じマスを再度クリックしたら選択を解除する
     if (this.selected && equals(this.selected, pos)) {
       this.clearSelection();
@@ -208,6 +253,42 @@ export class MainScene extends Phaser.Scene {
     this.selected = pos;
     this.drawSelectionHighlight(pos);
     this.infoText.setText(this.buildInfo(tile));
+
+    // 自軍の未行動ユニットを選択したら移動可能範囲を表示する
+    const unit = this.units.getUnitAt(pos);
+    if (unit && unit.armyType === 'player' && !unit.hasActed) {
+      this.movingUnit = unit;
+      this.movementRange = calculateMovementRange(unit, this.map, this.units);
+      this.drawMovementRange(this.movementRange);
+    } else {
+      this.movingUnit = null;
+      this.movementRange = null;
+      this.rangeGraphics.clear();
+    }
+  }
+
+  /** 選択中ユニットを指定マスへ移動し、行動済みにして再描画する */
+  private moveSelectedUnit(pos: GridPosition): void {
+    const unit = this.movingUnit;
+    if (!unit) {
+      return;
+    }
+    this.units.moveUnit(unit, pos);
+    this.clearSelection();
+    this.drawUnits();
+  }
+
+  /** 移動可能範囲を半透明の塗りで表示する(移動対象マス自身は除く) */
+  private drawMovementRange(range: MovementRange): void {
+    this.rangeGraphics.clear();
+    this.rangeGraphics.fillStyle(0x3a7bd5, 0.35);
+    for (const { position } of range.tiles) {
+      if (this.movingUnit && equals(this.movingUnit.position, position)) {
+        continue;
+      }
+      const { x, y } = gridToWorld(position, TILE_SIZE);
+      this.rangeGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    }
   }
 
   /**
@@ -222,10 +303,13 @@ export class MainScene extends Phaser.Scene {
     return formatTerrainInfo(tile);
   }
 
-  /** 選択を解除する */
+  /** 選択を解除し、移動範囲表示も消す */
   private clearSelection(): void {
     this.selected = null;
+    this.movingUnit = null;
+    this.movementRange = null;
     this.highlight.setVisible(false);
+    this.rangeGraphics.clear();
     this.infoText.setText('マスを選択してください');
   }
 
