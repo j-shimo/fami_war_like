@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { SoundManager } from '@/audio/SoundManager';
 import { EnemyAi } from '@/core/ai/EnemyAi';
 import { findAttackableTargets } from '@/core/battle/AttackRange';
 import { forecastBattle } from '@/core/battle/BattleForecast';
@@ -124,6 +125,12 @@ export class MainScene extends Phaser.Scene {
   private repair!: RepairManager;
   private victory!: VictoryConditionChecker;
   private ai!: EnemyAi;
+  /** 効果音・BGM の再生を統括するサウンドマネージャ */
+  private audio!: SoundManager;
+  /** 初回のユーザー操作で AudioContext を起動し BGM を開始したか */
+  private audioStarted = false;
+  /** ミュート切替ボタンのラベル(状態に応じて表示を更新する) */
+  private muteLabel!: Phaser.GameObjects.Text;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -173,6 +180,7 @@ export class MainScene extends Phaser.Scene {
       capture: this.capture,
       production: this.production,
     });
+    this.audio = new SoundManager();
 
     this.createTerrainLayer();
     this.drawTerrain();
@@ -181,6 +189,7 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
     this.createHighlight();
     this.createInfoPanel();
+    this.createMuteButton();
     this.createEndTurnButton();
     this.createForecastPopup();
 
@@ -389,6 +398,62 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * サウンドのミュート切替ボタンを情報パネル右上に作成する。
+   * クリックで全体のミュートを切り替え、ラベルで現在の状態を示す。
+   */
+  private createMuteButton(): void {
+    const width = 64;
+    const height = 22;
+    const x = MAP_WIDTH + INFO_PANEL_WIDTH - width - 8;
+    const y = 60;
+
+    const button = this.add
+      .rectangle(x, y, width, height, 0x2a2a3a)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x8ad0ff)
+      .setInteractive({ useHandCursor: true });
+
+    this.muteLabel = this.add
+      .text(x + width / 2, y + height / 2, '♪ ON', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        color: '#8ad0ff',
+      })
+      .setOrigin(0.5);
+
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      // ミュート切替もユーザー操作なので、この機に AudioContext を起動しておく
+      this.ensureAudioStarted();
+      const muted = this.audio.toggleMuted();
+      this.muteLabel.setText(muted ? '♪ OFF' : '♪ ON');
+      this.muteLabel.setColor(muted ? '#888888' : '#8ad0ff');
+    });
+  }
+
+  /**
+   * 初回のユーザー操作時に AudioContext を起動し、戦闘 BGM を開始する。
+   * ブラウザの自動再生制限のため、音の再生はユーザー操作を起点にする必要がある。
+   */
+  private ensureAudioStarted(): void {
+    if (this.audioStarted) {
+      return;
+    }
+    this.audioStarted = true;
+    this.audio.unlock();
+    this.updateBattleBgm();
+  }
+
+  /** 現在の手番の軍勢に応じた戦闘 BGM を再生する(同じ曲なら何もしない) */
+  private updateBattleBgm(): void {
+    if (this.gameOver) {
+      return;
+    }
+    this.audio.startBgm(
+      this.turn.currentArmy === 'player' ? 'playerBattle' : 'enemyBattle',
+    );
+  }
+
   /** ターン終了ボタンを情報パネル下部に作成する */
   private createEndTurnButton(): void {
     const width = INFO_PANEL_WIDTH - 24;
@@ -410,7 +475,10 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    button.on(Phaser.Input.Events.POINTER_DOWN, () => this.handleEndTurn());
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.audio.playSfx('button');
+      this.handleEndTurn();
+    });
   }
 
   /** ダメージ予測ポップアップ(背景+テキスト)を用意する(初期は非表示) */
@@ -504,6 +572,9 @@ export class MainScene extends Phaser.Scene {
   private showTurnStartBanner(): void {
     const army = this.turn.currentArmy;
     const state = this.turn.state;
+    // 手番開始のジングルを鳴らし、手番に応じた BGM へ切り替える
+    this.audio.playSfx(army === 'player' ? 'turnPlayer' : 'turnEnemy');
+    this.updateBattleBgm();
     const label = army === 'player' ? '自軍ターン' : '敵軍ターン';
     const bannerHeight = 72;
     const centerY = GAME_HEIGHT / 2;
@@ -599,6 +670,7 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
     // 修理があればその内容を、なければ敵軍の行動サマリを表示したままにする
     if (repairs.length > 0) {
+      this.audio.playSfx('repair');
       this.infoText.setText(formatRepairLog(repairs));
     }
     // 自軍ターンの開始演出を表示する
@@ -634,6 +706,8 @@ export class MainScene extends Phaser.Scene {
   /** クリック入力とホバー入力を設定する */
   private setupInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
+      this.ensureAudioStarted();
       // 勝敗が決した後はマップ操作を受け付けない
       if (this.gameOver) {
         return;
@@ -716,6 +790,7 @@ export class MainScene extends Phaser.Scene {
     const unit = this.units.getUnitAt(pos);
     // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     if (unit && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
+      this.audio.playSfx('select');
       this.movingUnit = unit;
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
       this.attackTargets = findAttackableTargets(unit, this.units);
@@ -749,6 +824,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.units.moveUnit(unit, pos, { markActed: false });
+    this.audio.playSfx('move');
     this.drawUnits();
     this.enterPostMoveCommand(unit, tile);
   }
@@ -808,6 +884,7 @@ export class MainScene extends Phaser.Scene {
   private commitWait(): void {
     if (this.commandUnit) {
       this.commandUnit.hasActed = true;
+      this.audio.playSfx('button');
     }
     this.resetSelection();
     this.infoText.setText('マスを選択してください');
@@ -825,6 +902,11 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     const result = this.battle.attack(attacker, target);
+    this.audio.playSfx('attack');
+    // 撃破があれば、打撃音に少し続けて撃破音を鳴らす
+    if (result.defenderDefeated || result.attackerDefeated) {
+      this.time.delayedCall(160, () => this.audio.playSfx('defeat'));
+    }
     this.resetSelection();
     this.drawUnits();
     this.infoText.setText(this.buildBattleLog(result));
@@ -835,6 +917,7 @@ export class MainScene extends Phaser.Scene {
   /** 指定ユニットで拠点を占領し、結果を表示する */
   private executeCapture(unit: Unit, tile: TileData): void {
     const result = this.capture.capture(unit, tile);
+    this.audio.playSfx('capture');
     this.commandUnit = null;
     this.resetSelection();
     // 所有者が変わった場合に備えて地形の枠を描き直す
@@ -855,6 +938,9 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     this.gameOver = true;
+    // 戦闘 BGM を止め、勝敗に応じたジングルを鳴らす
+    this.audio.stopBgm();
+    this.audio.playSfx(result.outcome === 'player_victory' ? 'victory' : 'lose');
     this.resetSelection();
     this.showResultOverlay(result);
   }
@@ -910,6 +996,7 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     const result = this.production.produce(army, tile, unitType);
+    this.audio.playSfx('produce');
     this.resetSelection();
     this.updateFundsText();
     this.drawUnits();
