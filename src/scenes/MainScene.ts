@@ -33,7 +33,7 @@ import {
   MAP_WIDTH,
   TILE_SIZE,
 } from '@/data/gameConfig';
-import { TEST_MAP } from '@/data/maps/testMap';
+import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { getTerrainData } from '@/data/terrainData';
 import { PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
 import {
@@ -166,11 +166,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.map = MapManager.fromDefinition(TEST_MAP);
-    this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
+    this.map = MapManager.fromDefinition(CAPTURE_MAP);
+    this.units = UnitManager.fromPlacements(CAPTURE_MAP.units ?? [], this.map);
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
-    this.economy = new EconomyManager({ initialFunds: TEST_MAP.initialFunds });
+    this.economy = new EconomyManager({ initialFunds: CAPTURE_MAP.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
