@@ -18,21 +18,24 @@ import { getBaseDamage } from '@/data/damageTable';
  * @param attacker 攻撃側ユニット(現在 HP により火力が低下する)
  * @param defender 防御側ユニット(種別で相性が決まる)
  * @param defenderTerrainDefense 防御側がいるマスの地形防御値
+ * @param attackerHp 火力計算に使う攻撃側 HP(省略時は攻撃側の現在 HP)。
+ *   反撃ダメージの予測など、被弾後の HP で計算したい場合に指定する。
  */
 export function calculateDamage(
   attacker: Unit,
   defender: Unit,
   defenderTerrainDefense: number,
+  attackerHp: number = attacker.currentHp,
 ): number {
   const base = getBaseDamage(attacker.unitType, defender.unitType);
-  const hpRatio = attacker.currentHp / attacker.maxHp;
+  const hpRatio = attackerHp / attacker.maxHp;
   const terrainFactor = Math.max(0, 1 - defenderTerrainDefense * 0.1);
 
   const raw = base * hpRatio * terrainFactor; // 0-100 スケール
   const damage = Math.round(raw / 10); // HP(0-10)スケールへ変換
 
   // 相性があり攻撃側が生存しているのに 0 ダメージになる場合は 1 に切り上げる
-  if (base > 0 && attacker.currentHp > 0 && damage < 1) {
+  if (base > 0 && attackerHp > 0 && damage < 1) {
     return 1;
   }
   return damage;
