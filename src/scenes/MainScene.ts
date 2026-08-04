@@ -51,6 +51,7 @@ import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
+import { drawUnitIcon } from '@/rendering/unitIcon';
 
 /** 占領地形の所有者を示す枠の色 */
 const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
@@ -294,15 +295,15 @@ export class MainScene extends Phaser.Scene {
       graphics.lineStyle(2, 0xffffff, unit.hasActed ? 0.5 : 0.9);
       graphics.strokeCircle(x, y, radius);
 
-      const label = this.add
-        .text(x, y, unit.unitName.charAt(0), {
-          fontFamily: 'sans-serif',
-          fontSize: '18px',
-          color: '#ffffff',
-        })
-        .setOrigin(0.5)
-        .setAlpha(unit.hasActed ? 0.5 : 1);
-      this.unitLayer.add(label);
+      // 軍色トークンの上に種別のシルエットアイコンを描く
+      drawUnitIcon(unit.unitType, {
+        graphics,
+        cx: x,
+        cy: y,
+        radius,
+        color: 0xffffff,
+        alpha: unit.hasActed ? 0.5 : 1,
+      });
 
       // HP が減っている場合のみ、HP バーと数値を表示する
       if (unit.currentHp < unit.maxHp) {
