@@ -82,6 +82,14 @@ export class Unit {
     return this.data.maxAttackRange;
   }
 
+  /**
+   * 間接攻撃(遠距離)ユニットかどうか。最小射程が 2 以上なら true。
+   * 間接攻撃ユニットは移動した後は攻撃できない(その場からのみ攻撃可)。
+   */
+  get isIndirect(): boolean {
+    return this.data.minAttackRange >= 2;
+  }
+
   /** 拠点を占領できるか */
   get canCapture(): boolean {
     return this.data.canCapture;

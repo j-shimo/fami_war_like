@@ -82,6 +82,54 @@ describe('EnemyAi.run', () => {
     expect(infantry.currentHp).toBeLessThan(infantry.maxHp);
   });
 
+  it('間接攻撃ユニットは、その場から届く敵には移動せず攻撃する', () => {
+    // 敵自走砲(射程2-3)。col2 の自軍歩兵は現在地 col0 から距離2で射程内
+    const { units, ai } = setup({
+      name: 't',
+      terrain: ['.........'],
+      units: [
+        { col: 0, row: 0, unitType: 'artillery', army: 'enemy' },
+        { col: 2, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    });
+    const artillery = units.getUnitAt(gridPosition(0, 0))!;
+    const infantry = units.getUnitAt(gridPosition(2, 0))!;
+
+    const actions = ai.run();
+    const attacks = actionsOfKind(actions, 'attack');
+
+    expect(attacks).toHaveLength(1);
+    // 移動せずその場から攻撃している
+    expect(attacks[0].movedTo).toBeNull();
+    expect(artillery.position).toEqual(gridPosition(0, 0));
+    expect(infantry.currentHp).toBeLessThan(infantry.maxHp);
+  });
+
+  it('間接攻撃ユニットは、移動しないと届かない敵には攻撃せず接近する', () => {
+    // 敵自走砲(移動4・射程2-3)。col5 の自軍歩兵は現在地から距離5で射程外。
+    // 移動すれば射程に収められるが、間接攻撃ユニットは移動後攻撃できないため接近のみ行う
+    const { units, ai } = setup({
+      name: 't',
+      terrain: ['.........'],
+      units: [
+        { col: 0, row: 0, unitType: 'artillery', army: 'enemy' },
+        { col: 5, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    });
+    const infantry = units.getUnitAt(gridPosition(5, 0))!;
+
+    const actions = ai.run();
+    const attacks = actionsOfKind(actions, 'attack');
+    const moves = actionsOfKind(actions, 'move');
+
+    // 移動して攻撃はしない
+    expect(attacks).toHaveLength(0);
+    expect(infantry.currentHp).toBe(infantry.maxHp);
+    // 代わりに最寄りの敵へ接近する(移動4で col4 まで前進)
+    expect(moves).toHaveLength(1);
+    expect(moves[0].to).toEqual(gridPosition(4, 0));
+  });
+
   it('相手を撃破できる攻撃を優先して選ぶ', () => {
     // 瀕死の自軍歩兵と、隣に自軍戦車。敵戦車は撃破できる歩兵を狙う
     const { units, ai } = setup({
