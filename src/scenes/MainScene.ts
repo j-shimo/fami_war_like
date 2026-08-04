@@ -134,7 +134,6 @@ export class MainScene extends Phaser.Scene {
   /** ミュート切替ボタンのラベル(状態に応じて表示を更新する) */
   private muteLabel!: Phaser.GameObjects.Text;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
-  private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
@@ -209,10 +208,9 @@ export class MainScene extends Phaser.Scene {
     this.showTurnStartBanner();
   }
 
-  /** 地形描画用のグラフィックスとラベルコンテナを用意する(最背面) */
+  /** 地形描画用のグラフィックスを用意する(最背面) */
   private createTerrainLayer(): void {
     this.terrainGraphics = this.add.graphics();
-    this.terrainLabels = this.add.container(0, 0);
   }
 
   /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
@@ -226,7 +224,6 @@ export class MainScene extends Phaser.Scene {
    */
   private drawTerrain(): void {
     this.terrainGraphics.clear();
-    this.terrainLabels.removeAll(true);
 
     this.map.forEachTile((tile) => {
       const data = getTerrainData(tile.terrainType);
@@ -235,7 +232,7 @@ export class MainScene extends Phaser.Scene {
       this.terrainGraphics.fillStyle(data.color, 1);
       this.terrainGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
-      // 下地の上に地形ごとの模様(草・木・山・道路)を描き込む
+      // 下地の上に地形ごとの模様(草・木・山・道路)や拠点の建物を描き込む
       drawTerrainDecoration(tile.terrainType, {
         graphics: this.terrainGraphics,
         x,
@@ -247,29 +244,15 @@ export class MainScene extends Phaser.Scene {
           tile.terrainType === 'road'
             ? computeRoadLinks(this.map, tile.position)
             : undefined,
+        ownerColor: data.canCapture ? OWNER_COLOR[tile.owner] : undefined,
       });
 
+      // 拠点は所有者を示す枠で囲む(建物上の旗と合わせて所有が分かるようにする)
       if (data.canCapture) {
         this.terrainGraphics.lineStyle(3, OWNER_COLOR[tile.owner], 1);
         this.terrainGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.drawTerrainLabel(tile);
       }
     });
-  }
-
-  /** 拠点マスに地形名の頭文字を表示して種別を分かりやすくする */
-  private drawTerrainLabel(tile: TileData): void {
-    const data = getTerrainData(tile.terrainType);
-    const { x, y } = gridToWorld(tile.position, TILE_SIZE);
-    const initial = data.terrainName.charAt(0);
-    const label = this.add
-      .text(x + TILE_SIZE / 2, y + TILE_SIZE / 2, initial, {
-        fontFamily: 'sans-serif',
-        fontSize: '20px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5);
-    this.terrainLabels.add(label);
   }
 
   /** マスの区切り線を描画する */
