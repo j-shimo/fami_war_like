@@ -49,6 +49,8 @@ import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
+import { computeRoadLinks } from '@/rendering/roadLinks';
+import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 
 /** 占領地形の所有者を示す枠の色 */
 const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
@@ -232,6 +234,20 @@ export class MainScene extends Phaser.Scene {
 
       this.terrainGraphics.fillStyle(data.color, 1);
       this.terrainGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+
+      // 下地の上に地形ごとの模様(草・木・山・道路)を描き込む
+      drawTerrainDecoration(tile.terrainType, {
+        graphics: this.terrainGraphics,
+        x,
+        y,
+        size: TILE_SIZE,
+        col: tile.position.col,
+        row: tile.position.row,
+        roadLinks:
+          tile.terrainType === 'road'
+            ? computeRoadLinks(this.map, tile.position)
+            : undefined,
+      });
 
       if (data.canCapture) {
         this.terrainGraphics.lineStyle(3, OWNER_COLOR[tile.owner], 1);
