@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '@/data/gameConfig';
 import { BootScene } from '@/scenes/BootScene';
 import { MainScene } from '@/scenes/MainScene';
+import { MapSelectScene } from '@/scenes/MapSelectScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -14,7 +15,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, MainScene],
+  scene: [BootScene, MapSelectScene, MainScene],
 };
 
 new Phaser.Game(config);

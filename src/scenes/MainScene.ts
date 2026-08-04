@@ -25,15 +25,9 @@ import {
   VictoryConditionChecker,
   type VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
-import {
-  GAME_HEIGHT,
-  GAME_WIDTH,
-  INFO_PANEL_WIDTH,
-  MAP_HEIGHT,
-  MAP_WIDTH,
-  TILE_SIZE,
-} from '@/data/gameConfig';
-import { CAPTURE_MAP } from '@/data/maps/captureMap';
+import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
+import { DEFAULT_MAP_ENTRY } from '@/data/maps';
+import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { getTerrainData } from '@/data/terrainData';
 import { PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
 import {
@@ -160,17 +154,44 @@ export class MainScene extends Phaser.Scene {
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
   /** 勝敗が決したかどうか。決着後は操作を受け付けない */
   private gameOver = false;
+  /** 遊ぶマップの定義(マップ選択画面から渡される。未指定なら既定マップ) */
+  private mapDef: MapDefinition = DEFAULT_MAP_ENTRY.definition;
+  /** マップ描画領域のピクセル幅(マップのマス数から算出) */
+  private mapWidth = 0;
+  /** マップ描画領域のピクセル高さ(マップのマス数から算出) */
+  private mapHeight = 0;
+  /** ゲーム画面全体のピクセル幅(マップ + 情報パネル) */
+  private gameWidth = 0;
+  /** ゲーム画面全体のピクセル高さ */
+  private gameHeight = 0;
 
   constructor() {
     super('MainScene');
   }
 
+  /** マップ選択画面から遊ぶマップを受け取る(未指定なら既定マップ) */
+  init(data: { map?: MapDefinition }): void {
+    this.mapDef = data.map ?? DEFAULT_MAP_ENTRY.definition;
+    // シーンを再入場したときのために状態を初期化しておく
+    this.gameOver = false;
+    this.audioStarted = false;
+  }
+
   create(): void {
-    this.map = MapManager.fromDefinition(CAPTURE_MAP);
-    this.units = UnitManager.fromPlacements(CAPTURE_MAP.units ?? [], this.map);
+    this.map = MapManager.fromDefinition(this.mapDef);
+    this.units = UnitManager.fromPlacements(this.mapDef.units ?? [], this.map);
+
+    // マップのマス数に合わせて画面各部の寸法を決め、キャンバスをリサイズする。
+    // これにより横長マップ(例: 横15マス)でも全マスが表示・操作できる。
+    const dims = computeGameDimensions(this.map.cols, this.map.rows);
+    this.mapWidth = dims.mapWidth;
+    this.mapHeight = dims.mapHeight;
+    this.gameWidth = dims.gameWidth;
+    this.gameHeight = dims.gameHeight;
+    this.scale.resize(this.gameWidth, this.gameHeight);
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
-    this.economy = new EconomyManager({ initialFunds: CAPTURE_MAP.initialFunds });
+    this.economy = new EconomyManager({ initialFunds: this.mapDef.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
@@ -263,11 +284,11 @@ export class MainScene extends Phaser.Scene {
 
     for (let col = 0; col <= this.map.cols; col++) {
       const x = col * TILE_SIZE;
-      graphics.lineBetween(x, 0, x, MAP_HEIGHT);
+      graphics.lineBetween(x, 0, x, this.mapHeight);
     }
     for (let row = 0; row <= this.map.rows; row++) {
       const y = row * TILE_SIZE;
-      graphics.lineBetween(0, y, MAP_WIDTH, y);
+      graphics.lineBetween(0, y, this.mapWidth, y);
     }
   }
 
@@ -366,10 +387,10 @@ export class MainScene extends Phaser.Scene {
   private createInfoPanel(): void {
     const panel = this.add.graphics();
     panel.fillStyle(0x12121e, 1);
-    panel.fillRect(MAP_WIDTH, 0, INFO_PANEL_WIDTH, GAME_HEIGHT);
+    panel.fillRect(this.mapWidth, 0, INFO_PANEL_WIDTH, this.gameHeight);
 
     // 現在のターン数と手番の軍勢を示す見出し
-    this.turnText = this.add.text(MAP_WIDTH + 12, 12, '', {
+    this.turnText = this.add.text(this.mapWidth + 12, 12, '', {
       fontFamily: 'sans-serif',
       fontSize: '16px',
       color: '#8ad0ff',
@@ -377,19 +398,19 @@ export class MainScene extends Phaser.Scene {
     });
 
     // 現在手番の軍勢の資金
-    this.fundsText = this.add.text(MAP_WIDTH + 12, 36, '', {
+    this.fundsText = this.add.text(this.mapWidth + 12, 36, '', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
       color: '#ffe08a',
     });
 
-    this.add.text(MAP_WIDTH + 12, 64, 'マス情報', {
+    this.add.text(this.mapWidth + 12, 64, 'マス情報', {
       fontFamily: 'sans-serif',
       fontSize: '16px',
       color: '#ffd479',
     });
 
-    this.infoText = this.add.text(MAP_WIDTH + 12, 92, 'マスを選択してください', {
+    this.infoText = this.add.text(this.mapWidth + 12, 92, 'マスを選択してください', {
       fontFamily: 'sans-serif',
       fontSize: '14px',
       color: '#eaeaea',
@@ -405,7 +426,7 @@ export class MainScene extends Phaser.Scene {
   private createMuteButton(): void {
     const width = 64;
     const height = 22;
-    const x = MAP_WIDTH + INFO_PANEL_WIDTH - width - 8;
+    const x = this.mapWidth + INFO_PANEL_WIDTH - width - 8;
     const y = 60;
 
     const button = this.add
@@ -458,8 +479,8 @@ export class MainScene extends Phaser.Scene {
   private createEndTurnButton(): void {
     const width = INFO_PANEL_WIDTH - 24;
     const height = 40;
-    const x = MAP_WIDTH + 12;
-    const y = GAME_HEIGHT - height - 12;
+    const x = this.mapWidth + 12;
+    const y = this.gameHeight - height - 12;
 
     const button = this.add
       .rectangle(x, y, width, height, 0x2f5fae)
@@ -508,8 +529,8 @@ export class MainScene extends Phaser.Scene {
       this.gameOver ||
       !attacker ||
       this.attackTargets.length === 0 ||
-      pointer.x >= MAP_WIDTH ||
-      pointer.y >= MAP_HEIGHT
+      pointer.x >= this.mapWidth ||
+      pointer.y >= this.mapHeight
     ) {
       this.hideForecastPopup();
       return;
@@ -549,11 +570,11 @@ export class MainScene extends Phaser.Scene {
     // 対象マスの右上に出す。マップ外へはみ出す場合は反対側へ寄せる
     const { x, y } = gridToWorld(target.position, TILE_SIZE);
     let px = x + TILE_SIZE + 4;
-    if (px + width > MAP_WIDTH) {
+    if (px + width > this.mapWidth) {
       px = x - width - 4;
     }
-    px = Phaser.Math.Clamp(px, 2, MAP_WIDTH - width - 2);
-    const py = Phaser.Math.Clamp(y, 2, MAP_HEIGHT - height - 2);
+    px = Phaser.Math.Clamp(px, 2, this.mapWidth - width - 2);
+    const py = Phaser.Math.Clamp(y, 2, this.mapHeight - height - 2);
     this.forecastPopup.setPosition(px, py).setVisible(true);
   }
 
@@ -577,18 +598,28 @@ export class MainScene extends Phaser.Scene {
     this.updateBattleBgm();
     const label = army === 'player' ? '自軍ターン' : '敵軍ターン';
     const bannerHeight = 72;
-    const centerY = GAME_HEIGHT / 2;
+    const centerY = this.gameHeight / 2;
 
     // 帯状の背景(マップ幅いっぱい)
     const bg = this.add.graphics();
     bg.fillStyle(TURN_BANNER_COLOR[army], 0.9);
-    bg.fillRect(0, centerY - bannerHeight / 2, MAP_WIDTH, bannerHeight);
+    bg.fillRect(0, centerY - bannerHeight / 2, this.mapWidth, bannerHeight);
     bg.lineStyle(2, 0xffffff, 0.8);
-    bg.lineBetween(0, centerY - bannerHeight / 2, MAP_WIDTH, centerY - bannerHeight / 2);
-    bg.lineBetween(0, centerY + bannerHeight / 2, MAP_WIDTH, centerY + bannerHeight / 2);
+    bg.lineBetween(
+      0,
+      centerY - bannerHeight / 2,
+      this.mapWidth,
+      centerY - bannerHeight / 2,
+    );
+    bg.lineBetween(
+      0,
+      centerY + bannerHeight / 2,
+      this.mapWidth,
+      centerY + bannerHeight / 2,
+    );
 
     const title = this.add
-      .text(MAP_WIDTH / 2, centerY - 12, label, {
+      .text(this.mapWidth / 2, centerY - 12, label, {
         fontFamily: 'sans-serif',
         fontSize: '32px',
         fontStyle: 'bold',
@@ -596,7 +627,7 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const sub = this.add
-      .text(MAP_WIDTH / 2, centerY + 20, `第${state.turnNumber}ターン`, {
+      .text(this.mapWidth / 2, centerY + 20, `第${state.turnNumber}ターン`, {
         fontFamily: 'sans-serif',
         fontSize: '16px',
         color: '#ffffff',
@@ -713,7 +744,7 @@ export class MainScene extends Phaser.Scene {
         return;
       }
       // マップ描画領域外(情報パネル側)のクリックは無視する
-      if (pointer.x >= MAP_WIDTH || pointer.y >= MAP_HEIGHT) {
+      if (pointer.x >= this.mapWidth || pointer.y >= this.mapHeight) {
         return;
       }
       const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
@@ -953,10 +984,10 @@ export class MainScene extends Phaser.Scene {
     // 画面全体を暗くする半透明オーバーレイ
     const overlay = this.add.graphics();
     overlay.fillStyle(0x000000, 0.6);
-    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    overlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
 
-    const centerX = GAME_WIDTH / 2;
-    const centerY = GAME_HEIGHT / 2;
+    const centerX = this.gameWidth / 2;
+    const centerY = this.gameHeight / 2;
 
     // 見出し(勝利は金色、敗北は赤色)
     this.add
@@ -976,6 +1007,28 @@ export class MainScene extends Phaser.Scene {
         color: '#ffffff',
       })
       .setOrigin(0.5);
+
+    // マップ選択画面へ戻るボタン(もう一度別のマップを遊べるようにする)
+    const btnWidth = 220;
+    const btnHeight = 44;
+    const btnX = centerX - btnWidth / 2;
+    const btnY = centerY + 72;
+    const button = this.add
+      .rectangle(btnX, btnY, btnWidth, btnHeight, 0x2f5fae)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x8ad0ff)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(centerX, btnY + btnHeight / 2, 'マップ選択へ戻る', {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.audio.stopBgm();
+      this.scene.start('MapSelectScene');
+    });
   }
 
   /** ユニットのいない自軍生産拠点の生産メニューを表示する */
@@ -1075,7 +1128,7 @@ export class MainScene extends Phaser.Scene {
     onClick: () => void,
   ): void {
     const width = INFO_PANEL_WIDTH - 24;
-    const x = MAP_WIDTH + 12;
+    const x = this.mapWidth + 12;
     const y = ACTION_BUTTON_TOP + index * (ACTION_BUTTON_HEIGHT + ACTION_BUTTON_GAP);
 
     const fill = enabled ? 0x2f7f4f : 0x3a3a44;
