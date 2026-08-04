@@ -168,7 +168,7 @@ export class MainScene extends Phaser.Scene {
     this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
-    this.economy = new EconomyManager();
+    this.economy = new EconomyManager({ initialFunds: TEST_MAP.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);

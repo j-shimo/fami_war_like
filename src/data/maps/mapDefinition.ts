@@ -47,4 +47,10 @@ export interface MapDefinition {
   readonly owners?: readonly OwnerOverride[];
   /** ユニットの初期配置。未指定ならユニットなしで開始する */
   readonly units?: readonly UnitPlacement[];
+  /**
+   * ゲーム開始時に各軍が所持する資金。
+   * 未指定なら economyConfig の既定値(INITIAL_FUNDS)を使う。
+   * マップごとに序盤の生産テンポを調整するために使う。
+   */
+  readonly initialFunds?: number;
 }
