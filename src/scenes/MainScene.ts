@@ -49,6 +49,9 @@ import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
+import { computeRoadLinks } from '@/rendering/roadLinks';
+import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
+import { drawUnitIcon } from '@/rendering/unitIcon';
 
 /** 占領地形の所有者を示す枠の色 */
 const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
@@ -132,7 +135,6 @@ export class MainScene extends Phaser.Scene {
   /** ミュート切替ボタンのラベル(状態に応じて表示を更新する) */
   private muteLabel!: Phaser.GameObjects.Text;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
-  private terrainLabels!: Phaser.GameObjects.Container;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
@@ -168,7 +170,7 @@ export class MainScene extends Phaser.Scene {
     this.units = UnitManager.fromPlacements(TEST_MAP.units ?? [], this.map);
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
-    this.economy = new EconomyManager();
+    this.economy = new EconomyManager({ initialFunds: TEST_MAP.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
@@ -207,10 +209,9 @@ export class MainScene extends Phaser.Scene {
     this.showTurnStartBanner();
   }
 
-  /** 地形描画用のグラフィックスとラベルコンテナを用意する(最背面) */
+  /** 地形描画用のグラフィックスを用意する(最背面) */
   private createTerrainLayer(): void {
     this.terrainGraphics = this.add.graphics();
-    this.terrainLabels = this.add.container(0, 0);
   }
 
   /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
@@ -224,7 +225,6 @@ export class MainScene extends Phaser.Scene {
    */
   private drawTerrain(): void {
     this.terrainGraphics.clear();
-    this.terrainLabels.removeAll(true);
 
     this.map.forEachTile((tile) => {
       const data = getTerrainData(tile.terrainType);
@@ -233,27 +233,27 @@ export class MainScene extends Phaser.Scene {
       this.terrainGraphics.fillStyle(data.color, 1);
       this.terrainGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
+      // 下地の上に地形ごとの模様(草・木・山・道路)や拠点の建物を描き込む
+      drawTerrainDecoration(tile.terrainType, {
+        graphics: this.terrainGraphics,
+        x,
+        y,
+        size: TILE_SIZE,
+        col: tile.position.col,
+        row: tile.position.row,
+        roadLinks:
+          tile.terrainType === 'road'
+            ? computeRoadLinks(this.map, tile.position)
+            : undefined,
+        ownerColor: data.canCapture ? OWNER_COLOR[tile.owner] : undefined,
+      });
+
+      // 拠点は所有者を示す枠で囲む(建物上の旗と合わせて所有が分かるようにする)
       if (data.canCapture) {
         this.terrainGraphics.lineStyle(3, OWNER_COLOR[tile.owner], 1);
         this.terrainGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        this.drawTerrainLabel(tile);
       }
     });
-  }
-
-  /** 拠点マスに地形名の頭文字を表示して種別を分かりやすくする */
-  private drawTerrainLabel(tile: TileData): void {
-    const data = getTerrainData(tile.terrainType);
-    const { x, y } = gridToWorld(tile.position, TILE_SIZE);
-    const initial = data.terrainName.charAt(0);
-    const label = this.add
-      .text(x + TILE_SIZE / 2, y + TILE_SIZE / 2, initial, {
-        fontFamily: 'sans-serif',
-        fontSize: '20px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5);
-    this.terrainLabels.add(label);
   }
 
   /** マスの区切り線を描画する */
@@ -295,15 +295,15 @@ export class MainScene extends Phaser.Scene {
       graphics.lineStyle(2, 0xffffff, unit.hasActed ? 0.5 : 0.9);
       graphics.strokeCircle(x, y, radius);
 
-      const label = this.add
-        .text(x, y, unit.unitName.charAt(0), {
-          fontFamily: 'sans-serif',
-          fontSize: '18px',
-          color: '#ffffff',
-        })
-        .setOrigin(0.5)
-        .setAlpha(unit.hasActed ? 0.5 : 1);
-      this.unitLayer.add(label);
+      // 軍色トークンの上に種別のシルエットアイコンを描く
+      drawUnitIcon(unit.unitType, {
+        graphics,
+        cx: x,
+        cy: y,
+        radius,
+        color: 0xffffff,
+        alpha: unit.hasActed ? 0.5 : 1,
+      });
 
       // HP が減っている場合のみ、HP バーと数値を表示する
       if (unit.currentHp < unit.maxHp) {
