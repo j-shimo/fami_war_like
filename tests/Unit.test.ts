@@ -41,6 +41,30 @@ describe('Unit', () => {
     expect(unit.canCapture).toBe(true);
   });
 
+  it('最小射程2以上の自走砲は間接攻撃ユニット、歩兵・戦車は違う', () => {
+    const artillery = new Unit({
+      id: 'a1',
+      unitType: 'artillery',
+      armyType: 'player',
+      position: gridPosition(0, 0),
+    });
+    const infantry = new Unit({
+      id: 'i1',
+      unitType: 'infantry',
+      armyType: 'player',
+      position: gridPosition(1, 0),
+    });
+    const tank = new Unit({
+      id: 't1',
+      unitType: 'tank',
+      armyType: 'player',
+      position: gridPosition(2, 0),
+    });
+    expect(artillery.isIndirect).toBe(true);
+    expect(infantry.isIndirect).toBe(false);
+    expect(tank.isIndirect).toBe(false);
+  });
+
   it('現在HPが0以下なら生存していない', () => {
     const unit = new Unit({
       id: 'u4',

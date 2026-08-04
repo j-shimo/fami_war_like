@@ -122,6 +122,8 @@ export class EnemyAi {
   /**
    * 攻撃を試みる。移動可能範囲の各マスから攻撃できる敵を探し、
    * 最も有利なマス・対象の組み合わせで(必要なら移動してから)攻撃する。
+   * ただし間接攻撃(遠距離)ユニットは移動後は攻撃できないため、
+   * その場から攻撃できる場合のみ攻撃する。
    * 有効な攻撃がなければ null を返す。
    */
   private tryAttack(unit: Unit): AiAction | null {
@@ -141,6 +143,10 @@ export class EnemyAi {
       const willKill = target.currentHp <= damage;
 
       for (const { position: from } of range.tiles) {
+        // 間接攻撃ユニットは移動すると攻撃できない。その場からの攻撃のみ許可する
+        if (unit.isIndirect && !equals(from, unit.position)) {
+          continue;
+        }
         if (!isWithinAttackRange(unit, target.position, from)) {
           continue;
         }

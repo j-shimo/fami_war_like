@@ -88,6 +88,9 @@ const ACTION_BUTTON_GAP = 6;
  *   資金を消費して回復する(収入計上の直後に実行)。
  * Phase 9: ターン終了で敵軍に手番が移ると、敵軍AIが自動で行動する。
  *   AI は攻撃→占領→接近→生産の優先順位で行動し、終わると自軍へ手番が戻る。
+ * 移動後攻撃: 自軍ユニットは移動後、待機の前に攻撃/占領を選べる。
+ *   移動先で攻撃できる敵がいれば赤枠で示し、クリックで攻撃する。
+ *   ただし間接攻撃(遠距離)ユニットは移動後は攻撃できず、その場からのみ攻撃する。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -434,7 +437,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * マスクリックを処理する。行動対象を選択中かどうかで挙動を分岐させる。
-   * 0. 移動後に占領/待機の選択待ち中なら、マップクリックは待機として確定する
+   * 0. 移動後のコマンド選択待ち中なら、攻撃対象クリックで攻撃、それ以外は待機として確定する
    * 1. 行動対象を選択中で、クリック先が攻撃対象の敵 → 攻撃する
    * 2. 行動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
    * 3. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら行動対象にする)
@@ -445,8 +448,14 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // 移動後の占領/待機選択待ち中にマップをクリックしたら、待機として確定する
+    // 移動後のコマンド選択待ち中は、攻撃対象クリックで攻撃、それ以外は待機として確定する。
+    // 待機確定後は続けてクリック先のマスを選択できるよう、そのまま下の選択処理へ流す。
     if (this.commandUnit) {
+      const commandTarget = this.attackTargets.find((t) => equals(t.position, pos));
+      if (commandTarget) {
+        this.attackTarget(commandTarget);
+        return;
+      }
       this.commitWait();
     }
 
@@ -514,8 +523,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 選択中ユニットを指定マスへ移動する。
-   * 移動先が自軍所有でない占領可能拠点なら、行動済みにせず占領/待機を選ばせる。
-   * それ以外はその場で行動済みにして選択を解除する。
+   * 行動済みにせずに移動し、移動後の攻撃/占領/待機を選ばせる状態に入る。
    */
   private moveSelectedUnit(pos: GridPosition, tile: TileData): void {
     const unit = this.movingUnit;
@@ -523,41 +531,60 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
+    this.units.moveUnit(unit, pos, { markActed: false });
+    this.drawUnits();
+    this.enterPostMoveCommand(unit, tile);
+  }
+
+  /**
+   * 移動後、待機の前に選べる行動(攻撃・占領)を提示する。
+   * 攻撃できる敵がいれば赤枠で示し、占領できる拠点なら占領コマンドを出す。
+   * ただし間接攻撃(遠距離)ユニットは移動後は攻撃できないため攻撃対象を出さない。
+   * 攻撃も占領もできない場合は、その場で待機として確定する。
+   */
+  private enterPostMoveCommand(unit: Unit, tile: TileData): void {
+    // 間接攻撃ユニットは移動後攻撃できない。直接攻撃ユニットのみ移動先から攻撃対象を探す
+    const targets = unit.isIndirect ? [] : findAttackableTargets(unit, this.units);
     const canOfferCapture =
       unit.canCapture &&
       getTerrainData(tile.terrainType).canCapture &&
       tile.owner !== unit.armyType;
 
-    if (canOfferCapture) {
-      this.units.moveUnit(unit, pos, { markActed: false });
-      this.enterCaptureCommand(unit, tile);
+    // 攻撃も占領もできないなら、待機として即確定する
+    if (targets.length === 0 && !canOfferCapture) {
+      unit.hasActed = true;
+      this.clearSelection();
       this.drawUnits();
       return;
     }
 
-    this.units.moveUnit(unit, pos);
-    this.clearSelection();
-    this.drawUnits();
-  }
-
-  /** 移動後、占領対象の拠点上で占領/待機を選ばせる状態に入る */
-  private enterCaptureCommand(unit: Unit, tile: TileData): void {
+    // コマンド選択状態へ移行する。移動範囲は消し、攻撃対象だけを赤枠で示す
     this.movingUnit = null;
     this.movementRange = null;
-    this.attackTargets = [];
     this.rangeGraphics.clear();
     this.clearActionButtons();
 
     this.commandUnit = unit;
+    this.attackTargets = targets;
     this.selected = unit.position;
     this.drawSelectionHighlight(unit.position);
-    this.infoText.setText([
-      'コマンド選択',
-      `${unit.unitName}`,
-      `占領耐久: ${tile.captureHp}`,
-    ]);
-    this.addActionButton(0, '占領する', true, () => this.executeCapture(unit, tile));
-    this.addActionButton(1, '待機', true, () => this.commitWait());
+    if (targets.length > 0) {
+      this.drawAttackTargets(targets);
+    }
+
+    const info: string[] = ['コマンド選択', unit.unitName];
+    if (targets.length > 0) {
+      info.push('攻撃: 赤枠の敵を選択');
+    }
+    let buttonIndex = 0;
+    if (canOfferCapture) {
+      info.push(`占領耐久: ${tile.captureHp}`);
+      this.addActionButton(buttonIndex++, '占領する', true, () =>
+        this.executeCapture(unit, tile),
+      );
+    }
+    this.addActionButton(buttonIndex, '待機', true, () => this.commitWait());
+    this.infoText.setText(info);
   }
 
   /** 占領を選択待ちのユニットを待機として確定する */
@@ -570,9 +597,13 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
   }
 
-  /** 選択中ユニットで対象を攻撃し、結果を表示して行動済みにする */
+  /**
+   * 攻撃対象を攻撃し、結果を表示して行動済みにする。
+   * 攻撃元は、移動前に選択中のユニット(movingUnit)か、
+   * 移動後にコマンド選択中のユニット(commandUnit)のいずれか。
+   */
   private attackTarget(target: Unit): void {
-    const attacker = this.movingUnit;
+    const attacker = this.movingUnit ?? this.commandUnit;
     if (!attacker) {
       return;
     }
@@ -702,6 +733,17 @@ export class MainScene extends Phaser.Scene {
     }
 
     // 攻撃可能な敵マスを赤枠で強調表示する
+    this.strokeAttackTargets(targets);
+  }
+
+  /** 攻撃可能な敵マスだけを赤枠で表示する(移動範囲は描かない。移動後コマンド用) */
+  private drawAttackTargets(targets: readonly Unit[]): void {
+    this.rangeGraphics.clear();
+    this.strokeAttackTargets(targets);
+  }
+
+  /** 攻撃対象マスに赤枠を描く(rangeGraphics のクリアは呼び出し側で行う) */
+  private strokeAttackTargets(targets: readonly Unit[]): void {
     this.rangeGraphics.lineStyle(3, 0xff5a5a, 0.95);
     for (const target of targets) {
       const { x, y } = gridToWorld(target.position, TILE_SIZE);
