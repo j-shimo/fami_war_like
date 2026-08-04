@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { EnemyAi } from '@/core/ai/EnemyAi';
 import { findAttackableTargets } from '@/core/battle/AttackRange';
+import { forecastBattle } from '@/core/battle/BattleForecast';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
@@ -42,6 +43,7 @@ import {
   formatRepairLog,
 } from '@/ui/economyInfo';
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
+import { formatBattleForecast } from '@/ui/forecastInfo';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
@@ -67,6 +69,25 @@ const ACTION_BUTTON_TOP = 300;
 const ACTION_BUTTON_HEIGHT = 30;
 /** コマンド・生産ボタンの縦間隔 */
 const ACTION_BUTTON_GAP = 6;
+
+/** ダメージ予測ポップアップの描画深度(ユニットより手前) */
+const FORECAST_POPUP_DEPTH = 100;
+/** ターン開始演出バナーの描画深度(最前面) */
+const TURN_BANNER_DEPTH = 200;
+
+/** HP バーの表示に使う色(HP 割合で塗り分ける) */
+const HP_BAR_COLOR = {
+  high: 0x5ad469,
+  mid: 0xf0c419,
+  low: 0xe0533a,
+} as const;
+
+/** ターン開始バナーの軍勢別の色 */
+const TURN_BANNER_COLOR: Record<ArmyType, number> = {
+  player: 0x2f5fae,
+  enemy: 0xae2f2f,
+  neutral: 0x555566,
+};
 
 /**
  * ゲーム本体のメインシーン。
@@ -111,6 +132,12 @@ export class MainScene extends Phaser.Scene {
   private turnText!: Phaser.GameObjects.Text;
   private fundsText!: Phaser.GameObjects.Text;
   private infoText!: Phaser.GameObjects.Text;
+  /** ダメージ予測ポップアップ(背景+テキストをまとめたコンテナ。初期は非表示) */
+  private forecastPopup!: Phaser.GameObjects.Container;
+  private forecastBg!: Phaser.GameObjects.Graphics;
+  private forecastText!: Phaser.GameObjects.Text;
+  /** 予測ポップアップを現在表示している攻撃対象(重複更新を避ける) */
+  private forecastTarget: Unit | null = null;
   private selected: GridPosition | null = null;
   /** 移動対象として選択中の自軍ユニット(未選択なら null) */
   private movingUnit: Unit | null = null;
@@ -155,6 +182,7 @@ export class MainScene extends Phaser.Scene {
     this.createHighlight();
     this.createInfoPanel();
     this.createEndTurnButton();
+    this.createForecastPopup();
 
     // 開始時(自軍第1ターン)の収入計上と拠点上ユニットの修理を行う
     const repairs = this.runTurnStartEconomy();
@@ -165,6 +193,9 @@ export class MainScene extends Phaser.Scene {
       this.infoText.setText(formatRepairLog(repairs));
     }
     this.setupInput();
+
+    // 開始演出として自軍第1ターンのバナーを表示する
+    this.showTurnStartBanner();
   }
 
   /** 地形描画用のグラフィックスとラベルコンテナを用意する(最背面) */
@@ -265,18 +296,55 @@ export class MainScene extends Phaser.Scene {
         .setAlpha(unit.hasActed ? 0.5 : 1);
       this.unitLayer.add(label);
 
-      // HP が減っている場合のみ右下に数値を表示する
+      // HP が減っている場合のみ、HP バーと数値を表示する
       if (unit.currentHp < unit.maxHp) {
-        const hp = this.add
-          .text(x + radius, y + radius, String(unit.currentHp), {
-            fontFamily: 'sans-serif',
-            fontSize: '12px',
-            color: '#ffe08a',
-          })
-          .setOrigin(1, 1);
-        this.unitLayer.add(hp);
+        this.drawHpIndicator(graphics, unit, x, y, radius);
       }
     }
+  }
+
+  /**
+   * ユニットの残 HP を表す HP バーと数値を描画する。
+   * バーは残量に応じて緑→黄→赤に塗り分け、数値は暗い縁取りで視認性を上げる。
+   */
+  private drawHpIndicator(
+    graphics: Phaser.GameObjects.Graphics,
+    unit: Unit,
+    x: number,
+    y: number,
+    radius: number,
+  ): void {
+    const ratio = Math.max(0, unit.currentHp / unit.maxHp);
+    const barWidth = TILE_SIZE * 0.66;
+    const barHeight = 5;
+    const barX = x - barWidth / 2;
+    const barY = y + radius + 2;
+
+    // 背景(枠)
+    graphics.fillStyle(0x1a1a2e, 0.85);
+    graphics.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+    // 残量ぶんの塗り(割合で色を変える)
+    const fillColor =
+      ratio > 0.5
+        ? HP_BAR_COLOR.high
+        : ratio > 0.25
+          ? HP_BAR_COLOR.mid
+          : HP_BAR_COLOR.low;
+    graphics.fillStyle(fillColor, 1);
+    graphics.fillRect(barX, barY, barWidth * ratio, barHeight);
+
+    // 数値(左上に暗い縁取りつきで表示する)
+    const hp = this.add
+      .text(x - radius, y - radius, String(unit.currentHp), {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#1a1a2e',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0.5);
+    this.unitLayer.add(hp);
   }
 
   /** 選択マスのハイライト用グラフィックスを用意する(初期は非表示) */
@@ -345,6 +413,148 @@ export class MainScene extends Phaser.Scene {
     button.on(Phaser.Input.Events.POINTER_DOWN, () => this.handleEndTurn());
   }
 
+  /** ダメージ予測ポップアップ(背景+テキスト)を用意する(初期は非表示) */
+  private createForecastPopup(): void {
+    this.forecastBg = this.add.graphics();
+    this.forecastText = this.add.text(8, 6, '', {
+      fontFamily: 'sans-serif',
+      fontSize: '13px',
+      color: '#ffffff',
+      lineSpacing: 3,
+    });
+    this.forecastPopup = this.add
+      .container(0, 0, [this.forecastBg, this.forecastText])
+      .setDepth(FORECAST_POPUP_DEPTH)
+      .setVisible(false);
+  }
+
+  /**
+   * ポインタ位置に応じてダメージ予測ポップアップを更新する。
+   * 攻撃対象を選択中(移動前・移動後どちらも)で、ポインタが攻撃可能な敵の
+   * マス上にあるときだけ、その戦闘結果を予測して表示する。
+   */
+  private updateForecastPopup(pointer: Phaser.Input.Pointer): void {
+    const attacker = this.movingUnit ?? this.commandUnit;
+    // 攻撃元がいない・攻撃対象がない・マップ外なら隠す
+    if (
+      this.gameOver ||
+      !attacker ||
+      this.attackTargets.length === 0 ||
+      pointer.x >= MAP_WIDTH ||
+      pointer.y >= MAP_HEIGHT
+    ) {
+      this.hideForecastPopup();
+      return;
+    }
+
+    const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
+    const target = this.attackTargets.find((t) => equals(t.position, pos));
+    if (!target) {
+      this.hideForecastPopup();
+      return;
+    }
+
+    // 同じ対象を指し続けている間は再描画しない
+    if (this.forecastTarget === target) {
+      return;
+    }
+    this.forecastTarget = target;
+    this.showForecastPopup(attacker, target);
+  }
+
+  /** 攻撃側→対象の戦闘予測を計算し、対象マス付近にポップアップ表示する */
+  private showForecastPopup(attacker: Unit, target: Unit): void {
+    const forecast = forecastBattle(attacker, target, this.map);
+    this.forecastText.setText(formatBattleForecast(forecast, attacker, target));
+
+    // テキストサイズに合わせて背景を描き直す
+    const padX = 8;
+    const padY = 6;
+    const width = this.forecastText.width + padX * 2;
+    const height = this.forecastText.height + padY * 2;
+    this.forecastBg.clear();
+    this.forecastBg.fillStyle(0x12121e, 0.92);
+    this.forecastBg.fillRect(0, 0, width, height);
+    this.forecastBg.lineStyle(2, 0xff5a5a, 0.95);
+    this.forecastBg.strokeRect(0, 0, width, height);
+
+    // 対象マスの右上に出す。マップ外へはみ出す場合は反対側へ寄せる
+    const { x, y } = gridToWorld(target.position, TILE_SIZE);
+    let px = x + TILE_SIZE + 4;
+    if (px + width > MAP_WIDTH) {
+      px = x - width - 4;
+    }
+    px = Phaser.Math.Clamp(px, 2, MAP_WIDTH - width - 2);
+    const py = Phaser.Math.Clamp(y, 2, MAP_HEIGHT - height - 2);
+    this.forecastPopup.setPosition(px, py).setVisible(true);
+  }
+
+  /** ダメージ予測ポップアップを隠す */
+  private hideForecastPopup(): void {
+    if (this.forecastTarget !== null) {
+      this.forecastTarget = null;
+      this.forecastPopup.setVisible(false);
+    }
+  }
+
+  /**
+   * ターン開始演出のバナーを画面中央に表示する。
+   * 現在の手番軍とターン数を大きく示し、スライドインしてフェードアウトする。
+   */
+  private showTurnStartBanner(): void {
+    const army = this.turn.currentArmy;
+    const state = this.turn.state;
+    const label = army === 'player' ? '自軍ターン' : '敵軍ターン';
+    const bannerHeight = 72;
+    const centerY = GAME_HEIGHT / 2;
+
+    // 帯状の背景(マップ幅いっぱい)
+    const bg = this.add.graphics();
+    bg.fillStyle(TURN_BANNER_COLOR[army], 0.9);
+    bg.fillRect(0, centerY - bannerHeight / 2, MAP_WIDTH, bannerHeight);
+    bg.lineStyle(2, 0xffffff, 0.8);
+    bg.lineBetween(0, centerY - bannerHeight / 2, MAP_WIDTH, centerY - bannerHeight / 2);
+    bg.lineBetween(0, centerY + bannerHeight / 2, MAP_WIDTH, centerY + bannerHeight / 2);
+
+    const title = this.add
+      .text(MAP_WIDTH / 2, centerY - 12, label, {
+        fontFamily: 'sans-serif',
+        fontSize: '32px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    const sub = this.add
+      .text(MAP_WIDTH / 2, centerY + 20, `第${state.turnNumber}ターン`, {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
+    const banner = this.add.container(0, 0, [bg, title, sub]).setDepth(TURN_BANNER_DEPTH);
+
+    // 左からスライドインし、少し待ってフェードアウトして破棄する
+    banner.setAlpha(0).setX(-40);
+    this.tweens.add({
+      targets: banner,
+      x: 0,
+      alpha: 1,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner,
+          alpha: 0,
+          delay: 620,
+          duration: 320,
+          ease: 'Cubic.easeIn',
+          onComplete: () => banner.destroy(),
+        });
+      },
+    });
+  }
+
   /** 手番の見出しを現在のターン状態に合わせて更新する */
   private updateTurnText(): void {
     this.turnText.setText(formatTurnBanner(this.turn.state));
@@ -391,6 +601,8 @@ export class MainScene extends Phaser.Scene {
     if (repairs.length > 0) {
       this.infoText.setText(formatRepairLog(repairs));
     }
+    // 自軍ターンの開始演出を表示する
+    this.showTurnStartBanner();
   }
 
   /**
@@ -419,7 +631,7 @@ export class MainScene extends Phaser.Scene {
     return this.repair.repairAll(this.turn.currentArmy);
   }
 
-  /** クリック入力を設定する */
+  /** クリック入力とホバー入力を設定する */
   private setupInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 勝敗が決した後はマップ操作を受け付けない
@@ -432,6 +644,11 @@ export class MainScene extends Phaser.Scene {
       }
       const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
       this.handleClick(pos);
+    });
+
+    // 攻撃対象へのホバーでダメージ予測ポップアップを出す
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      this.updateForecastPopup(pointer);
     });
   }
 
@@ -815,6 +1032,7 @@ export class MainScene extends Phaser.Scene {
     this.highlight.setVisible(false);
     this.rangeGraphics.clear();
     this.clearActionButtons();
+    this.hideForecastPopup();
   }
 
   /** 選択を解除し、移動範囲・攻撃範囲・コマンドの表示も消す */
