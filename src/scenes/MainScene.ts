@@ -74,6 +74,12 @@ const MENU_MARGIN = 4;
 /** 移動後メニュー(マップ上に浮かせるボタン)の描画深度(ユニットより手前) */
 const MENU_DEPTH = 150;
 
+/**
+ * 何もないマスの右クリックで出す情報メニューの項目。
+ * 各項目の画面は今後実装する(現時点ではメニュー表示までを行う)。
+ */
+const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果'] as const;
+
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
 /** ターン開始演出バナーの描画深度(最前面) */
@@ -119,6 +125,11 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   攻撃も占領もできない移動先でも即確定はせず、必ずメニューを出して「待機」を選ばせる
  *   (誤って移動しただけで行動が確定するのを防ぐ)。メニュー外のマスを押すと移動そのものを取り消せる。
  *   ただし間接攻撃(遠距離)ユニットは移動後は攻撃できず、その場からのみ攻撃する。
+ *   移動先として「元々居たマス」を選んでも同じメニューを出す(その場で待機/占領/攻撃を選べる)。
+ *   このため、占領は情報パネルの専用ボタンではなくこのメニューから行う。
+ * 情報メニュー: 何もないマス(ユニットのいないマス)を右クリックすると、移動後メニューと同じ位置に
+ *   「ユニット説明 / 操作 / 地形効果」のメニューを出す。各項目の画面は今後実装する。
+ *   タッチ端末では右クリックの代わりに長押し(その場で一定時間押し続ける)で同じメニューを出す。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -167,6 +178,8 @@ export class MainScene extends Phaser.Scene {
   private pendingAttackTargets: Unit[] = [];
   /** コマンドメニューで「攻撃」を選び、攻撃対象のクリック待ちになっているか */
   private awaitingAttackTarget = false;
+  /** 何もないマスの右クリックで出す情報メニューを表示中か */
+  private infoMenuOpen = false;
   /** 動的に生成する占領・生産コマンドのボタン群 */
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
   /**
@@ -201,6 +214,10 @@ export class MainScene extends Phaser.Scene {
   /** 押下開始時のカメラスクロール位置(ドラッグ量を加減してスクロールさせる) */
   private scrollStartX = 0;
   private scrollStartY = 0;
+  /** タッチ長押し判定用のタイマー(押下中のみ有効。なければ null) */
+  private longPressTimer: Phaser.Time.TimerEvent | null = null;
+  /** 現在のジェスチャで長押し(=情報メニュー表示)が発火したか。指を離すときのクリック抑止に使う */
+  private longPressFired = false;
 
   constructor() {
     super('MainScene');
@@ -816,14 +833,22 @@ export class MainScene extends Phaser.Scene {
   /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
   private static readonly DRAG_THRESHOLD = 8;
 
+  /** タッチ長押しを右クリック相当と判定するまでの押下継続時間(ミリ秒) */
+  private static readonly LONG_PRESS_DELAY = 500;
+
   /**
    * クリック・ドラッグ・ホバー入力を設定する。
    * マップがビューポートより大きいときは、マップ領域のドラッグ(スマホのスワイプ)で
    * カメラをスクロールして全体を見られるようにする。
    * わずかな移動はクリック(マス選択)として扱い、しきい値を超えて動いた場合のみ
    * スクロールと見なして選択は行わない。
+   * タッチ端末では、指を動かさずに一定時間押し続ける長押しを右クリック相当とし、
+   * 何もないマスでは情報メニューを表示する。
    */
   private setupInput(): void {
+    // 右クリックをゲーム操作(情報メニュー表示)に使うため、ブラウザの右クリックメニューを抑止する
+    this.input.mouse?.disableContextMenu();
+
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
       this.ensureAudioStarted();
@@ -837,6 +862,11 @@ export class MainScene extends Phaser.Scene {
         this.pointerConsumedByButton = false;
         return;
       }
+      // 右クリックは情報メニューの表示に使う(ドラッグ/マス選択の対象にはしない)
+      if (pointer.rightButtonDown()) {
+        this.showInfoMenuAtPointer(pointer);
+        return;
+      }
       // マップ表示領域(ビューポート)内で押し始めたときだけ、ドラッグ/クリックの対象にする。
       // 情報パネル側のボタンは各自の押下ハンドラで処理するため、ここでは扱わない。
       if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
@@ -844,10 +874,14 @@ export class MainScene extends Phaser.Scene {
       }
       this.dragActive = true;
       this.isPanning = false;
+      this.longPressFired = false;
       this.pointerDownX = pointer.x;
       this.pointerDownY = pointer.y;
       this.scrollStartX = this.cameras.main.scrollX;
       this.scrollStartY = this.cameras.main.scrollY;
+      // タッチ端末の長押しを右クリック相当(情報メニュー表示)として扱うためのタイマー。
+      // 一定時間、指が動かず押し続けられたら長押しと判定する。
+      this.startLongPressTimer(pointer);
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
@@ -857,6 +891,8 @@ export class MainScene extends Phaser.Scene {
         const dy = pointer.y - this.pointerDownY;
         if (!this.isPanning && Math.hypot(dx, dy) > MainScene.DRAG_THRESHOLD) {
           this.isPanning = true;
+          // スクロール(スワイプ)を始めたら長押し判定は取り消す
+          this.cancelLongPressTimer();
           // スクロール開始時はホバー中の予測ポップアップを隠す
           this.hideForecastPopup();
         }
@@ -874,9 +910,17 @@ export class MainScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       const wasActive = this.dragActive;
       const wasPanning = this.isPanning;
+      const wasLongPress = this.longPressFired;
       this.dragActive = false;
       this.isPanning = false;
+      this.longPressFired = false;
+      // 押下中に走らせていた長押しタイマーを止める(まだ発火していなければ取り消し)
+      this.cancelLongPressTimer();
       if (this.gameOver || !wasActive) {
+        return;
+      }
+      // 長押しで情報メニューを開いていたら、指を離したときのマス選択は行わない
+      if (wasLongPress) {
         return;
       }
       // スクロール操作だった場合はマス選択を行わない
@@ -894,18 +938,56 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
+   * タッチ長押し判定用のタイマーを開始する。
+   * 一定時間、指が動かず(スクロールに転じず)押し続けられていて、かつタッチ入力なら、
+   * 右クリック相当として情報メニューを表示する。以降のスクロール・クリックは抑止する。
+   */
+  private startLongPressTimer(pointer: Phaser.Input.Pointer): void {
+    this.cancelLongPressTimer();
+    this.longPressTimer = this.time.delayedCall(MainScene.LONG_PRESS_DELAY, () => {
+      this.longPressTimer = null;
+      // 押下が続いていて、スクロールに転じておらず、タッチ入力のときだけ長押しとして扱う。
+      // (マウスの長押しは対象外。PC は右クリックで情報メニューを開く)
+      if (this.gameOver || !this.dragActive || this.isPanning || !pointer.wasTouch) {
+        return;
+      }
+      this.longPressFired = true;
+      // 長押し後にそのまま指を動かしてもスクロールしないよう、ドラッグ受付を終了しておく
+      this.dragActive = false;
+      this.showInfoMenuAtPointer(pointer);
+    });
+  }
+
+  /** 押下中の長押しタイマーを取り消す(発火前に指を離す・スクロールを始めたときなど) */
+  private cancelLongPressTimer(): void {
+    if (this.longPressTimer) {
+      this.longPressTimer.remove(false);
+      this.longPressTimer = null;
+    }
+  }
+
+  /**
    * マスクリックを処理する。行動対象を選択中かどうかで挙動を分岐させる。
    * 0. 移動後のコマンド選択中の挙動:
    *    - 「攻撃」を押して攻撃対象の選択待ち中 → 赤枠の敵クリックで攻撃、それ以外はメニューへ戻る
    *    - メニュー表示中(攻撃未選択) → メニュー外のマスクリックで移動を取り消して元の位置へ戻す
    *      (待機はメニューのボタンで選ぶ)
    * 1. 行動対象を選択中で、クリック先が攻撃対象の敵 → 攻撃する
-   * 2. 行動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
+   * 2. 行動対象を選択中で、クリック先が移動可能範囲内(元居たマス自身を含む) → そのマスへ移動する
+   *    (元居たマスを選ぶと「その場で待機」となり、移動後と同じコマンドメニューを出す)
    * 3. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら行動対象にする)
+   *
+   * なお、右クリックによる情報メニュー表示中は、メニュー外のマスクリックでメニューを閉じる。
    */
   private handleClick(pos: GridPosition): void {
     const tile = this.map.getTile(pos);
     if (!tile) {
+      return;
+    }
+
+    // 右クリックの情報メニュー表示中は、メニュー外のマスを押すとメニューを閉じる
+    if (this.infoMenuOpen) {
+      this.closeInfoMenu();
       return;
     }
 
@@ -937,11 +1019,9 @@ export class MainScene extends Phaser.Scene {
         this.attackTarget(target);
         return;
       }
-      // 行動対象ユニット自身を再クリックしたら選択解除
-      if (equals(this.movingUnit.position, pos)) {
-        this.clearSelection();
-        return;
-      }
+      // 移動可能範囲内(元居たマス自身も含む)をクリックしたらそのマスへ移動する。
+      // 元居たマスを選んだ場合は「その場で待機」に相当し、移動後と同じコマンドメニュー
+      // (攻撃 / 占領 / 待機)を出す。
       if (this.movementRange?.canReach(pos)) {
         this.moveSelectedUnit(pos, tile);
         return;
@@ -951,6 +1031,74 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.selectTile(pos, tile);
+  }
+
+  /**
+   * ポインタ位置が「何もないマス(ユニットのいないマス)」なら情報メニューを表示する。
+   * PC の右クリックと、タッチ端末の長押しの両方から呼ばれる。
+   * ビューポート外(情報パネル側)やマップ外、ユニットのいるマスでは何もしない。
+   */
+  private showInfoMenuAtPointer(pointer: Phaser.Input.Pointer): void {
+    // 情報パネル側(ビューポート外)の右クリックは扱わない
+    if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
+      return;
+    }
+    // カメラのスクロールを加味したワールド座標からマスを求める
+    const pos = worldToGrid(pointer.worldX, pointer.worldY, TILE_SIZE);
+    const tile = this.map.getTile(pos);
+    if (!tile) {
+      return;
+    }
+    // 「何もない場所」= ユニットのいないマスのときだけメニューを出す
+    if (this.units.getUnitAt(pos)) {
+      return;
+    }
+    this.audio.playSfx('select');
+    this.showInfoMenu(pos);
+  }
+
+  /**
+   * 右クリックしたマスの近くに情報メニュー(ユニット説明 / 操作 / 地形効果)を表示する。
+   * 表示位置は移動後コマンドメニューと同じ算出(マスの右隣、はみ出すなら左隣)を使う。
+   * 各項目の画面は今後実装するため、現時点では項目を押すとメニューを閉じる。
+   */
+  private showInfoMenu(pos: GridPosition): void {
+    // 進行中の選択・コマンド状態を一度クリアしてからメニューを開く
+    this.resetSelection();
+    this.infoMenuOpen = true;
+    this.selected = pos;
+    this.drawSelectionHighlight(pos);
+
+    const anchor = this.commandMenuAnchor(pos, INFO_MENU_ITEMS.length);
+    INFO_MENU_ITEMS.forEach((label, index) => {
+      this.addActionButton(
+        index,
+        label,
+        true,
+        () => this.selectInfoMenuItem(label),
+        anchor,
+      );
+    });
+    this.infoText.setText('情報メニュー');
+  }
+
+  /**
+   * 情報メニューの項目が選ばれたときの処理。
+   * 各画面は今後実装する。現時点ではメニューを閉じ、選んだ項目名を表示するだけにとどめる。
+   */
+  private selectInfoMenuItem(label: string): void {
+    this.audio.playSfx('button');
+    this.closeInfoMenu();
+    this.infoText.setText([label, '(準備中)']);
+  }
+
+  /** 情報メニューを閉じ、ハイライト・ボタンを片付ける */
+  private closeInfoMenu(): void {
+    this.infoMenuOpen = false;
+    this.selected = null;
+    this.clearActionButtons();
+    this.highlight.setVisible(false);
+    this.infoText.setText('マスを選択してください');
   }
 
   /** 指定マスを選択し、ハイライト・移動範囲・情報表示・コマンドを更新する */
@@ -974,10 +1122,8 @@ export class MainScene extends Phaser.Scene {
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
       this.attackTargets = findAttackableTargets(unit, this.units);
       this.drawActionRange(this.movementRange, this.attackTargets);
-      // すでに占領対象の拠点上にいる歩兵なら、その場で占領コマンドを出せる
-      if (this.capture.canCapture(unit, tile)) {
-        this.addActionButton(0, '占領する', true, () => this.executeCapture(unit, tile));
-      }
+      // 占領は移動先(元居たマスを含む)を選んだあとのコマンドメニューから行う。
+      // 情報パネルに占領ボタンは出さない。
       return;
     }
 
@@ -1452,6 +1598,7 @@ export class MainScene extends Phaser.Scene {
     this.commandOrigin = null;
     this.pendingAttackTargets = [];
     this.awaitingAttackTarget = false;
+    this.infoMenuOpen = false;
     this.highlight.setVisible(false);
     this.rangeGraphics.clear();
     this.clearActionButtons();
