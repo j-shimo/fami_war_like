@@ -13,17 +13,32 @@ export const MAP_ROWS = 10;
 export const INFO_PANEL_WIDTH = 200;
 
 /**
+ * マップ表示領域(ビューポート)の最大マス数。
+ * これを超える大きさのマップは縮小せず、ドラッグ(スワイプ)でスクロールして
+ * 全体を見られるようにする。既定の 10x10 マップはこの範囲に収まるため従来どおり全体を表示する。
+ */
+export const MAX_MAP_VIEW_COLS = 10;
+export const MAX_MAP_VIEW_ROWS = 10;
+
+/**
  * マップのグリッド数から画面各部のピクセル寸法を求める。
  * マップごとに縦横のマス数が異なるため、描画・入力判定はこの値を基準にする。
+ * マップ全体のピクセルサイズ(mapWidth/mapHeight)と、実際に画面へ映す
+ * ビューポートのサイズ(viewWidth/viewHeight)を分けて持つ。
+ * ビューポートより大きいマップはドラッグでスクロールする。
  */
 export interface GameDimensions {
-  /** マップ描画領域のピクセル幅 */
+  /** マップ描画領域(全体)のピクセル幅 */
   readonly mapWidth: number;
-  /** マップ描画領域のピクセル高さ */
+  /** マップ描画領域(全体)のピクセル高さ */
   readonly mapHeight: number;
-  /** ゲーム画面のピクセル幅(マップ + 情報パネル) */
+  /** マップを映すビューポートのピクセル幅(マップが大きいときはマップより小さくなる) */
+  readonly viewWidth: number;
+  /** マップを映すビューポートのピクセル高さ */
+  readonly viewHeight: number;
+  /** ゲーム画面のピクセル幅(ビューポート + 情報パネル) */
   readonly gameWidth: number;
-  /** ゲーム画面のピクセル高さ */
+  /** ゲーム画面のピクセル高さ(= ビューポート高さ) */
   readonly gameHeight: number;
 }
 
@@ -31,11 +46,16 @@ export interface GameDimensions {
 export function computeGameDimensions(cols: number, rows: number): GameDimensions {
   const mapWidth = TILE_SIZE * cols;
   const mapHeight = TILE_SIZE * rows;
+  // ビューポートは最大マス数で頭打ちにする。これを超えたぶんはスクロールで見る。
+  const viewWidth = TILE_SIZE * Math.min(cols, MAX_MAP_VIEW_COLS);
+  const viewHeight = TILE_SIZE * Math.min(rows, MAX_MAP_VIEW_ROWS);
   return {
     mapWidth,
     mapHeight,
-    gameWidth: mapWidth + INFO_PANEL_WIDTH,
-    gameHeight: mapHeight,
+    viewWidth,
+    viewHeight,
+    gameWidth: viewWidth + INFO_PANEL_WIDTH,
+    gameHeight: viewHeight,
   };
 }
 

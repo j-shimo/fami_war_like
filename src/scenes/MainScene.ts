@@ -156,14 +156,28 @@ export class MainScene extends Phaser.Scene {
   private gameOver = false;
   /** 遊ぶマップの定義(マップ選択画面から渡される。未指定なら既定マップ) */
   private mapDef: MapDefinition = DEFAULT_MAP_ENTRY.definition;
-  /** マップ描画領域のピクセル幅(マップのマス数から算出) */
+  /** マップ描画領域(全体)のピクセル幅(マップのマス数から算出) */
   private mapWidth = 0;
-  /** マップ描画領域のピクセル高さ(マップのマス数から算出) */
+  /** マップ描画領域(全体)のピクセル高さ(マップのマス数から算出) */
   private mapHeight = 0;
-  /** ゲーム画面全体のピクセル幅(マップ + 情報パネル) */
+  /** マップを映すビューポートのピクセル幅(マップが大きいときはマップより小さい) */
+  private viewWidth = 0;
+  /** マップを映すビューポートのピクセル高さ */
+  private viewHeight = 0;
+  /** ゲーム画面全体のピクセル幅(ビューポート + 情報パネル) */
   private gameWidth = 0;
-  /** ゲーム画面全体のピクセル高さ */
+  /** ゲーム画面全体のピクセル高さ(= ビューポート高さ) */
   private gameHeight = 0;
+  /** ドラッグ(スワイプ)によるマップスクロールを受付中か(マップ領域で押下したか) */
+  private dragActive = false;
+  /** 押下後、しきい値を超えて動いた=スクロール中か(true ならクリック選択は行わない) */
+  private isPanning = false;
+  /** 押下開始時のポインタ画面座標(ドラッグ量の算出用) */
+  private pointerDownX = 0;
+  private pointerDownY = 0;
+  /** 押下開始時のカメラスクロール位置(ドラッグ量を加減してスクロールさせる) */
+  private scrollStartX = 0;
+  private scrollStartY = 0;
 
   constructor() {
     super('MainScene');
@@ -186,9 +200,12 @@ export class MainScene extends Phaser.Scene {
     const dims = computeGameDimensions(this.map.cols, this.map.rows);
     this.mapWidth = dims.mapWidth;
     this.mapHeight = dims.mapHeight;
+    this.viewWidth = dims.viewWidth;
+    this.viewHeight = dims.viewHeight;
     this.gameWidth = dims.gameWidth;
     this.gameHeight = dims.gameHeight;
     this.scale.resize(this.gameWidth, this.gameHeight);
+    this.setupCamera();
     this.battle = new BattleManager(this.map, this.units);
     this.turn = new TurnManager(this.units);
     this.economy = new EconomyManager({ initialFunds: this.mapDef.initialFunds });
@@ -228,6 +245,19 @@ export class MainScene extends Phaser.Scene {
 
     // 開始演出として自軍第1ターンのバナーを表示する
     this.showTurnStartBanner();
+  }
+
+  /**
+   * マップスクロール用のカメラ設定を行う。
+   * カメラのスクロール範囲をマップ全体に合わせておき、マップがビューポートより
+   * 大きいときにドラッグ(スワイプ)で全体を見られるようにする。
+   * 情報パネルぶんの余白を右に足すことで、マップ右端の列もビューポート内(パネルの左)へ寄せられる。
+   * マップがビューポートに収まる場合はスクロール量が 0 に固定され、従来どおりの表示になる。
+   */
+  private setupCamera(): void {
+    const camera = this.cameras.main;
+    camera.setBounds(0, 0, this.mapWidth + INFO_PANEL_WIDTH, this.mapHeight);
+    camera.setScroll(0, 0);
   }
 
   /** 地形描画用のグラフィックスを用意する(最背面) */
@@ -383,40 +413,52 @@ export class MainScene extends Phaser.Scene {
     this.highlight.setVisible(false);
   }
 
-  /** 右側の情報パネルを作成する */
+  /**
+   * 右側の情報パネルを作成する。
+   * パネルはマップのスクロールに追従せず常に画面右に固定するため、
+   * ビューポート右端(viewWidth)を基準に配置し、setScrollFactor(0) で固定する。
+   */
   private createInfoPanel(): void {
-    const panel = this.add.graphics();
+    const panel = this.add.graphics().setScrollFactor(0);
     panel.fillStyle(0x12121e, 1);
-    panel.fillRect(this.mapWidth, 0, INFO_PANEL_WIDTH, this.gameHeight);
+    panel.fillRect(this.viewWidth, 0, INFO_PANEL_WIDTH, this.gameHeight);
 
     // 現在のターン数と手番の軍勢を示す見出し
-    this.turnText = this.add.text(this.mapWidth + 12, 12, '', {
-      fontFamily: 'sans-serif',
-      fontSize: '16px',
-      color: '#8ad0ff',
-      fontStyle: 'bold',
-    });
+    this.turnText = this.add
+      .text(this.viewWidth + 12, 12, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#8ad0ff',
+        fontStyle: 'bold',
+      })
+      .setScrollFactor(0);
 
     // 現在手番の軍勢の資金
-    this.fundsText = this.add.text(this.mapWidth + 12, 36, '', {
-      fontFamily: 'sans-serif',
-      fontSize: '14px',
-      color: '#ffe08a',
-    });
+    this.fundsText = this.add
+      .text(this.viewWidth + 12, 36, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: '#ffe08a',
+      })
+      .setScrollFactor(0);
 
-    this.add.text(this.mapWidth + 12, 64, 'マス情報', {
-      fontFamily: 'sans-serif',
-      fontSize: '16px',
-      color: '#ffd479',
-    });
+    this.add
+      .text(this.viewWidth + 12, 64, 'マス情報', {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#ffd479',
+      })
+      .setScrollFactor(0);
 
-    this.infoText = this.add.text(this.mapWidth + 12, 92, 'マスを選択してください', {
-      fontFamily: 'sans-serif',
-      fontSize: '14px',
-      color: '#eaeaea',
-      lineSpacing: 6,
-      wordWrap: { width: INFO_PANEL_WIDTH - 24 },
-    });
+    this.infoText = this.add
+      .text(this.viewWidth + 12, 92, 'マスを選択してください', {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: '#eaeaea',
+        lineSpacing: 6,
+        wordWrap: { width: INFO_PANEL_WIDTH - 24 },
+      })
+      .setScrollFactor(0);
   }
 
   /**
@@ -426,12 +468,13 @@ export class MainScene extends Phaser.Scene {
   private createMuteButton(): void {
     const width = 64;
     const height = 22;
-    const x = this.mapWidth + INFO_PANEL_WIDTH - width - 8;
+    const x = this.viewWidth + INFO_PANEL_WIDTH - width - 8;
     const y = 60;
 
     const button = this.add
       .rectangle(x, y, width, height, 0x2a2a3a)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
       .setStrokeStyle(1, 0x8ad0ff)
       .setInteractive({ useHandCursor: true });
 
@@ -441,7 +484,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: '13px',
         color: '#8ad0ff',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     button.on(Phaser.Input.Events.POINTER_DOWN, () => {
       // ミュート切替もユーザー操作なので、この機に AudioContext を起動しておく
@@ -479,12 +523,13 @@ export class MainScene extends Phaser.Scene {
   private createEndTurnButton(): void {
     const width = INFO_PANEL_WIDTH - 24;
     const height = 40;
-    const x = this.mapWidth + 12;
+    const x = this.viewWidth + 12;
     const y = this.gameHeight - height - 12;
 
     const button = this.add
       .rectangle(x, y, width, height, 0x2f5fae)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
       .setStrokeStyle(2, 0x8ad0ff)
       .setInteractive({ useHandCursor: true });
 
@@ -494,7 +539,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: '16px',
         color: '#ffffff',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     button.on(Phaser.Input.Events.POINTER_DOWN, () => {
       this.audio.playSfx('button');
@@ -524,19 +570,20 @@ export class MainScene extends Phaser.Scene {
    */
   private updateForecastPopup(pointer: Phaser.Input.Pointer): void {
     const attacker = this.movingUnit ?? this.commandUnit;
-    // 攻撃元がいない・攻撃対象がない・マップ外なら隠す
+    // 攻撃元がいない・攻撃対象がない・ビューポート外なら隠す
     if (
       this.gameOver ||
       !attacker ||
       this.attackTargets.length === 0 ||
-      pointer.x >= this.mapWidth ||
-      pointer.y >= this.mapHeight
+      pointer.x >= this.viewWidth ||
+      pointer.y >= this.viewHeight
     ) {
       this.hideForecastPopup();
       return;
     }
 
-    const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
+    // カメラのスクロールを加味したワールド座標からマスを求める
+    const pos = worldToGrid(pointer.worldX, pointer.worldY, TILE_SIZE);
     const target = this.attackTargets.find((t) => equals(t.position, pos));
     if (!target) {
       this.hideForecastPopup();
@@ -567,14 +614,19 @@ export class MainScene extends Phaser.Scene {
     this.forecastBg.lineStyle(2, 0xff5a5a, 0.95);
     this.forecastBg.strokeRect(0, 0, width, height);
 
-    // 対象マスの右上に出す。マップ外へはみ出す場合は反対側へ寄せる
+    // 対象マスの右上に出す。表示中のビューポート右端をはみ出す場合は反対側へ寄せる。
+    // ポップアップはマップと一緒にスクロールするため、位置はワールド座標で扱い、
+    // カメラのスクロール量を基準に「今見えている範囲」へ収める。
+    const camera = this.cameras.main;
+    const viewLeft = camera.scrollX;
+    const viewTop = camera.scrollY;
     const { x, y } = gridToWorld(target.position, TILE_SIZE);
     let px = x + TILE_SIZE + 4;
-    if (px + width > this.mapWidth) {
+    if (px + width > viewLeft + this.viewWidth) {
       px = x - width - 4;
     }
-    px = Phaser.Math.Clamp(px, 2, this.mapWidth - width - 2);
-    const py = Phaser.Math.Clamp(y, 2, this.mapHeight - height - 2);
+    px = Phaser.Math.Clamp(px, viewLeft + 2, viewLeft + this.viewWidth - width - 2);
+    const py = Phaser.Math.Clamp(y, viewTop + 2, viewTop + this.viewHeight - height - 2);
     this.forecastPopup.setPosition(px, py).setVisible(true);
   }
 
@@ -598,28 +650,29 @@ export class MainScene extends Phaser.Scene {
     this.updateBattleBgm();
     const label = army === 'player' ? '自軍ターン' : '敵軍ターン';
     const bannerHeight = 72;
-    const centerY = this.gameHeight / 2;
+    // マップのスクロールに追従せず、常にビューポート中央へ表示する
+    const centerY = this.viewHeight / 2;
 
-    // 帯状の背景(マップ幅いっぱい)
+    // 帯状の背景(ビューポート幅いっぱい)
     const bg = this.add.graphics();
     bg.fillStyle(TURN_BANNER_COLOR[army], 0.9);
-    bg.fillRect(0, centerY - bannerHeight / 2, this.mapWidth, bannerHeight);
+    bg.fillRect(0, centerY - bannerHeight / 2, this.viewWidth, bannerHeight);
     bg.lineStyle(2, 0xffffff, 0.8);
     bg.lineBetween(
       0,
       centerY - bannerHeight / 2,
-      this.mapWidth,
+      this.viewWidth,
       centerY - bannerHeight / 2,
     );
     bg.lineBetween(
       0,
       centerY + bannerHeight / 2,
-      this.mapWidth,
+      this.viewWidth,
       centerY + bannerHeight / 2,
     );
 
     const title = this.add
-      .text(this.mapWidth / 2, centerY - 12, label, {
+      .text(this.viewWidth / 2, centerY - 12, label, {
         fontFamily: 'sans-serif',
         fontSize: '32px',
         fontStyle: 'bold',
@@ -627,14 +680,17 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const sub = this.add
-      .text(this.mapWidth / 2, centerY + 20, `第${state.turnNumber}ターン`, {
+      .text(this.viewWidth / 2, centerY + 20, `第${state.turnNumber}ターン`, {
         fontFamily: 'sans-serif',
         fontSize: '16px',
         color: '#ffffff',
       })
       .setOrigin(0.5);
 
-    const banner = this.add.container(0, 0, [bg, title, sub]).setDepth(TURN_BANNER_DEPTH);
+    const banner = this.add
+      .container(0, 0, [bg, title, sub])
+      .setDepth(TURN_BANNER_DEPTH)
+      .setScrollFactor(0);
 
     // 左からスライドインし、少し待ってフェードアウトして破棄する
     banner.setAlpha(0).setX(-40);
@@ -734,7 +790,16 @@ export class MainScene extends Phaser.Scene {
     return this.repair.repairAll(this.turn.currentArmy);
   }
 
-  /** クリック入力とホバー入力を設定する */
+  /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
+  private static readonly DRAG_THRESHOLD = 8;
+
+  /**
+   * クリック・ドラッグ・ホバー入力を設定する。
+   * マップがビューポートより大きいときは、マップ領域のドラッグ(スマホのスワイプ)で
+   * カメラをスクロールして全体を見られるようにする。
+   * わずかな移動はクリック(マス選択)として扱い、しきい値を超えて動いた場合のみ
+   * スクロールと見なして選択は行わない。
+   */
   private setupInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
@@ -743,17 +808,59 @@ export class MainScene extends Phaser.Scene {
       if (this.gameOver) {
         return;
       }
-      // マップ描画領域外(情報パネル側)のクリックは無視する
-      if (pointer.x >= this.mapWidth || pointer.y >= this.mapHeight) {
+      // マップ表示領域(ビューポート)内で押し始めたときだけ、ドラッグ/クリックの対象にする。
+      // 情報パネル側のボタンは各自の押下ハンドラで処理するため、ここでは扱わない。
+      if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
         return;
       }
-      const pos = worldToGrid(pointer.x, pointer.y, TILE_SIZE);
-      this.handleClick(pos);
+      this.dragActive = true;
+      this.isPanning = false;
+      this.pointerDownX = pointer.x;
+      this.pointerDownY = pointer.y;
+      this.scrollStartX = this.cameras.main.scrollX;
+      this.scrollStartY = this.cameras.main.scrollY;
     });
 
-    // 攻撃対象へのホバーでダメージ予測ポップアップを出す
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      // マップ領域で押下中なら、移動量に応じてスクロール(スワイプ)する
+      if (this.dragActive && pointer.isDown) {
+        const dx = pointer.x - this.pointerDownX;
+        const dy = pointer.y - this.pointerDownY;
+        if (!this.isPanning && Math.hypot(dx, dy) > MainScene.DRAG_THRESHOLD) {
+          this.isPanning = true;
+          // スクロール開始時はホバー中の予測ポップアップを隠す
+          this.hideForecastPopup();
+        }
+        if (this.isPanning) {
+          // 押下点を掴んで動かす操作感にするため、移動量ぶんだけ逆向きにスクロールする。
+          // カメラ境界(setBounds)により、マップ端を超えてスクロールすることはない。
+          this.cameras.main.setScroll(this.scrollStartX - dx, this.scrollStartY - dy);
+          return;
+        }
+      }
+      // スクロール中でなければ、攻撃対象へのホバーでダメージ予測ポップアップを出す
       this.updateForecastPopup(pointer);
+    });
+
+    this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
+      const wasActive = this.dragActive;
+      const wasPanning = this.isPanning;
+      this.dragActive = false;
+      this.isPanning = false;
+      if (this.gameOver || !wasActive) {
+        return;
+      }
+      // スクロール操作だった場合はマス選択を行わない
+      if (wasPanning) {
+        return;
+      }
+      // 指を離した位置がマップ表示領域の外(情報パネル側)なら無視する
+      if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
+        return;
+      }
+      // カメラのスクロールを加味したワールド座標からマスを求める
+      const pos = worldToGrid(pointer.worldX, pointer.worldY, TILE_SIZE);
+      this.handleClick(pos);
     });
   }
 
@@ -981,8 +1088,8 @@ export class MainScene extends Phaser.Scene {
     const isVictory = result.outcome === 'player_victory';
     const message = formatResultMessage(result);
 
-    // 画面全体を暗くする半透明オーバーレイ
-    const overlay = this.add.graphics();
+    // 画面全体を暗くする半透明オーバーレイ(マップスクロールに追従せず画面へ固定する)
+    const overlay = this.add.graphics().setScrollFactor(0);
     overlay.fillStyle(0x000000, 0.6);
     overlay.fillRect(0, 0, this.gameWidth, this.gameHeight);
 
@@ -997,7 +1104,8 @@ export class MainScene extends Phaser.Scene {
         fontStyle: 'bold',
         color: isVictory ? '#ffd479' : '#ff6a6a',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     // 決着理由の説明
     this.add
@@ -1006,7 +1114,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: '20px',
         color: '#ffffff',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     // マップ選択画面へ戻るボタン(もう一度別のマップを遊べるようにする)
     const btnWidth = 220;
@@ -1016,6 +1125,7 @@ export class MainScene extends Phaser.Scene {
     const button = this.add
       .rectangle(btnX, btnY, btnWidth, btnHeight, 0x2f5fae)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
       .setStrokeStyle(2, 0x8ad0ff)
       .setInteractive({ useHandCursor: true });
     this.add
@@ -1024,7 +1134,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: '16px',
         color: '#ffffff',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
     button.on(Phaser.Input.Events.POINTER_DOWN, () => {
       this.audio.stopBgm();
       this.scene.start('MapSelectScene');
@@ -1128,7 +1239,7 @@ export class MainScene extends Phaser.Scene {
     onClick: () => void,
   ): void {
     const width = INFO_PANEL_WIDTH - 24;
-    const x = this.mapWidth + 12;
+    const x = this.viewWidth + 12;
     const y = ACTION_BUTTON_TOP + index * (ACTION_BUTTON_HEIGHT + ACTION_BUTTON_GAP);
 
     const fill = enabled ? 0x2f7f4f : 0x3a3a44;
@@ -1136,6 +1247,7 @@ export class MainScene extends Phaser.Scene {
     const rect = this.add
       .rectangle(x, y, width, ACTION_BUTTON_HEIGHT, fill)
       .setOrigin(0, 0)
+      .setScrollFactor(0)
       .setStrokeStyle(2, stroke);
 
     const text = this.add
@@ -1144,7 +1256,8 @@ export class MainScene extends Phaser.Scene {
         fontSize: '14px',
         color: enabled ? '#ffffff' : '#999999',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setScrollFactor(0);
 
     if (enabled) {
       rect.setInteractive({ useHandCursor: true });
