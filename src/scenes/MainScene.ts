@@ -67,6 +67,12 @@ const ACTION_BUTTON_TOP = 300;
 const ACTION_BUTTON_HEIGHT = 30;
 /** コマンド・生産ボタンの縦間隔 */
 const ACTION_BUTTON_GAP = 6;
+/** マップ上に浮かせて表示する移動後メニューのボタン幅 */
+const MENU_BUTTON_WIDTH = 104;
+/** 移動後メニューとマスの間の余白(ピクセル) */
+const MENU_MARGIN = 4;
+/** 移動後メニュー(マップ上に浮かせるボタン)の描画深度(ユニットより手前) */
+const MENU_DEPTH = 150;
 
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
@@ -107,11 +113,11 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   資金を消費して回復する(収入計上の直後に実行)。
  * Phase 9: ターン終了で敵軍に手番が移ると、敵軍AIが自動で行動する。
  *   AI は攻撃→占領→接近→生産の優先順位で行動し、終わると自軍へ手番が戻る。
- * 移動後コマンド: 自軍ユニットは移動先で「攻撃 / 占領 / 待機 / もどる」を縦に並べたメニューから選ぶ。
+ * 移動後コマンド: 自軍ユニットは移動先のマスの近くに出る「攻撃 / 占領 / 待機」メニューから選ぶ。
  *   「攻撃」は射程内に敵がいるときだけ表示し、押すと攻撃対象の選択に移って赤枠の敵をクリックして攻撃する。
- *   「占領」は占領できる拠点のときだけ表示する。「待機」「もどる」は常に表示する。
+ *   「占領」は占領できる拠点のときだけ表示する。「待機」は常に表示する。
  *   攻撃も占領もできない移動先でも即確定はせず、必ずメニューを出して「待機」を選ばせる
- *   (誤って移動しただけで行動が確定するのを防ぐ)。「もどる」で移動そのものを取り消せる。
+ *   (誤って移動しただけで行動が確定するのを防ぐ)。メニュー外のマスを押すと移動そのものを取り消せる。
  *   ただし間接攻撃(遠距離)ユニットは移動後は攻撃できず、その場からのみ攻撃する。
  */
 export class MainScene extends Phaser.Scene {
@@ -155,7 +161,7 @@ export class MainScene extends Phaser.Scene {
   private commandUnit: Unit | null = null;
   /** commandUnit が乗っているマス(占領コマンドの対象。いなければ null) */
   private commandTile: TileData | null = null;
-  /** commandUnit の移動前の位置(「もどる」で移動を取り消して戻すのに使う。いなければ null) */
+  /** commandUnit の移動前の位置(メニュー外クリックで移動を取り消して戻すのに使う。いなければ null) */
   private commandOrigin: GridPosition | null = null;
   /** 移動後、コマンドメニューの「攻撃」を押すと攻撃対象にできる敵(メニュー表示中に保持) */
   private pendingAttackTargets: Unit[] = [];
@@ -163,6 +169,12 @@ export class MainScene extends Phaser.Scene {
   private awaitingAttackTarget = false;
   /** 動的に生成する占領・生産コマンドのボタン群 */
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
+  /**
+   * 直前の押下がコマンドボタンで消費されたか。
+   * マップ上に浮かせた移動後メニューはマップ表示領域と重なるため、ボタン押下時に
+   * マス選択(メニュー外クリック=移動取り消し)まで走らないよう、この間だけ抑止する。
+   */
+  private pointerConsumedByButton = false;
   /** 勝敗が決したかどうか。決着後は操作を受け付けない */
   private gameOver = false;
   /** 遊ぶマップの定義(マップ選択画面から渡される。未指定なら既定マップ) */
@@ -819,6 +831,12 @@ export class MainScene extends Phaser.Scene {
       if (this.gameOver) {
         return;
       }
+      // 直前にコマンドボタン(マップ上に浮かせた移動後メニュー等)が押されていたら、
+      // その押下はボタンで消費済みとしてマップ操作(選択・移動取り消し)は行わない。
+      if (this.pointerConsumedByButton) {
+        this.pointerConsumedByButton = false;
+        return;
+      }
       // マップ表示領域(ビューポート)内で押し始めたときだけ、ドラッグ/クリックの対象にする。
       // 情報パネル側のボタンは各自の押下ハンドラで処理するため、ここでは扱わない。
       if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
@@ -879,7 +897,8 @@ export class MainScene extends Phaser.Scene {
    * マスクリックを処理する。行動対象を選択中かどうかで挙動を分岐させる。
    * 0. 移動後のコマンド選択中の挙動:
    *    - 「攻撃」を押して攻撃対象の選択待ち中 → 赤枠の敵クリックで攻撃、それ以外はメニューへ戻る
-   *    - メニュー表示中(攻撃未選択) → マップクリックは無視する(待機/もどるはメニューのボタンで選ぶ)
+   *    - メニュー表示中(攻撃未選択) → メニュー外のマスクリックで移動を取り消して元の位置へ戻す
+   *      (待機はメニューのボタンで選ぶ)
    * 1. 行動対象を選択中で、クリック先が攻撃対象の敵 → 攻撃する
    * 2. 行動対象を選択中で、クリック先が移動可能範囲内 → そのマスへ移動する
    * 3. それ以外 → クリック先のマスを選択する(自軍の未行動ユニットなら行動対象にする)
@@ -903,8 +922,10 @@ export class MainScene extends Phaser.Scene {
         this.showPostMoveMenu();
         return;
       }
-      // メニュー表示中(攻撃未選択)は、マップのクリックでは行動を確定しない。
-      // 誤操作で待機が確定してしまうのを避けるため、待機・もどるはメニューのボタンから選ぶ。
+      // メニュー表示中(攻撃未選択)にメニュー外のマスを押したら、移動を取り消して
+      // ユニットを移動前の位置へ戻す。誤操作で待機が確定してしまうのを避けるため、
+      // 行動の確定(待機・攻撃・占領)はメニューのボタンからのみ行う。
+      this.cancelMove();
       return;
     }
 
@@ -973,7 +994,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 選択中ユニットを指定マスへ移動する。
-   * 行動済みにせずに移動し、移動後の攻撃/占領/待機/もどるを選ばせる状態に入る。
+   * 行動済みにせずに移動し、移動後の攻撃/占領/待機を選ばせる状態に入る。
    */
   private moveSelectedUnit(pos: GridPosition, tile: TileData): void {
     const unit = this.movingUnit;
@@ -981,7 +1002,7 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // 「もどる」で移動を取り消せるよう、移動前の位置を控えておく
+    // メニュー外クリックで移動を取り消せるよう、移動前の位置を控えておく
     const origin = unit.position;
     this.units.moveUnit(unit, pos, { markActed: false });
     this.audio.playSfx('move');
@@ -993,7 +1014,7 @@ export class MainScene extends Phaser.Scene {
    * 移動後のコマンド選択に入る。
    * 攻撃・占領の可否にかかわらず、必ずコマンドメニューを表示する。
    * これにより、攻撃も占領もできない移動先でも「待機」を明示的に選ぶことになり、
-   * 誤って移動しただけで行動が確定してしまうのを防ぐ(「もどる」で取り消しもできる)。
+   * 誤って移動しただけで行動が確定してしまうのを防ぐ(メニュー外クリックで取り消しもできる)。
    * ただし間接攻撃(遠距離)ユニットは移動後は攻撃できないため攻撃対象を持たない。
    */
   private enterPostMoveCommand(unit: Unit, tile: TileData, origin: GridPosition): void {
@@ -1013,9 +1034,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 移動後のコマンドメニュー(攻撃 / 占領 / 待機 / もどる)を縦に並べて表示する。
+   * 移動後のコマンドメニュー(攻撃 / 占領 / 待機)を、移動先のマスの近くに縦に並べて表示する。
    * 「攻撃」は射程内に敵がいるときだけ、「占領」は占領できる拠点のときだけ出す。
-   * 「待機」と「もどる」は常に出し、攻撃も占領もできない移動先でも待機を選べるようにする。
+   * 「待機」は常に出し、攻撃も占領もできない移動先でも待機を選べるようにする。
+   * メニュー外のマスを押すと移動が取り消され、ユニットは移動前の位置へ戻る。
    * この段階では攻撃対象のクリックは受け付けず、「攻撃」を押して初めて対象選択に移る。
    */
   private showPostMoveMenu(): void {
@@ -1034,28 +1056,63 @@ export class MainScene extends Phaser.Scene {
     this.selected = unit.position;
     this.drawSelectionHighlight(unit.position);
 
+    // 表示するボタンを先に決め、その数からメニューの表示位置(マスの近く)を求める
+    const buttons: Array<{ label: string; onClick: () => void }> = [];
     const info: string[] = ['コマンド選択', unit.unitName];
-    let buttonIndex = 0;
     if (this.pendingAttackTargets.length > 0) {
       info.push('攻撃: 射程内に敵');
-      this.addActionButton(buttonIndex++, '攻撃', true, () => this.enterAttackSelection());
+      buttons.push({ label: '攻撃', onClick: () => this.enterAttackSelection() });
     }
     if (this.canOfferCapture(unit, tile)) {
       info.push(`占領耐久: ${tile.captureHp}`);
-      this.addActionButton(buttonIndex++, '占領する', true, () =>
-        this.executeCapture(unit, tile),
-      );
+      buttons.push({ label: '占領する', onClick: () => this.executeCapture(unit, tile) });
     }
-    // 待機は常に選べるようにする。もどるで移動そのものを取り消せる。
-    this.addActionButton(buttonIndex++, '待機', true, () => this.commitWait());
-    this.addActionButton(buttonIndex, 'もどる', true, () => this.cancelMove());
+    // 待機は常に選べるようにする(メニュー外クリックで移動を取り消せる)
+    buttons.push({ label: '待機', onClick: () => this.commitWait() });
+
+    const anchor = this.commandMenuAnchor(unit.position, buttons.length);
+    buttons.forEach((button, index) => {
+      this.addActionButton(index, button.label, true, button.onClick, anchor);
+    });
     this.infoText.setText(info);
+  }
+
+  /**
+   * 移動後メニューを移動先マスの近くに表示するための、ボタン群の左上スクリーン座標を求める。
+   * 既定ではマスの右隣に置き、右へはみ出す場合は左隣へ回す。
+   * 縦はマス上端に合わせつつ、メニュー全体がビューポート内に収まるよう clamp する。
+   */
+  private commandMenuAnchor(
+    pos: GridPosition,
+    buttonCount: number,
+  ): { x: number; y: number } {
+    const camera = this.cameras.main;
+    const world = gridToWorld(pos, TILE_SIZE);
+    // カメラのスクロールを差し引いてスクリーン座標(固定表示のボタン基準)に変換する
+    const screenX = world.x - camera.scrollX;
+    const screenY = world.y - camera.scrollY;
+    const menuHeight =
+      buttonCount * ACTION_BUTTON_HEIGHT + (buttonCount - 1) * ACTION_BUTTON_GAP;
+
+    // 既定はマスの右隣。ビューポート右端を超えるなら左隣へ置く
+    let x = screenX + TILE_SIZE + MENU_MARGIN;
+    if (x + MENU_BUTTON_WIDTH > this.viewWidth - MENU_MARGIN) {
+      x = screenX - MENU_BUTTON_WIDTH - MENU_MARGIN;
+    }
+    x = Math.max(
+      MENU_MARGIN,
+      Math.min(x, this.viewWidth - MENU_BUTTON_WIDTH - MENU_MARGIN),
+    );
+
+    let y = screenY;
+    y = Math.max(MENU_MARGIN, Math.min(y, this.viewHeight - menuHeight - MENU_MARGIN));
+    return { x, y };
   }
 
   /**
    * 移動を取り消して、ユニットを移動前の位置へ戻す。
    * 行動済みにはせず、移動前の選択状態(移動範囲の表示)に戻して移動先を選び直せるようにする。
-   * 移動先を誤って押してしまったときの取り消し手段。
+   * 移動先を誤って押してしまったときの取り消し手段で、コマンドメニュー外のマスを押すと呼ばれる。
    */
   private cancelMove(): void {
     const unit = this.commandUnit;
@@ -1094,8 +1151,9 @@ export class MainScene extends Phaser.Scene {
     this.clearActionButtons();
     this.drawSelectionHighlight(unit.position);
     this.drawAttackTargets(this.attackTargets);
-    // 攻撃をやめて待機できるように待機ボタンを残す
-    this.addActionButton(0, '待機', true, () => this.commitWait());
+    // 攻撃をやめて待機できるように待機ボタンを残す(マスの近くに表示する)
+    const anchor = this.commandMenuAnchor(unit.position, 1);
+    this.addActionButton(0, '待機', true, () => this.commitWait(), anchor);
     this.infoText.setText(['攻撃対象を選択', unit.unitName, '赤枠の敵をクリック']);
   }
 
@@ -1321,16 +1379,23 @@ export class MainScene extends Phaser.Scene {
     return formatTerrainInfo(tile);
   }
 
-  /** 占領・生産コマンドのボタンを 1 つ追加する(無効時はグレー表示) */
+  /**
+   * 占領・生産コマンドのボタンを 1 つ追加する(無効時はグレー表示)。
+   * anchor を渡すとその左上スクリーン座標を基準にマップ上へ浮かせて表示し(移動後メニュー用)、
+   * 省略すると従来どおり情報パネル内に縦積みで表示する。
+   */
   private addActionButton(
     index: number,
     label: string,
     enabled: boolean,
     onClick: () => void,
+    anchor?: { x: number; y: number },
   ): void {
-    const width = INFO_PANEL_WIDTH - 24;
-    const x = this.viewWidth + 12;
-    const y = ACTION_BUTTON_TOP + index * (ACTION_BUTTON_HEIGHT + ACTION_BUTTON_GAP);
+    const width = anchor ? MENU_BUTTON_WIDTH : INFO_PANEL_WIDTH - 24;
+    const baseX = anchor ? anchor.x : this.viewWidth + 12;
+    const baseY = anchor ? anchor.y : ACTION_BUTTON_TOP;
+    const x = baseX;
+    const y = baseY + index * (ACTION_BUTTON_HEIGHT + ACTION_BUTTON_GAP);
 
     const fill = enabled ? 0x2f7f4f : 0x3a3a44;
     const stroke = enabled ? 0x8affb0 : 0x666666;
@@ -1349,9 +1414,20 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setScrollFactor(0);
 
+    // マップ上に浮かせるメニューはユニット等より手前に描く
+    if (anchor) {
+      rect.setDepth(MENU_DEPTH);
+      text.setDepth(MENU_DEPTH);
+    }
+
     if (enabled) {
       rect.setInteractive({ useHandCursor: true });
-      rect.on(Phaser.Input.Events.POINTER_DOWN, onClick);
+      rect.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        // マップ上のメニューはマップ表示領域と重なるため、この押下がマス選択として
+        // 二重に処理されないよう、直後のマップ押下判定を 1 回だけ抑止する。
+        this.pointerConsumedByButton = true;
+        onClick();
+      });
     }
 
     this.actionButtons.push(rect, text);
