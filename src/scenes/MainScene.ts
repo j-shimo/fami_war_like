@@ -129,6 +129,7 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   このため、占領は情報パネルの専用ボタンではなくこのメニューから行う。
  * 情報メニュー: 何もないマス(ユニットのいないマス)を右クリックすると、移動後メニューと同じ位置に
  *   「ユニット説明 / 操作 / 地形効果」のメニューを出す。各項目の画面は今後実装する。
+ *   タッチ端末では右クリックの代わりに長押し(その場で一定時間押し続ける)で同じメニューを出す。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -213,6 +214,10 @@ export class MainScene extends Phaser.Scene {
   /** 押下開始時のカメラスクロール位置(ドラッグ量を加減してスクロールさせる) */
   private scrollStartX = 0;
   private scrollStartY = 0;
+  /** タッチ長押し判定用のタイマー(押下中のみ有効。なければ null) */
+  private longPressTimer: Phaser.Time.TimerEvent | null = null;
+  /** 現在のジェスチャで長押し(=情報メニュー表示)が発火したか。指を離すときのクリック抑止に使う */
+  private longPressFired = false;
 
   constructor() {
     super('MainScene');
@@ -828,12 +833,17 @@ export class MainScene extends Phaser.Scene {
   /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
   private static readonly DRAG_THRESHOLD = 8;
 
+  /** タッチ長押しを右クリック相当と判定するまでの押下継続時間(ミリ秒) */
+  private static readonly LONG_PRESS_DELAY = 500;
+
   /**
    * クリック・ドラッグ・ホバー入力を設定する。
    * マップがビューポートより大きいときは、マップ領域のドラッグ(スマホのスワイプ)で
    * カメラをスクロールして全体を見られるようにする。
    * わずかな移動はクリック(マス選択)として扱い、しきい値を超えて動いた場合のみ
    * スクロールと見なして選択は行わない。
+   * タッチ端末では、指を動かさずに一定時間押し続ける長押しを右クリック相当とし、
+   * 何もないマスでは情報メニューを表示する。
    */
   private setupInput(): void {
     // 右クリックをゲーム操作(情報メニュー表示)に使うため、ブラウザの右クリックメニューを抑止する
@@ -854,7 +864,7 @@ export class MainScene extends Phaser.Scene {
       }
       // 右クリックは情報メニューの表示に使う(ドラッグ/マス選択の対象にはしない)
       if (pointer.rightButtonDown()) {
-        this.handleRightClick(pointer);
+        this.showInfoMenuAtPointer(pointer);
         return;
       }
       // マップ表示領域(ビューポート)内で押し始めたときだけ、ドラッグ/クリックの対象にする。
@@ -864,10 +874,14 @@ export class MainScene extends Phaser.Scene {
       }
       this.dragActive = true;
       this.isPanning = false;
+      this.longPressFired = false;
       this.pointerDownX = pointer.x;
       this.pointerDownY = pointer.y;
       this.scrollStartX = this.cameras.main.scrollX;
       this.scrollStartY = this.cameras.main.scrollY;
+      // タッチ端末の長押しを右クリック相当(情報メニュー表示)として扱うためのタイマー。
+      // 一定時間、指が動かず押し続けられたら長押しと判定する。
+      this.startLongPressTimer(pointer);
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
@@ -877,6 +891,8 @@ export class MainScene extends Phaser.Scene {
         const dy = pointer.y - this.pointerDownY;
         if (!this.isPanning && Math.hypot(dx, dy) > MainScene.DRAG_THRESHOLD) {
           this.isPanning = true;
+          // スクロール(スワイプ)を始めたら長押し判定は取り消す
+          this.cancelLongPressTimer();
           // スクロール開始時はホバー中の予測ポップアップを隠す
           this.hideForecastPopup();
         }
@@ -894,9 +910,17 @@ export class MainScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       const wasActive = this.dragActive;
       const wasPanning = this.isPanning;
+      const wasLongPress = this.longPressFired;
       this.dragActive = false;
       this.isPanning = false;
+      this.longPressFired = false;
+      // 押下中に走らせていた長押しタイマーを止める(まだ発火していなければ取り消し)
+      this.cancelLongPressTimer();
       if (this.gameOver || !wasActive) {
+        return;
+      }
+      // 長押しで情報メニューを開いていたら、指を離したときのマス選択は行わない
+      if (wasLongPress) {
         return;
       }
       // スクロール操作だった場合はマス選択を行わない
@@ -911,6 +935,35 @@ export class MainScene extends Phaser.Scene {
       const pos = worldToGrid(pointer.worldX, pointer.worldY, TILE_SIZE);
       this.handleClick(pos);
     });
+  }
+
+  /**
+   * タッチ長押し判定用のタイマーを開始する。
+   * 一定時間、指が動かず(スクロールに転じず)押し続けられていて、かつタッチ入力なら、
+   * 右クリック相当として情報メニューを表示する。以降のスクロール・クリックは抑止する。
+   */
+  private startLongPressTimer(pointer: Phaser.Input.Pointer): void {
+    this.cancelLongPressTimer();
+    this.longPressTimer = this.time.delayedCall(MainScene.LONG_PRESS_DELAY, () => {
+      this.longPressTimer = null;
+      // 押下が続いていて、スクロールに転じておらず、タッチ入力のときだけ長押しとして扱う。
+      // (マウスの長押しは対象外。PC は右クリックで情報メニューを開く)
+      if (this.gameOver || !this.dragActive || this.isPanning || !pointer.wasTouch) {
+        return;
+      }
+      this.longPressFired = true;
+      // 長押し後にそのまま指を動かしてもスクロールしないよう、ドラッグ受付を終了しておく
+      this.dragActive = false;
+      this.showInfoMenuAtPointer(pointer);
+    });
+  }
+
+  /** 押下中の長押しタイマーを取り消す(発火前に指を離す・スクロールを始めたときなど) */
+  private cancelLongPressTimer(): void {
+    if (this.longPressTimer) {
+      this.longPressTimer.remove(false);
+      this.longPressTimer = null;
+    }
   }
 
   /**
@@ -981,10 +1034,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 何もないマス(ユニットのいないマス)の右クリックを処理し、情報メニューを表示する。
+   * ポインタ位置が「何もないマス(ユニットのいないマス)」なら情報メニューを表示する。
+   * PC の右クリックと、タッチ端末の長押しの両方から呼ばれる。
    * ビューポート外(情報パネル側)やマップ外、ユニットのいるマスでは何もしない。
    */
-  private handleRightClick(pointer: Phaser.Input.Pointer): void {
+  private showInfoMenuAtPointer(pointer: Phaser.Input.Pointer): void {
     // 情報パネル側(ビューポート外)の右クリックは扱わない
     if (pointer.x >= this.viewWidth || pointer.y >= this.viewHeight) {
       return;
