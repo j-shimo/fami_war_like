@@ -55,7 +55,7 @@ src/
     turn/
     units/
   data/      // ユニット・地形・マップのJSONデータ定義
-  scenes/    // PhaserのScene(タイトル・メイン・リザルト)
+  scenes/    // PhaserのScene(起動・マップ選択・メイン)
   ui/        // UI表示コンポーネント
   assets/    // スプライト・タイル・効果音
 tests/       // Vitestによるロジックのテスト

@@ -3,23 +3,53 @@
 /** 1マスのピクセルサイズ */
 export const TILE_SIZE = 48;
 
-/** マップのグリッド数(横) */
+/** マップのグリッド数(横)の既定値。実際のサイズはマップ定義から決まる */
 export const MAP_COLS = 10;
 
-/** マップのグリッド数(縦) */
+/** マップのグリッド数(縦)の既定値。実際のサイズはマップ定義から決まる */
 export const MAP_ROWS = 10;
-
-/** マップ描画領域のピクセル幅 */
-export const MAP_WIDTH = TILE_SIZE * MAP_COLS;
-
-/** マップ描画領域のピクセル高さ */
-export const MAP_HEIGHT = TILE_SIZE * MAP_ROWS;
 
 /** 情報表示パネルのピクセル幅(マップ右側に配置) */
 export const INFO_PANEL_WIDTH = 200;
 
-/** ゲーム画面のピクセル幅(マップ + 情報パネル) */
-export const GAME_WIDTH = MAP_WIDTH + INFO_PANEL_WIDTH;
+/**
+ * マップのグリッド数から画面各部のピクセル寸法を求める。
+ * マップごとに縦横のマス数が異なるため、描画・入力判定はこの値を基準にする。
+ */
+export interface GameDimensions {
+  /** マップ描画領域のピクセル幅 */
+  readonly mapWidth: number;
+  /** マップ描画領域のピクセル高さ */
+  readonly mapHeight: number;
+  /** ゲーム画面のピクセル幅(マップ + 情報パネル) */
+  readonly gameWidth: number;
+  /** ゲーム画面のピクセル高さ */
+  readonly gameHeight: number;
+}
 
-/** ゲーム画面のピクセル高さ */
-export const GAME_HEIGHT = MAP_HEIGHT;
+/** マス数から画面寸法を計算する */
+export function computeGameDimensions(cols: number, rows: number): GameDimensions {
+  const mapWidth = TILE_SIZE * cols;
+  const mapHeight = TILE_SIZE * rows;
+  return {
+    mapWidth,
+    mapHeight,
+    gameWidth: mapWidth + INFO_PANEL_WIDTH,
+    gameHeight: mapHeight,
+  };
+}
+
+/** 既定マップサイズ(10x10)での画面寸法。起動時のキャンバス初期サイズに使う */
+export const DEFAULT_DIMENSIONS = computeGameDimensions(MAP_COLS, MAP_ROWS);
+
+/** マップ描画領域のピクセル幅(既定サイズ) */
+export const MAP_WIDTH = DEFAULT_DIMENSIONS.mapWidth;
+
+/** マップ描画領域のピクセル高さ(既定サイズ) */
+export const MAP_HEIGHT = DEFAULT_DIMENSIONS.mapHeight;
+
+/** ゲーム画面のピクセル幅(既定サイズ) */
+export const GAME_WIDTH = DEFAULT_DIMENSIONS.gameWidth;
+
+/** ゲーム画面のピクセル高さ(既定サイズ) */
+export const GAME_HEIGHT = DEFAULT_DIMENSIONS.gameHeight;
