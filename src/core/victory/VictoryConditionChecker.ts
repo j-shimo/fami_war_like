@@ -35,8 +35,19 @@ const ONGOING: VictoryResult = { outcome: 'ongoing', reason: null };
  *
  * 本拠地の占領判定は「その軍が本拠地を 1 つも所有していない」ことをもって
  * 本拠地を奪われたとみなす。各軍は開始時に自陣の本拠地を所有している前提。
+ *
+ * 全滅判定は「一度でも戦場にユニットを出した軍が、生存ユニットを失った」場合に成立する。
+ * 初期ユニットを配置しないマップ(生産で戦力を用意するマップ)では、ゲーム開始直後は
+ * 両軍ともユニット 0 だが、まだ戦場にユニットを出していないため全滅とはみなさない。
+ * これにより、開始直後や生産前の状態で誤って決着してしまうのを防ぐ。
  */
 export class VictoryConditionChecker {
+  /** その軍が一度でも生存ユニットを持ったか。全滅判定の前提として使う */
+  private readonly hasDeployed: Record<'player' | 'enemy', boolean> = {
+    player: false,
+    enemy: false,
+  };
+
   constructor(
     private readonly map: MapManager,
     private readonly units: UnitManager,
@@ -48,6 +59,9 @@ export class VictoryConditionChecker {
    * 占領には生存した敵ユニットが必要なため、勝敗が同時に成立することはない。
    */
   check(): VictoryResult {
+    // ユニットを持っている軍を「配備済み」として記録しておく(全滅判定の前提)
+    this.updateDeployment();
+
     // 勝利: 敵本拠地を占領した
     if (this.isHeadquartersLost('enemy')) {
       return { outcome: 'player_victory', reason: 'enemy_hq_captured' };
@@ -67,9 +81,23 @@ export class VictoryConditionChecker {
     return ONGOING;
   }
 
-  /** 指定軍の生存ユニットが 1 体もいないか */
+  /** 各軍の生存ユニットの有無を見て、配備済みフラグを更新する */
+  private updateDeployment(): void {
+    for (const army of ['player', 'enemy'] as const) {
+      if (this.units.getUnitsByArmy(army).length > 0) {
+        this.hasDeployed[army] = true;
+      }
+    }
+  }
+
+  /**
+   * 指定軍が全滅したか(戦場から一掃されたか)を判定する。
+   * 一度でもユニットを配備した軍が、生存ユニットを 1 体も持たなくなった場合に true。
+   * まだ一度もユニットを持っていない軍(初期0ユニットのマップの開始直後など)は、
+   * これから生産で戦力を用意できるため全滅とはみなさない。
+   */
   private isArmyAnnihilated(army: 'player' | 'enemy'): boolean {
-    return this.units.getUnitsByArmy(army).length === 0;
+    return this.hasDeployed[army] && this.units.getUnitsByArmy(army).length === 0;
   }
 
   /**

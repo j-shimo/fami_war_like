@@ -53,6 +53,9 @@ describe('VictoryConditionChecker', () => {
     const units = UnitManager.fromPlacements(PLACEMENTS, map);
     const checker = new VictoryConditionChecker(map, units);
 
+    // 一度ユニットがいる状態で判定し、配備済みとして記録させる
+    expect(checker.check()).toEqual({ outcome: 'ongoing', reason: null });
+
     // 敵ユニットを撃破(HP0)して盤面から除く
     for (const enemy of units.getUnitsByArmy('enemy')) {
       units.removeUnit(enemy);
@@ -82,6 +85,9 @@ describe('VictoryConditionChecker', () => {
     const units = UnitManager.fromPlacements(PLACEMENTS, map);
     const checker = new VictoryConditionChecker(map, units);
 
+    // 一度ユニットがいる状態で判定し、配備済みとして記録させる
+    expect(checker.check()).toEqual({ outcome: 'ongoing', reason: null });
+
     for (const player of units.getUnitsByArmy('player')) {
       units.removeUnit(player);
     }
@@ -90,6 +96,19 @@ describe('VictoryConditionChecker', () => {
       outcome: 'player_defeat',
       reason: 'player_annihilated',
     });
+  });
+
+  it('まだユニットを配備していない軍(初期0ユニット)は全滅とみなさない', () => {
+    const map = makeMap();
+    // 敵ユニットのみ配置し、自軍はユニット 0 で開始する(生産で戦力を用意するマップを想定)
+    const units = UnitManager.fromPlacements(
+      [{ col: 2, row: 1, unitType: 'tank', army: 'enemy' }],
+      map,
+    );
+    const checker = new VictoryConditionChecker(map, units);
+
+    // 自軍はユニット 0 だが、まだ配備前なので敗北にはならない
+    expect(checker.check()).toEqual({ outcome: 'ongoing', reason: null });
   });
 
   it('勝利条件は敗北条件より優先して判定する', () => {

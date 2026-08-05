@@ -2,12 +2,14 @@
 // CLAUDE.md の方針に従い、地形配置・拠点配置はすべてオリジナルとする。
 //
 // レイアウト概要:
-//   - 左端(col 0〜1)を自軍、右端(col 13〜14)を敵軍の本拠地とし、左右に分かれて対峙する。
+//   - 左端(col 0〜1)を自軍、右端(col 13〜14)を敵軍の陣地とし、左右に分かれて対峙する。
+//   - 各陣地は本拠地 1・工場 2 の 3 つの生産拠点を持つ(初期ユニットは配置しない)。
 //   - 盤面中央に中立拠点を密集させる(中央工場 1・中立都市 6)。ここを奪い合うのが主眼。
 //   - 中央を横断する道路(row 5)の両脇に山を置き、車両が通る狭い回廊(チョークポイント)を作る。
 //
-// 初期資金は 0。序盤は本拠地・工場・都市の収入のみで、中立拠点を占領して収入を伸ばすほど
-// 高価なユニットを生産できるようになる。占領テンポがそのまま戦力差につながる設計。
+// 初期ユニットは 0。ゲーム開始時の収入(本拠地 1・工場 2 = 3 拠点ぶん)で、
+// 1 ターン目からそれぞれの生産拠点でユニットを 3 体まで生産できる設計とする。
+// 中立拠点を占領して収入を伸ばすほど高価なユニットを生産でき、占領テンポが戦力差につながる。
 
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
@@ -20,31 +22,23 @@ export const CAPTURE_MAP: MapDefinition = {
     '....r.frf.r....',
     '.F..r.mrm.r..F.',
     'HrrrrrrFrrrrrrH',
-    '.c..r.mrm.r..c.',
+    '.F..r.mrm.r..F.',
     '....c.frf.c....',
     '...f...c...f...',
     '..f.........f..',
   ],
   owners: [
-    // 自軍の陣地(左)
+    // 自軍の陣地(左)。本拠地 1・工場 2 を所有して開始する。
     { col: 0, row: 5, owner: 'player' }, // 本拠地
     { col: 1, row: 4, owner: 'player' }, // 工場
-    { col: 1, row: 6, owner: 'player' }, // 都市
-    // 敵軍の陣地(右)
+    { col: 1, row: 6, owner: 'player' }, // 工場
+    // 敵軍の陣地(右)。本拠地 1・工場 2 を所有して開始する。
     { col: 14, row: 5, owner: 'enemy' }, // 本拠地
     { col: 13, row: 4, owner: 'enemy' }, // 工場
-    { col: 13, row: 6, owner: 'enemy' }, // 都市
+    { col: 13, row: 6, owner: 'enemy' }, // 工場
     // 中央の中立工場・中立都市は owners 未指定のため neutral のまま(取り合いの対象)
   ],
-  units: [
-    // 自軍の初期部隊(左、col 2 付近)
-    { col: 2, row: 4, unitType: 'infantry', army: 'player' },
-    { col: 2, row: 5, unitType: 'tank', army: 'player' },
-    { col: 2, row: 6, unitType: 'artillery', army: 'player' },
-    // 敵軍の初期部隊(右、col 12 付近)
-    { col: 12, row: 4, unitType: 'infantry', army: 'enemy' },
-    { col: 12, row: 5, unitType: 'tank', army: 'enemy' },
-    { col: 12, row: 6, unitType: 'artillery', army: 'enemy' },
-  ],
+  // 初期ユニットは配置しない。1 ターン目に各生産拠点でユニットを生産して戦力を用意する。
+  units: [],
   initialFunds: 0,
 };
