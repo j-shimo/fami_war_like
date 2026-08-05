@@ -18,6 +18,7 @@ const EXPECTED_SFX: SfxName[] = [
   'produce',
   'repair',
   'button',
+  'denied',
   'turnPlayer',
   'turnEnemy',
   'victory',

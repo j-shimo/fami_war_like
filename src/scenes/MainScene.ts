@@ -993,12 +993,20 @@ export class MainScene extends Phaser.Scene {
 
     // 移動後のコマンド選択中はメニューの状態で分岐する。
     if (this.commandUnit) {
-      // 「攻撃」を選んで攻撃対象の選択待ち中は、赤枠の敵クリックで攻撃する。
-      // 攻撃対象以外をクリックしたら攻撃を取りやめ、コマンドメニューへ戻る。
+      // 「攻撃」を選んで攻撃対象の選択待ち中の挙動:
+      //  - 赤枠の敵(射程内)をクリック → 攻撃する
+      //  - 射程外の敵をクリック → 攻撃できないので「操作不能」の音を鳴らして選択を続ける
+      //  - 空きマスをクリック → 攻撃を取りやめ、コマンドメニューへ戻る
       if (this.awaitingAttackTarget) {
         const target = this.attackTargets.find((t) => equals(t.position, pos));
         if (target) {
           this.attackTarget(target);
+          return;
+        }
+        // 射程外の敵を選んだときは「攻撃できない」と分かるように音で知らせる
+        const other = this.units.getUnitAt(pos);
+        if (other && other.armyType !== this.commandUnit.armyType) {
+          this.audio.playSfx('denied');
           return;
         }
         this.showPostMoveMenu();
@@ -1161,11 +1169,15 @@ export class MainScene extends Phaser.Scene {
    * 攻撃・占領の可否にかかわらず、必ずコマンドメニューを表示する。
    * これにより、攻撃も占領もできない移動先でも「待機」を明示的に選ぶことになり、
    * 誤って移動しただけで行動が確定してしまうのを防ぐ(メニュー外クリックで取り消しもできる)。
-   * ただし間接攻撃(遠距離)ユニットは移動後は攻撃できないため攻撃対象を持たない。
+   * ただし間接攻撃(遠距離)ユニットは移動後は攻撃できず、その場からのみ攻撃できる。
+   * 自走砲などの間接攻撃ユニットも、移動せず元居たマスに留まった場合は射程内の敵を攻撃できる。
    */
   private enterPostMoveCommand(unit: Unit, tile: TileData, origin: GridPosition): void {
-    // 間接攻撃ユニットは移動後攻撃できない。直接攻撃ユニットのみ移動先から攻撃対象を探す
-    const targets = unit.isIndirect ? [] : findAttackableTargets(unit, this.units);
+    // 直接攻撃ユニットは移動先から攻撃できる。
+    // 間接攻撃ユニットは移動後は攻撃できないが、移動せず元居たマスに留まったときだけ
+    // その場から射程内の敵を攻撃できる(自走砲などが動かず撃てるように)。
+    const canAttackHere = !unit.isIndirect || equals(unit.position, origin);
+    const targets = canAttackHere ? findAttackableTargets(unit, this.units) : [];
 
     // コマンド選択状態へ移行する。移動範囲は消し、攻撃対象はメニューを介して確定させる
     this.movingUnit = null;
@@ -1283,8 +1295,10 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * コマンドメニューで「攻撃」を選んだときの、攻撃対象の選択に移る。
-   * 射程内の敵を赤枠で示してクリック待ちにする。攻撃対象以外をクリックすると
-   * メニューへ戻る。待機ボタンも残し、攻撃をやめて待機もできるようにする。
+   * 射程内の敵を赤枠で示してクリック待ちにする。コマンドメニュー(待機ボタン)は
+   * いったん閉じ、攻撃対象の選択と移動メニューが同時に出ないようにする。
+   * 攻撃可能な敵が 1 体だけなら自動でロックオンして戦闘予測を表示する。
+   * 攻撃対象以外(範囲外の敵・空きマス)をクリックしたときの挙動は handleClick で扱う。
    */
   private enterAttackSelection(): void {
     const unit = this.commandUnit;
@@ -1294,13 +1308,21 @@ export class MainScene extends Phaser.Scene {
     this.audio.playSfx('select');
     this.awaitingAttackTarget = true;
     this.attackTargets = this.pendingAttackTargets;
+    // 待機ボタンなどのコマンドメニューを閉じ、攻撃対象の選択だけに集中させる
     this.clearActionButtons();
     this.drawSelectionHighlight(unit.position);
     this.drawAttackTargets(this.attackTargets);
-    // 攻撃をやめて待機できるように待機ボタンを残す(マスの近くに表示する)
-    const anchor = this.commandMenuAnchor(unit.position, 1);
-    this.addActionButton(0, '待機', true, () => this.commitWait(), anchor);
-    this.infoText.setText(['攻撃対象を選択', unit.unitName, '赤枠の敵をクリック']);
+    // 攻撃対象が 1 体だけならその敵を自動ロックオンし、戦闘予測を先に見せる
+    if (this.attackTargets.length === 1) {
+      this.forecastTarget = this.attackTargets[0];
+      this.showForecastPopup(unit, this.attackTargets[0]);
+    }
+    this.infoText.setText([
+      '攻撃対象を選択',
+      unit.unitName,
+      '赤枠の敵をクリック',
+      '空きマスで取り消し',
+    ]);
   }
 
   /** unit が(移動後に)tile を占領できる状況か(占領能力・占領地形・非自軍所有) */
