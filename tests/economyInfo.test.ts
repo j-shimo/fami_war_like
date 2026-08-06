@@ -28,6 +28,7 @@ function makeCityTile(captureHp = INITIAL_CAPTURE_HP): TileData {
     terrainType: 'city',
     owner: 'neutral',
     captureHp,
+    captureArmy: null,
   };
 }
 
@@ -49,10 +50,12 @@ describe('economyInfo', () => {
       reduced: 10,
       remainingHp: 10,
       captured: false,
+      reset: false,
     };
     const lines = formatCaptureLog(result);
     expect(lines).toContain('残り耐久: 10');
     expect(lines).not.toContain('占領完了');
+    expect(lines).not.toContain('耐久をリセット');
   });
 
   it('占領完了は完了メッセージを表示する', () => {
@@ -62,8 +65,21 @@ describe('economyInfo', () => {
       reduced: 8,
       remainingHp: 0,
       captured: true,
+      reset: false,
     };
     expect(formatCaptureLog(result)).toContain('占領完了');
+  });
+
+  it('別軍の占領を戻したときはリセット表示を含む', () => {
+    const result: CaptureResult = {
+      tile: makeCityTile(10),
+      unit: makeInfantry(),
+      reduced: 10,
+      remainingHp: 10,
+      captured: false,
+      reset: true,
+    };
+    expect(formatCaptureLog(result)).toContain('耐久をリセット');
   });
 
   it('生産結果は名称と消費資金を表示する', () => {

@@ -48,6 +48,7 @@ export class MapManager {
           terrainType,
           owner: 'neutral',
           captureHp: INITIAL_CAPTURE_HP,
+          captureArmy: null,
         } satisfies TileData;
       });
     });

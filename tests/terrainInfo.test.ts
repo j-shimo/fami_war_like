@@ -8,6 +8,7 @@ function tile(partial: Partial<TileData> & Pick<TileData, 'terrainType'>): TileD
     position: gridPosition(1, 2),
     owner: 'neutral',
     captureHp: INITIAL_CAPTURE_HP,
+    captureArmy: null,
     ...partial,
   };
 }
@@ -44,5 +45,32 @@ describe('formatTerrainInfo', () => {
   it('都市は生産不可と表示する', () => {
     const lines = formatTerrainInfo(tile({ terrainType: 'city' }));
     expect(lines).toContain('生産: 不可');
+  });
+
+  it('占領進行中はどの軍が占領しているかを併記する', () => {
+    const lines = formatTerrainInfo(
+      tile({ terrainType: 'city', captureHp: 10, captureArmy: 'player' }),
+    );
+    expect(lines).toContain('占領耐久: 10 (自軍が占領中)');
+  });
+
+  it('進行がない拠点は占領耐久のみ表示する', () => {
+    const lines = formatTerrainInfo(
+      tile({ terrainType: 'city', captureHp: INITIAL_CAPTURE_HP, captureArmy: null }),
+    );
+    expect(lines).toContain(`占領耐久: ${INITIAL_CAPTURE_HP}`);
+  });
+
+  it('compact 表示は座標・移動コストを省き占領耐久を残す', () => {
+    const lines = formatTerrainInfo(
+      tile({ terrainType: 'city', captureHp: 10, captureArmy: 'enemy' }),
+      { compact: true },
+    );
+    expect(lines).toContain('地形: 都市');
+    expect(lines).toContain('防御: 2');
+    expect(lines).toContain('占領耐久: 10 (敵軍が占領中)');
+    // 簡略表示では座標・移動コストは出さない
+    expect(lines.some((l) => l.startsWith('座標:'))).toBe(false);
+    expect(lines.some((l) => l.startsWith('移動コスト'))).toBe(false);
   });
 });
