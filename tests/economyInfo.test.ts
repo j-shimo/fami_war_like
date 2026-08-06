@@ -11,6 +11,7 @@ import {
   formatProductionLabel,
   formatProductionLog,
   formatRepairLog,
+  listProductionItems,
 } from '@/ui/economyInfo';
 
 function makeInfantry(): Unit {
@@ -41,6 +42,15 @@ describe('economyInfo', () => {
   it('生産ボタンのラベルは名前とコストを表示する', () => {
     expect(formatProductionLabel('infantry')).toBe('歩兵 (1000)');
     expect(formatProductionLabel('tank')).toBe('戦車 (7000)');
+  });
+
+  it('生産ウィンドウの一覧は種別・名前・料金を表示順で返す', () => {
+    const items = listProductionItems();
+    expect(items).toEqual([
+      { unitType: 'infantry', unitName: '歩兵', cost: 1000 },
+      { unitType: 'tank', unitName: '戦車', cost: 7000 },
+      { unitType: 'artillery', unitName: '自走砲', cost: 6000 },
+    ]);
   });
 
   it('占領未完了は残り耐久を表示する', () => {
