@@ -31,13 +31,12 @@ import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameC
 import { DEFAULT_MAP_ENTRY } from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { getTerrainData } from '@/data/terrainData';
-import { PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
 import {
   formatCaptureLog,
   formatFunds,
-  formatProductionLabel,
   formatProductionLog,
   formatRepairLog,
+  listProductionItems,
 } from '@/ui/economyInfo';
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
 import { formatBattleForecast } from '@/ui/forecastInfo';
@@ -46,6 +45,7 @@ import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
+import { ProductionWindow } from '@/rendering/ProductionWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 import { drawUnitIcon } from '@/rendering/unitIcon';
 
@@ -117,6 +117,9 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  * Phase 7: 拠点の占領・収入・生産を追加する。
  *   歩兵で拠点を占領し、ターン開始時に所有拠点数に応じた収入を得て、
  *   工場・本拠地で資金を消費してユニットを生産する。
+ *   生産: ユニットのいない自軍の生産拠点を選ぶとマスの近くに「生産」コマンドを出し、
+ *   押すと生産ウィンドウ(アイコン・名前・料金を行ごとに並べ、超過ぶんは上下スクロール)を開く。
+ *   資金の足りない行はグレー表示で選べず、暗幕や × でウィンドウを閉じる。
  * Phase 8: 攻撃・占領のたびに勝敗を判定する。
  *   敵本拠地の占領・敵軍全滅で勝利、自軍本拠地の占領・自軍全滅で敗北とし、
  *   決着したら結果オーバーレイを表示して以降の操作を止める。
@@ -189,6 +192,10 @@ export class MainScene extends Phaser.Scene {
   private infoMenuOpen = false;
   /** 動的に生成する占領・生産コマンドのボタン群 */
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
+  /** 生産ウィンドウ(「生産」コマンドで開くユニット選択画面。初回オープン時に生成) */
+  private productionWindow: ProductionWindow | null = null;
+  /** 「生産」コマンドで選んでいる生産拠点のマス(生産ウィンドウ表示中に保持) */
+  private productionTile: TileData | null = null;
   /**
    * 直前の押下がコマンドボタンで消費されたか。
    * マップ上に浮かせた移動後メニューはマップ表示領域と重なるため、ボタン押下時に
@@ -867,6 +874,10 @@ export class MainScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
       this.ensureAudioStarted();
+      // 生産ウィンドウ表示中はウィンドウ側が入力を処理するため、マップ操作は行わない
+      if (this.productionWindow?.isOpen()) {
+        return;
+      }
       // 勝敗が決した後はマップ操作を受け付けない
       if (this.gameOver) {
         return;
@@ -900,6 +911,10 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      // 生産ウィンドウ表示中はウィンドウ側がスクロールを処理する
+      if (this.productionWindow?.isOpen()) {
+        return;
+      }
       // マップ領域で押下中なら、移動量に応じてスクロール(スワイプ)する
       if (this.dragActive && pointer.isDown) {
         const dx = pointer.x - this.pointerDownX;
@@ -923,6 +938,10 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
+      // 生産ウィンドウ表示中はウィンドウ側が処理するため、マップのクリック確定は行わない
+      if (this.productionWindow?.isOpen()) {
+        return;
+      }
       const wasActive = this.dragActive;
       const wasPanning = this.isPanning;
       const wasLongPress = this.longPressFired;
@@ -1165,9 +1184,9 @@ export class MainScene extends Phaser.Scene {
     this.mergeTargets = [];
     this.rangeGraphics.clear();
 
-    // ユニットのいない自軍の生産拠点を選んだら生産メニューを表示する
+    // ユニットのいない自軍の生産拠点を選んだら「生産」コマンドを表示する
     if (!unit && this.production.canProduceAt(this.turn.currentArmy, tile)) {
-      this.renderProductionMenu(tile);
+      this.showProductionCommand(tile);
     }
   }
 
@@ -1506,15 +1525,67 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  /** ユニットのいない自軍生産拠点の生産メニューを表示する */
-  private renderProductionMenu(tile: TileData): void {
+  /**
+   * ユニットのいない自軍生産拠点を選んだときに「生産」コマンドを表示する。
+   * マスの近くに浮かせて表示し、押すと生産ウィンドウ(ユニット選択画面)を開く。
+   */
+  private showProductionCommand(tile: TileData): void {
+    this.productionTile = tile;
+    const anchor = this.commandMenuAnchor(tile.position, 1);
+    this.addActionButton(0, '生産', true, () => this.openProductionWindow(tile), anchor);
+  }
+
+  /**
+   * 生産ウィンドウ(ユニットアイコン・名前・料金を行ごとに並べた選択画面)を開く。
+   * 生産可能ユニットが増えて表示範囲を超えた場合は、ウィンドウ側で上下スクロールする。
+   */
+  private openProductionWindow(tile: TileData): void {
     const army = this.turn.currentArmy;
-    PRODUCIBLE_UNIT_TYPES.forEach((unitType, index) => {
-      const affordable = this.production.canProduce(army, tile, unitType);
-      this.addActionButton(index, formatProductionLabel(unitType), affordable, () =>
-        this.executeProduction(tile, unitType),
-      );
+    if (!this.production.canProduceAt(army, tile)) {
+      return;
+    }
+    this.audio.playSfx('button');
+    this.clearActionButtons();
+    this.productionTile = tile;
+
+    // 各ユニットの資金充足(生産可否)を判定して行データを作る
+    const items = listProductionItems().map((item) => ({
+      ...item,
+      affordable: this.production.canProduce(army, tile, item.unitType),
+    }));
+
+    this.productionWindow ??= new ProductionWindow(this);
+    this.productionWindow.open({
+      gameWidth: this.gameWidth,
+      gameHeight: this.gameHeight,
+      viewWidth: this.viewWidth,
+      viewHeight: this.viewHeight,
+      items,
+      tokenColor: UNIT_BODY_COLOR[army],
+      onSelect: (unitType) => this.handleProductionSelect(unitType),
+      onClose: () => this.handleProductionWindowClose(),
     });
+  }
+
+  /** 生産ウィンドウで行が選ばれたときの処理(生産可能なら生産して閉じる) */
+  private handleProductionSelect(unitType: UnitType): void {
+    const tile = this.productionTile;
+    if (!tile) {
+      return;
+    }
+    const army = this.turn.currentArmy;
+    if (!this.production.canProduce(army, tile, unitType)) {
+      this.audio.playSfx('denied');
+      return;
+    }
+    this.productionWindow?.close();
+    this.executeProduction(tile, unitType);
+  }
+
+  /** 生産ウィンドウが暗幕・× で閉じられたときの処理(選択状態を片付ける) */
+  private handleProductionWindowClose(): void {
+    this.audio.playSfx('button');
+    this.clearSelection();
   }
 
   /** 選択中の生産拠点で unitType を生産し、資金・表示を更新する */
@@ -1676,6 +1747,9 @@ export class MainScene extends Phaser.Scene {
 
   /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
   private resetSelection(): void {
+    // 生産ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
+    this.productionWindow?.close();
+    this.productionTile = null;
     this.selected = null;
     this.movingUnit = null;
     this.movementRange = null;

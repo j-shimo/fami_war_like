@@ -6,7 +6,7 @@ import type { EconomyArmy } from '@/core/economy/EconomyManager';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
 import type { RepairResult } from '@/core/economy/RepairManager';
 import { armyLabel } from '@/ui/terrainInfo';
-import { getUnitData } from '@/data/unitData';
+import { getUnitData, PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
 import type { UnitType } from '@/core/units/UnitType';
 
 /** 資金額を「資金(自軍): 12000」の形式に整形する */
@@ -18,6 +18,27 @@ export function formatFunds(army: EconomyArmy, amount: number): string {
 export function formatProductionLabel(unitType: UnitType): string {
   const data = getUnitData(unitType);
   return `${data.unitName} (${data.cost})`;
+}
+
+/** 生産ウィンドウの 1 行ぶんの表示データ(アイコン・名前・料金の描画に使う) */
+export interface ProductionMenuItem {
+  /** ユニット種別(アイコン描画と生産実行のキーに使う) */
+  readonly unitType: UnitType;
+  /** 表示名(日本語) */
+  readonly unitName: string;
+  /** 生産コスト(料金) */
+  readonly cost: number;
+}
+
+/**
+ * 生産ウィンドウに並べる生産可能ユニットの一覧を、表示順で返す。
+ * 表示範囲を超えるぶんはウィンドウ側でスクロール表示する想定で、件数の上限は設けない。
+ */
+export function listProductionItems(): ProductionMenuItem[] {
+  return PRODUCIBLE_UNIT_TYPES.map((unitType) => {
+    const data = getUnitData(unitType);
+    return { unitType, unitName: data.unitName, cost: data.cost };
+  });
 }
 
 /** 占領結果を情報パネル用の複数行テキストに整形する */
