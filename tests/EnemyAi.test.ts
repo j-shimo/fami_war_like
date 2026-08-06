@@ -207,7 +207,7 @@ describe('EnemyAi.run', () => {
   });
 
   it('資金があれば、空の生産拠点で最も高価なユニットを生産する', () => {
-    // col0 に敵軍の工場(空)。資金 10000 で最も高価な戦車(7000)を生産する
+    // col0 に敵軍の工場(空)。資金 10000 で工場で最も高価な対空戦車(8000)を生産する
     const { units, economy, ai } = setup({
       name: 't',
       terrain: ['F..'],
@@ -219,12 +219,12 @@ describe('EnemyAi.run', () => {
     const produced = actionsOfKind(actions, 'produce');
 
     expect(produced).toHaveLength(1);
-    expect(produced[0].result.unit.unitType).toBe('tank');
-    // 資金 10000 − 戦車 7000 = 3000
-    expect(economy.getFunds('enemy')).toBe(3000);
+    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+    // 資金 10000 − 対空戦車 8000 = 2000
+    expect(economy.getFunds('enemy')).toBe(2000);
     // 生産されたユニットは工場マスに配置され、このターンは行動済み
     const spawned = units.getUnitAt(gridPosition(0, 0));
-    expect(spawned?.unitType).toBe('tank');
+    expect(spawned?.unitType).toBe('antiAirTank');
     expect(spawned?.hasActed).toBe(true);
   });
 

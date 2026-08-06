@@ -29,7 +29,9 @@ export function calculateDamage(
 ): number {
   const base = getBaseDamage(attacker.unitType, defender.unitType);
   const hpRatio = attackerHp / attacker.maxHp;
-  const terrainFactor = Math.max(0, 1 - defenderTerrainDefense * 0.1);
+  // 飛行ユニットは地形の上空にいるため、地形の防御補正を受けない(常に防御 0 扱い)。
+  const effectiveDefense = defender.movementType === 'air' ? 0 : defenderTerrainDefense;
+  const terrainFactor = Math.max(0, 1 - effectiveDefense * 0.1);
 
   const raw = base * hpRatio * terrainFactor; // 0-100 スケール
   const damage = Math.round(raw / 10); // HP(0-10)スケールへ変換

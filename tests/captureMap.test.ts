@@ -22,11 +22,11 @@ describe('CAPTURE_MAP(拠点争奪マップ)', () => {
     expect(CAPTURE_MAP.initialFunds).toBe(0);
   });
 
-  it('自軍・敵軍は本拠地 1・工場 2 の計 3 拠点を所有して開始する', () => {
+  it('自軍・敵軍は本拠地 1・工場 2・空港 1 の計 4 拠点を所有して開始する', () => {
     const map = MapManager.fromDefinition(CAPTURE_MAP);
     const owned = {
-      player: { total: 0, factory: 0, headquarters: 0 },
-      enemy: { total: 0, factory: 0, headquarters: 0 },
+      player: { total: 0, factory: 0, headquarters: 0, airport: 0 },
+      enemy: { total: 0, factory: 0, headquarters: 0, airport: 0 },
     };
     map.forEachTile((tile) => {
       if (tile.owner !== 'player' && tile.owner !== 'enemy') return;
@@ -34,24 +34,25 @@ describe('CAPTURE_MAP(拠点争奪マップ)', () => {
       side.total += 1;
       if (tile.terrainType === 'factory') side.factory += 1;
       if (tile.terrainType === 'headquarters') side.headquarters += 1;
+      if (tile.terrainType === 'airport') side.airport += 1;
     });
     for (const side of [owned.player, owned.enemy]) {
-      expect(side.total).toBe(3);
+      expect(side.total).toBe(4);
       expect(side.factory).toBe(2);
       expect(side.headquarters).toBe(1);
+      expect(side.airport).toBe(1);
     }
   });
 
-  it('各軍は開始時の収入で 3 体まで生産できる(3 生産拠点 × 収入)', () => {
+  it('各軍は工場・本拠地・空港の 4 生産拠点を所有して開始する', () => {
     const map = MapManager.fromDefinition(CAPTURE_MAP);
-    // 収入 = 所有拠点数 × 拠点あたり収入。歩兵 3 体ぶんの資金が用意できることを確認する
     let producibleTiles = 0;
     map.forEachTile((tile) => {
       if (tile.owner === 'player' && getTerrainData(tile.terrainType).canProduce) {
         producibleTiles += 1;
       }
     });
-    expect(producibleTiles).toBe(3);
+    expect(producibleTiles).toBe(4);
   });
 
   it('中央に取り合いの対象となる中立拠点が存在する', () => {

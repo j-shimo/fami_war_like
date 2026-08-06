@@ -8,7 +8,7 @@ import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
 import { getTerrainData } from '@/data/terrainData';
-import { getUnitData } from '@/data/unitData';
+import { getUnitData, isProducibleAt } from '@/data/unitData';
 
 /** 生産 1 回ぶんの結果 */
 export interface ProductionResult {
@@ -39,9 +39,15 @@ export class ProductionManager {
     return !this.units.isOccupied(tile.position);
   }
 
-  /** army が tile で unitType を生産できるか(生産条件 + 資金) */
+  /**
+   * army が tile で unitType を生産できるか(生産条件 + 生産拠点の種別対応 + 資金)。
+   * 生産拠点ごとに生産できる種別が異なる(工場・本拠地は地上ユニット、空港は飛行ユニット)。
+   */
   canProduce(army: EconomyArmy, tile: TileData, unitType: UnitType): boolean {
     if (!this.canProduceAt(army, tile)) {
+      return false;
+    }
+    if (!isProducibleAt(tile.terrainType, unitType)) {
       return false;
     }
     return this.economy.canAfford(army, getUnitData(unitType).cost);
@@ -56,6 +62,11 @@ export class ProductionManager {
     if (!this.canProduceAt(army, tile)) {
       throw new Error(
         `このマスでは生産できません(col ${tile.position.col}, row ${tile.position.row})`,
+      );
+    }
+    if (!isProducibleAt(tile.terrainType, unitType)) {
+      throw new Error(
+        `この生産拠点では ${getUnitData(unitType).unitName} を生産できません`,
       );
     }
     const cost = getUnitData(unitType).cost;

@@ -47,12 +47,12 @@ describe('formatTerrainInfo', () => {
     expect(lines).toContain('生産: 不可');
   });
 
-  it('空港は占領地形として所有・占領耐久を表示する(現状は生産不可)', () => {
+  it('空港は占領地形として所有・占領耐久を表示し、生産可能と表示する', () => {
     const lines = formatTerrainInfo(tile({ terrainType: 'airport', owner: 'player' }));
     expect(lines).toContain('地形: 空港');
     expect(lines).toContain('所有: 自軍');
     expect(lines).toContain(`占領耐久: ${INITIAL_CAPTURE_HP}`);
-    expect(lines).toContain('生産: 不可');
+    expect(lines).toContain('生産: 可');
   });
 
   it('海は非占領地形で移動コストを進入不可(×)と表示する', () => {

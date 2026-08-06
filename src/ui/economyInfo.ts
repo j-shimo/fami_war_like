@@ -6,7 +6,8 @@ import type { EconomyArmy } from '@/core/economy/EconomyManager';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
 import type { RepairResult } from '@/core/economy/RepairManager';
 import { armyLabel } from '@/ui/terrainInfo';
-import { getUnitData, PRODUCIBLE_UNIT_TYPES } from '@/data/unitData';
+import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
+import type { TerrainType } from '@/core/map/TerrainType';
 import type { UnitType } from '@/core/units/UnitType';
 
 /** 資金額を「資金(自軍): 12000」の形式に整形する */
@@ -31,11 +32,12 @@ export interface ProductionMenuItem {
 }
 
 /**
- * 生産ウィンドウに並べる生産可能ユニットの一覧を、表示順で返す。
+ * 生産ウィンドウに並べる、指定した生産拠点(地形)で生産できるユニットの一覧を表示順で返す。
+ * 工場・本拠地では地上ユニット、空港では飛行ユニットが並ぶ。
  * 表示範囲を超えるぶんはウィンドウ側でスクロール表示する想定で、件数の上限は設けない。
  */
-export function listProductionItems(): ProductionMenuItem[] {
-  return PRODUCIBLE_UNIT_TYPES.map((unitType) => {
+export function listProductionItems(terrainType: TerrainType): ProductionMenuItem[] {
+  return producibleUnitTypesAt(terrainType).map((unitType) => {
     const data = getUnitData(unitType);
     return { unitType, unitName: data.unitName, cost: data.cost };
   });
