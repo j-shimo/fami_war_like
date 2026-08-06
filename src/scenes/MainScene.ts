@@ -266,6 +266,7 @@ export class MainScene extends Phaser.Scene {
     this.drawTerrain();
     this.drawGridLines();
     this.createRangeOverlay();
+    this.createUnitLayer();
     this.drawUnits();
     this.createHighlight();
     this.createInfoPanel();
@@ -308,6 +309,16 @@ export class MainScene extends Phaser.Scene {
   /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
   private createRangeOverlay(): void {
     this.rangeGraphics = this.add.graphics();
+  }
+
+  /**
+   * ユニット描画用のコンテナを用意する(範囲表示より上・ハイライトより下)。
+   * シーンを再入場すると前回のコンテナは破棄済みになるため、他の描画レイヤーと
+   * 同様に create() のたびに作り直す。これを怠ると再入場時にユニットアイコンが
+   * 描画されない(データはあるがコンテナが表示リストから外れている)状態になる。
+   */
+  private createUnitLayer(): void {
+    this.unitLayer = this.add.container(0, 0);
   }
 
   /**
@@ -367,9 +378,6 @@ export class MainScene extends Phaser.Scene {
    * コンテナにまとめて描くことで、移動・撃破時に再描画しやすくする。
    */
   private drawUnits(): void {
-    if (!this.unitLayer) {
-      this.unitLayer = this.add.container(0, 0);
-    }
     this.unitLayer.removeAll(true);
 
     const graphics = this.add.graphics();
