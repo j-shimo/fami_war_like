@@ -4,6 +4,7 @@
 import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import { Unit } from '@/core/units/Unit';
+import { canMerge, mergedHp } from '@/core/units/merge';
 import type { UnitType } from '@/core/units/UnitType';
 import { getUnitData } from '@/data/unitData';
 
@@ -146,6 +147,22 @@ export class UnitManager {
     });
     this.units.push(unit);
     return unit;
+  }
+
+  /**
+   * source を target に合流させる。
+   * target の HP に source の HP を加算(最大 HP で頭打ち)し、target を行動済み(待機)にして、
+   * source を盤面から取り除く。合流後は target 1 体だけが残る。
+   * 合流できない組み合わせ(異なる軍・種別、同一ユニット、いずれかが満タン)は
+   * データ不整合として例外を投げる(呼び出し側で canMerge により事前判定する想定)。
+   */
+  mergeUnit(source: Unit, target: Unit): void {
+    if (!canMerge(source, target)) {
+      throw new Error('合流できない組み合わせのユニットです');
+    }
+    target.currentHp = mergedHp(source, target);
+    target.hasActed = true;
+    this.removeUnit(source);
   }
 
   /** ユニットを管理対象から取り除く(撃破時などに使う) */

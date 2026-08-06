@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
-import { calculateMovementRange } from '@/core/movement/MovementRange';
+import { calculateMovementRange, findMergeTargets } from '@/core/movement/MovementRange';
 import { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
@@ -118,6 +118,73 @@ describe('calculateMovementRange', () => {
 
     const range = calculateMovementRange(unit, map, units);
     expect(range.canReach(gridPosition(1, 0))).toBe(true);
+  });
+});
+
+describe('findMergeTargets', () => {
+  it('移動範囲内にいる同種・HP減の味方を合流先として返す', () => {
+    // 横一列。(0,0) の HP4 歩兵から見て、範囲内の HP5 歩兵(2,0)が合流先
+    const def: MapDefinition = { name: 'merge', terrain: ['.....'] };
+    const map = MapManager.fromDefinition(def);
+    const units = makeUnits([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 2, row: 0, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = units.getUnitAt(gridPosition(0, 0))!;
+    const target = units.getUnitAt(gridPosition(2, 0))!;
+    source.currentHp = 4;
+    target.currentHp = 5;
+
+    const targets = findMergeTargets(source, map, units);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toBe(target);
+  });
+
+  it('移動範囲外の味方は合流先に含めない', () => {
+    // 歩兵の移動力は3。(4,0)は移動コスト4で届かない
+    const def: MapDefinition = { name: 'far', terrain: ['.....'] };
+    const map = MapManager.fromDefinition(def);
+    const units = makeUnits([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 4, row: 0, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = units.getUnitAt(gridPosition(0, 0))!;
+    const target = units.getUnitAt(gridPosition(4, 0))!;
+    source.currentHp = 4;
+    target.currentHp = 5;
+
+    expect(findMergeTargets(source, map, units)).toHaveLength(0);
+  });
+
+  it('種別の異なる味方や満タンの味方は合流先に含めない', () => {
+    const def: MapDefinition = { name: 'mixed', terrain: ['.....'] };
+    const map = MapManager.fromDefinition(def);
+    const units = makeUnits([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      // 種別違い(戦車)
+      { col: 1, row: 0, unitType: 'tank', army: 'player' },
+      // 満タンの歩兵
+      { col: 0, row: 1, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = units.getUnitAt(gridPosition(0, 0))!;
+    source.currentHp = 4;
+
+    expect(findMergeTargets(source, map, units)).toHaveLength(0);
+  });
+
+  it('合流元が満タンなら合流先を探さない', () => {
+    const def: MapDefinition = { name: 'full', terrain: ['.....'] };
+    const map = MapManager.fromDefinition(def);
+    const units = makeUnits([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 1, row: 0, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = units.getUnitAt(gridPosition(0, 0))!;
+    const target = units.getUnitAt(gridPosition(1, 0))!;
+    // source は満タンのまま、target は HP を減らす
+    target.currentHp = 5;
+
+    expect(findMergeTargets(source, map, units)).toHaveLength(0);
   });
 });
 
