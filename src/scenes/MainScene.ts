@@ -1561,6 +1561,7 @@ export class MainScene extends Phaser.Scene {
       viewWidth: this.viewWidth,
       viewHeight: this.viewHeight,
       items,
+      fundsLabel: formatFunds(army, this.economy.getFunds(army)),
       tokenColor: UNIT_BODY_COLOR[army],
       onSelect: (unitType) => this.handleProductionSelect(unitType),
       onClose: () => this.handleProductionWindowClose(),

@@ -31,6 +31,8 @@ export interface ProductionWindowConfig {
   readonly viewHeight: number;
   /** 並べるユニット一覧(表示順) */
   readonly items: readonly ProductionWindowItem[];
+  /** ヘッダーに固定表示する現在資金のラベル(例: 「資金(自軍): 3000」) */
+  readonly fundsLabel: string;
   /** アイコンの軍色トークン(円)の色 */
   readonly tokenColor: number;
   /** 行が選ばれたときの通知(生産可能な行のみ呼ばれる) */
@@ -43,6 +45,10 @@ export interface ProductionWindowConfig {
 const WIN_WIDTH = 264;
 /** タイトルバーの高さ */
 const TITLE_HEIGHT = 34;
+/** 現在資金を固定表示するヘッダー行の高さ */
+const FUNDS_HEIGHT = 28;
+/** ヘッダー(タイトルバー + 資金行)全体の高さ。一覧はこの下から始まる */
+const HEADER_HEIGHT = TITLE_HEIGHT + FUNDS_HEIGHT;
 /** 1 行の高さ */
 const ROW_HEIGHT = 48;
 /** 一度に見せる最大行数(これを超えるとスクロールになる) */
@@ -66,6 +72,8 @@ const COLOR = {
   rowOdd: 0x1c1c2e,
   rowDisabled: 0x2a2a30,
   separator: 0x33334a,
+  fundsRow: 0x161622,
+  funds: '#ffe08a',
   name: '#ffffff',
   nameDisabled: '#888888',
   cost: '#ffe08a',
@@ -151,14 +159,14 @@ export class ProductionWindow {
     this.pointerActive = false;
     this.dragging = false;
 
-    const winHeight = TITLE_HEIGHT + this.listHeight;
+    const winHeight = HEADER_HEIGHT + this.listHeight;
     // ビューポート(マップ領域)の中央に置く。スクリーン座標で保持しておく
     this.winScreenX = Math.round((config.viewWidth - WIN_WIDTH) / 2);
     this.winScreenY = Math.round((config.viewHeight - winHeight) / 2);
     // マップと一緒にスクロールしないよう、世界座標へはカメラスクロールを足して配置する
     const winX = scrollX + this.winScreenX;
     const winY = scrollY + this.winScreenY;
-    const contentTop = winY + TITLE_HEIGHT;
+    const contentTop = winY + HEADER_HEIGHT;
 
     this.createBackdrop(scrollX, scrollY, config);
     this.createPanel(winX, winY, winHeight);
@@ -204,8 +212,9 @@ export class ProductionWindow {
     this.objects.push(backdrop);
   }
 
-  /** タイトルバー付きの枠を描く */
+  /** タイトルバー・資金行付きの枠を描く */
   private createPanel(winX: number, winY: number, winHeight: number): void {
+    const fundsLabel = this.config?.fundsLabel ?? '';
     const panel = this.scene.add.graphics().setDepth(WINDOW_DEPTH + 1);
     // 枠の下地
     panel.fillStyle(COLOR.panel, 1);
@@ -213,6 +222,17 @@ export class ProductionWindow {
     // タイトルバー
     panel.fillStyle(COLOR.panelStroke, 0.14);
     panel.fillRect(winX, winY, WIN_WIDTH, TITLE_HEIGHT);
+    // 資金行(スクロールしないヘッダー。タイトルバーの直下に固定表示する)
+    panel.fillStyle(COLOR.fundsRow, 1);
+    panel.fillRect(winX, winY + TITLE_HEIGHT, WIN_WIDTH, FUNDS_HEIGHT);
+    // 資金行と一覧を分ける区切り線(ヘッダーの下端)
+    panel.lineStyle(1, COLOR.separator, 1);
+    panel.lineBetween(
+      winX,
+      winY + HEADER_HEIGHT,
+      winX + WIN_WIDTH,
+      winY + HEADER_HEIGHT,
+    );
     // 外枠
     panel.lineStyle(2, COLOR.panelStroke, 1);
     panel.strokeRect(winX, winY, WIN_WIDTH, winHeight);
@@ -239,6 +259,17 @@ export class ProductionWindow {
       .setOrigin(1, 0.5)
       .setDepth(WINDOW_DEPTH + 2);
     this.objects.push(close);
+
+    // 現在資金(ヘッダーに固定表示。一覧をスクロールしても動かない)
+    const funds = this.scene.add
+      .text(winX + ROW_PADDING, winY + TITLE_HEIGHT + FUNDS_HEIGHT / 2, fundsLabel, {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: COLOR.funds,
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(WINDOW_DEPTH + 2);
+    this.objects.push(funds);
   }
 
   /** 各ユニットの行(アイコン・名前・料金)をコンテナに描く */
@@ -356,7 +387,7 @@ export class ProductionWindow {
     }
     const camera = this.scene.cameras.main;
     const winX = camera.scrollX + this.winScreenX;
-    const contentTop = camera.scrollY + this.winScreenY + TITLE_HEIGHT;
+    const contentTop = camera.scrollY + this.winScreenY + HEADER_HEIGHT;
     this.drawScrollbar(winX, contentTop);
   }
 
@@ -445,7 +476,7 @@ export class ProductionWindow {
     const left = this.winScreenX;
     const top = this.winScreenY;
     const right = left + WIN_WIDTH;
-    const winHeight = TITLE_HEIGHT + this.listHeight;
+    const winHeight = HEADER_HEIGHT + this.listHeight;
     const bottom = top + winHeight;
 
     // ウィンドウの外をタップしたら閉じる
@@ -460,8 +491,12 @@ export class ProductionWindow {
       }
       return;
     }
+    // 資金行(ヘッダー): 何もしない(固定表示のみ)
+    if (screenY < top + HEADER_HEIGHT) {
+      return;
+    }
     // 一覧領域: スクロール量を差し引いて行番号を求める
-    const listTop = top + TITLE_HEIGHT;
+    const listTop = top + HEADER_HEIGHT;
     const localY = screenY - listTop - this.offset;
     const index = Math.floor(localY / ROW_HEIGHT);
     if (index < 0 || index >= config.items.length) {
