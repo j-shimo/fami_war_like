@@ -19,6 +19,11 @@ export interface CaptureResult {
   readonly remainingHp: number;
   /** 占領が完了し、所有者が変わったか */
   readonly captured: boolean;
+  /**
+   * 別の軍が進めていた占領を引き継がず、耐久値を初期値へ戻してから
+   * 計算したか(自軍と敵軍の占領値を分けるためのリセット)。
+   */
+  readonly reset: boolean;
 }
 
 /** 拠点占領の実行を担うシステム */
@@ -44,9 +49,20 @@ export class CaptureSystem {
   }
 
   /**
+   * unit がこの拠点で占領を開始・継続するときの、計算の起点となる占領耐久値を返す。
+   * 自軍と敵軍の占領値を分けるため、別の軍が占領を進めていた(あるいは進行がない)
+   * 場合は初期値から始め、同じ軍が続けて占領する場合のみ現在値を引き継ぐ。
+   */
+  effectiveCaptureHp(unit: Unit, tile: TileData): number {
+    return tile.captureArmy === unit.armyType ? tile.captureHp : INITIAL_CAPTURE_HP;
+  }
+
+  /**
    * unit で tile を占領する。
    * 占領耐久値を歩兵の現在 HP ぶんだけ減らし、
    * 0 以下になったら所有者を占領した軍へ変更して耐久値を初期値に戻す。
+   * 占領は軍ごとに独立しており、別の軍が進めていた占領を引き継ぐことはない。
+   * 直前まで別の軍が占領を進めていた場合は、耐久値を初期値へ戻してから計算する。
    * 占領を実行したユニットは行動済みになる。
    * 占領できない状況で呼ばれた場合はデータ不整合として例外を投げる。
    */
@@ -57,15 +73,22 @@ export class CaptureSystem {
       );
     }
 
-    const reduced = Math.min(tile.captureHp, unit.currentHp);
-    const remaining = tile.captureHp - reduced;
+    // 別の軍が占領を進めていたら、その進行は破棄して初期値から数え直す
+    const reset = tile.captureArmy !== null && tile.captureArmy !== unit.armyType;
+    const baseHp = this.effectiveCaptureHp(unit, tile);
+    const reduced = Math.min(baseHp, unit.currentHp);
+    const remaining = baseHp - reduced;
     const captured = remaining <= 0;
 
     if (captured) {
       tile.owner = unit.armyType;
       tile.captureHp = INITIAL_CAPTURE_HP;
+      // 占領が完了したので進行状態はクリアする
+      tile.captureArmy = null;
     } else {
       tile.captureHp = remaining;
+      // この軍が占領を進めていることを記録する
+      tile.captureArmy = unit.armyType;
     }
 
     unit.hasActed = true;
@@ -76,6 +99,7 @@ export class CaptureSystem {
       reduced,
       remainingHp: captured ? 0 : tile.captureHp,
       captured,
+      reset,
     };
   }
 }

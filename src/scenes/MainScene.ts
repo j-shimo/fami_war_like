@@ -1222,7 +1222,9 @@ export class MainScene extends Phaser.Scene {
       buttons.push({ label: '攻撃', onClick: () => this.enterAttackSelection() });
     }
     if (this.canOfferCapture(unit, tile)) {
-      info.push(`占領耐久: ${tile.captureHp}`);
+      // 別の軍が占領を進めていた拠点は初期値へ戻してから占領するため、
+      // この軍が実際に減らし始める耐久値(実効値)を表示する
+      info.push(`占領耐久: ${this.capture.effectiveCaptureHp(unit, tile)}`);
       buttons.push({ label: '占領する', onClick: () => this.executeCapture(unit, tile) });
     }
     // 待機は常に選べるようにする(メニュー外クリックで移動を取り消せる)
@@ -1542,7 +1544,9 @@ export class MainScene extends Phaser.Scene {
   private buildInfo(tile: TileData): string[] {
     const unit = this.units.getUnitAt(tile.position);
     if (unit) {
-      return [...formatUnitInfo(unit), '', ...formatTerrainInfo(tile)];
+      // ユニット情報と併記すると行数が多くなり、占領耐久などが下部のボタンに
+      // 隠れてしまうため、地形情報は簡略表示にして重要な行を残す
+      return [...formatUnitInfo(unit), '', ...formatTerrainInfo(tile, { compact: true })];
     }
     return formatTerrainInfo(tile);
   }

@@ -16,4 +16,10 @@ export interface TileData {
   owner: ArmyType;
   /** 占領耐久値。占領不可地形では使用しない */
   captureHp: number;
+  /**
+   * 現在この拠点の占領を進めている軍。
+   * 占領が進行していない(captureHp が初期値)ときは null。
+   * 別の軍が占領を始めると、進行中の占領はリセットされる。
+   */
+  captureArmy: ArmyType | null;
 }

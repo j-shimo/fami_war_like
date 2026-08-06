@@ -23,6 +23,10 @@ export function formatProductionLabel(unitType: UnitType): string {
 /** 占領結果を情報パネル用の複数行テキストに整形する */
 export function formatCaptureLog(result: CaptureResult): string[] {
   const lines = ['占領', `${result.unit.unitName} が占領`];
+  // 別の軍が進めていた占領を初期値へ戻してから占領した場合はその旨を示す
+  if (result.reset) {
+    lines.push('耐久をリセット');
+  }
   if (result.captured) {
     lines.push('占領完了');
   } else {
