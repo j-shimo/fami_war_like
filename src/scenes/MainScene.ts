@@ -15,10 +15,12 @@ import type { ArmyType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
 import {
   calculateMovementRange,
+  findMergeTargets,
   type MovementRange,
 } from '@/core/movement/MovementRange';
 import { TurnManager } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
+import { mergedHp } from '@/core/units/merge';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
 import {
@@ -79,6 +81,9 @@ const MENU_DEPTH = 150;
  * 各項目の画面は今後実装する(現時点ではメニュー表示までを行う)。
  */
 const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果'] as const;
+
+/** 合流できる味方ユニットを示す枠の色(攻撃対象の赤枠と区別する緑枠) */
+const MERGE_TARGET_COLOR = 0x5ad469;
 
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
@@ -168,6 +173,8 @@ export class MainScene extends Phaser.Scene {
   private movementRange: MovementRange | null = null;
   /** movingUnit が現在位置から攻撃できる敵ユニット */
   private attackTargets: Unit[] = [];
+  /** movingUnit が移動範囲内で合流できる味方の同種ユニット */
+  private mergeTargets: Unit[] = [];
   /** 移動後に攻撃/占領/待機の選択待ちになっているユニット(いなければ null) */
   private commandUnit: Unit | null = null;
   /** commandUnit が乗っているマス(占領コマンドの対象。いなければ null) */
@@ -1027,12 +1034,19 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    // 行動対象を選択中なら、攻撃・移動を優先して判定する
+    // 行動対象を選択中なら、攻撃・合流・移動を優先して判定する
     if (this.movingUnit) {
       // 攻撃対象の敵をクリックしたら攻撃する
       const target = this.attackTargets.find((t) => equals(t.position, pos));
       if (target) {
         this.attackTarget(target);
+        return;
+      }
+      // 合流できる味方(緑枠)をクリックしたら合流する。
+      // 合流先マスは味方が占有していて movementRange には含まれないため、移動判定より先に扱う。
+      const mergeTarget = this.mergeTargets.find((t) => equals(t.position, pos));
+      if (mergeTarget) {
+        this.mergeSelectedUnit(mergeTarget);
         return;
       }
       // 移動可能範囲内(元居たマス自身も含む)をクリックしたらそのマスへ移動する。
@@ -1137,7 +1151,9 @@ export class MainScene extends Phaser.Scene {
       this.movingUnit = unit;
       this.movementRange = calculateMovementRange(unit, this.map, this.units);
       this.attackTargets = findAttackableTargets(unit, this.units);
-      this.drawActionRange(this.movementRange, this.attackTargets);
+      // 移動範囲内にいる合流可能な味方(同種・双方 HP 減)を移動先候補に加える
+      this.mergeTargets = findMergeTargets(unit, this.map, this.units);
+      this.drawActionRange(this.movementRange, this.attackTargets, this.mergeTargets);
       // 占領は移動先(元居たマスを含む)を選んだあとのコマンドメニューから行う。
       // 情報パネルに占領ボタンは出さない。
       return;
@@ -1146,6 +1162,7 @@ export class MainScene extends Phaser.Scene {
     this.movingUnit = null;
     this.movementRange = null;
     this.attackTargets = [];
+    this.mergeTargets = [];
     this.rangeGraphics.clear();
 
     // ユニットのいない自軍の生産拠点を選んだら生産メニューを表示する
@@ -1170,6 +1187,27 @@ export class MainScene extends Phaser.Scene {
     this.audio.playSfx('move');
     this.drawUnits();
     this.enterPostMoveCommand(unit, tile, origin);
+  }
+
+  /**
+   * 選択中ユニットを、緑枠で示した合流先の味方(同種)へ合流させる。
+   * 2 体の HP を合算(最大 HP で頭打ち)して 1 体にまとめ、合流先を待機(行動済み)にする。
+   * 合流は移動後のコマンドメニューを介さず、その場で確定する(結果は情報パネルに表示)。
+   */
+  private mergeSelectedUnit(target: Unit): void {
+    const unit = this.movingUnit;
+    if (!unit) {
+      return;
+    }
+    // 表示用に、合流前の HP と合流後の HP を控えておく
+    const beforeHp = target.currentHp;
+    const resultHp = mergedHp(unit, target);
+    this.units.mergeUnit(unit, target);
+    // HP を回復して 1 体にまとまるため、修理と同じ効果音で知らせる
+    this.audio.playSfx('repair');
+    this.resetSelection();
+    this.drawUnits();
+    this.infoText.setText(['合流', target.unitName, `HP: ${beforeHp} → ${resultHp}`]);
   }
 
   /**
@@ -1512,8 +1550,12 @@ export class MainScene extends Phaser.Scene {
     return lines;
   }
 
-  /** 移動可能範囲(青)と攻撃可能な敵(赤)を重ねて表示する */
-  private drawActionRange(range: MovementRange, targets: readonly Unit[]): void {
+  /** 移動可能範囲(青)・攻撃可能な敵(赤)・合流できる味方(緑)を重ねて表示する */
+  private drawActionRange(
+    range: MovementRange,
+    targets: readonly Unit[],
+    mergeTargets: readonly Unit[] = [],
+  ): void {
     this.rangeGraphics.clear();
 
     // 移動可能範囲を半透明の青塗りで表示する(行動対象マス自身は除く)
@@ -1526,6 +1568,8 @@ export class MainScene extends Phaser.Scene {
       this.rangeGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
     }
 
+    // 合流できる味方マスを緑枠で強調表示する
+    this.strokeMergeTargets(mergeTargets);
     // 攻撃可能な敵マスを赤枠で強調表示する
     this.strokeAttackTargets(targets);
   }
@@ -1539,6 +1583,15 @@ export class MainScene extends Phaser.Scene {
   /** 攻撃対象マスに赤枠を描く(rangeGraphics のクリアは呼び出し側で行う) */
   private strokeAttackTargets(targets: readonly Unit[]): void {
     this.rangeGraphics.lineStyle(3, 0xff5a5a, 0.95);
+    for (const target of targets) {
+      const { x, y } = gridToWorld(target.position, TILE_SIZE);
+      this.rangeGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    }
+  }
+
+  /** 合流できる味方マスに緑枠を描く(rangeGraphics のクリアは呼び出し側で行う) */
+  private strokeMergeTargets(targets: readonly Unit[]): void {
+    this.rangeGraphics.lineStyle(3, MERGE_TARGET_COLOR, 0.95);
     for (const target of targets) {
       const { x, y } = gridToWorld(target.position, TILE_SIZE);
       this.rangeGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -1627,6 +1680,7 @@ export class MainScene extends Phaser.Scene {
     this.movingUnit = null;
     this.movementRange = null;
     this.attackTargets = [];
+    this.mergeTargets = [];
     this.commandUnit = null;
     this.commandTile = null;
     this.commandOrigin = null;

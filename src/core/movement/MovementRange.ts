@@ -6,6 +6,7 @@ import { gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
+import { canMerge } from '@/core/units/merge';
 
 /** 到達可能な 1 マスと、そこへ到達するのに必要な最小移動コスト */
 export interface ReachableTile {
@@ -65,20 +66,20 @@ export class MovementRange {
 }
 
 /**
- * 指定ユニットの移動可能範囲をダイクストラ法で計算する。
+ * 指定ユニットが到達できるマスへの最小移動コストをダイクストラ法で求める。
+ * 味方ユニットが占有しているマスも含めて返す(そこで停止できるかは呼び出し側で判断する)。
  *
  * ルール:
  * - 地形ごとの移動コストを移動タイプ別に加算し、移動力以内で到達できるマスを求める。
  * - 進入不可地形(移動コスト null)には入れない。
  * - 敵ユニットがいるマスは通過も停止もできない(進入不可として扱う)。
- * - 味方ユニットがいるマスは通過できるが、そこで停止(移動先に選択)はできない。
- * - 開始マス(その場で待機)は常に移動先候補に含む。
+ * - 味方ユニットがいるマスは通過できる(そのマスも到達マスとして返す)。
  */
-export function calculateMovementRange(
+function computeReachableCosts(
   unit: Unit,
   map: MapManager,
   units: UnitManager,
-): MovementRange {
+): Map<string, number> {
   const movementType = unit.movementType;
   const maxMove = unit.movement;
   const start = unit.position;
@@ -135,6 +136,26 @@ export function calculateMovementRange(
     }
   }
 
+  return dist;
+}
+
+/**
+ * 指定ユニットの移動可能範囲をダイクストラ法で計算する。
+ *
+ * ルール:
+ * - 地形ごとの移動コストを移動タイプ別に加算し、移動力以内で到達できるマスを求める。
+ * - 進入不可地形(移動コスト null)には入れない。
+ * - 敵ユニットがいるマスは通過も停止もできない(進入不可として扱う)。
+ * - 味方ユニットがいるマスは通過できるが、そこで停止(移動先に選択)はできない。
+ * - 開始マス(その場で待機)は常に移動先候補に含む。
+ */
+export function calculateMovementRange(
+  unit: Unit,
+  map: MapManager,
+  units: UnitManager,
+): MovementRange {
+  const dist = computeReachableCosts(unit, map, units);
+
   // 到達マスから、他ユニットが占有しているマス(停止不可)を除外して結果を作る。
   // 開始マスは自ユニットが占有しているが、その場で待機できるため含める。
   const result: ReachableTile[] = [];
@@ -148,4 +169,31 @@ export function calculateMovementRange(
   }
 
   return new MovementRange(result);
+}
+
+/**
+ * 指定ユニットが移動範囲内で合流できる、味方の同種ユニットを列挙する。
+ *
+ * 味方ユニットのいるマスは通常「通過はできるが停止できない」が、合流の場合は
+ * そのマスへ進んで同種の味方に合流できる(移動先として選べる)。
+ * 合流の可否(同じ軍・同じ種別・双方 HP が減っている)は canMerge で判定する。
+ * unit 自身が満タンのときは合流の意味がないため、空配列を返す。
+ */
+export function findMergeTargets(
+  unit: Unit,
+  map: MapManager,
+  units: UnitManager,
+): Unit[] {
+  if (unit.currentHp >= unit.maxHp) {
+    return [];
+  }
+  const dist = computeReachableCosts(unit, map, units);
+  const targets: Unit[] = [];
+  for (const key of dist.keys()) {
+    const occupant = units.getUnitAt(fromKey(key));
+    if (occupant && canMerge(unit, occupant)) {
+      targets.push(occupant);
+    }
+  }
+  return targets;
 }

@@ -133,4 +133,53 @@ describe('UnitManager', () => {
     });
     expect(a.id).not.toBe(b.id);
   });
+
+  it('mergeUnit は HP を合算して 1 体にまとめ、合流先を待機にする', () => {
+    const manager = UnitManager.fromPlacements([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 1, row: 0, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = manager.getUnitAt(gridPosition(0, 0))!;
+    const target = manager.getUnitAt(gridPosition(1, 0))!;
+    source.currentHp = 4;
+    target.currentHp = 5;
+
+    manager.mergeUnit(source, target);
+
+    // 合流元は盤面から取り除かれ、合流先だけが残る
+    expect(manager.getUnitAt(gridPosition(0, 0))).toBeUndefined();
+    expect(manager.getAllUnits()).toHaveLength(1);
+    // 合流先は HP を合算し、行動済み(待機)になる
+    expect(target.currentHp).toBe(9);
+    expect(target.hasActed).toBe(true);
+  });
+
+  it('mergeUnit は最大 HP を超えないよう頭打ちにする', () => {
+    const manager = UnitManager.fromPlacements([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 1, row: 0, unitType: 'infantry', army: 'player' },
+    ]);
+    const source = manager.getUnitAt(gridPosition(0, 0))!;
+    const target = manager.getUnitAt(gridPosition(1, 0))!;
+    source.currentHp = 7;
+    target.currentHp = 6;
+
+    manager.mergeUnit(source, target);
+
+    expect(target.currentHp).toBe(10);
+  });
+
+  it('mergeUnit は合流できない組み合わせで例外を投げる', () => {
+    const manager = UnitManager.fromPlacements([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 1, row: 0, unitType: 'tank', army: 'player' },
+    ]);
+    const source = manager.getUnitAt(gridPosition(0, 0))!;
+    const target = manager.getUnitAt(gridPosition(1, 0))!;
+    source.currentHp = 4;
+    target.currentHp = 5;
+
+    // 種別が異なるため合流できない
+    expect(() => manager.mergeUnit(source, target)).toThrow();
+  });
 });
