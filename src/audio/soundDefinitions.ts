@@ -50,6 +50,7 @@ export type SfxName =
   | 'produce'
   | 'repair'
   | 'button'
+  | 'denied'
   | 'turnPlayer'
   | 'turnEnemy'
   | 'victory'
@@ -115,6 +116,13 @@ export const SOUND_EFFECTS: Record<SfxName, SoundEffect> = {
   // ボタン操作: ごく短いクリック音
   button: {
     steps: [tone('square', 'E5', 0.04, { volume: 0.22 })],
+  },
+  // 操作不能(攻撃範囲外の敵を選ぶなど): 下降する 2 音で「できない」ことを伝える
+  denied: {
+    steps: [
+      tone('square', 'A3', 0.08, { volume: 0.25 }),
+      tone('square', 'E3', 0.14, { volume: 0.25 }),
+    ],
   },
   // 自軍ターン開始: 明るい上昇ファンファーレ
   turnPlayer: {
