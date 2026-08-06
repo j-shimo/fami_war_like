@@ -130,6 +130,24 @@ function drawMountain(ctx: TerrainDecorationContext): void {
   );
 }
 
+/** 海: 下地の青の上に、明るい波のさざ波を数本描いて水面を表現する */
+function drawSea(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, col, row } = ctx;
+  const wave = 0x5fa0d0;
+  const foam = 0x9fd0ec;
+  const waves = 5;
+  for (let i = 0; i < waves; i++) {
+    const py = y + size * (0.16 + 0.68 * hash01(col, row, i * 2 + 1));
+    const px = x + size * (0.1 + 0.35 * hash01(col, row, i * 2 + 2));
+    const len = size * (0.2 + 0.2 * hash01(col, row, i * 2 + 3));
+    const color = hash01(col, row, i * 2 + 4) < 0.4 ? foam : wave;
+    // 短い波線(浅い山なり)を 2 本のセグメントで描く
+    g.lineStyle(1.5, color, 0.85);
+    g.lineBetween(px, py, px + len * 0.5, py - 1.5);
+    g.lineBetween(px + len * 0.5, py - 1.5, px + len, py);
+  }
+}
+
 /** 指定した方向へ短い破線(道路の中央線)を引く */
 function dashLine(
   g: Phaser.GameObjects.Graphics,
@@ -210,7 +228,14 @@ function drawOwnerFlag(
   g.lineStyle(1.5, 0x30303a, 1);
   g.lineBetween(poleX, baseY, poleX, topY);
   g.fillStyle(color, 1);
-  g.fillTriangle(poleX, topY, poleX, topY + flagSize * 0.7, poleX + flagSize, topY + flagSize * 0.35);
+  g.fillTriangle(
+    poleX,
+    topY,
+    poleX,
+    topY + flagSize * 0.7,
+    poleX + flagSize,
+    topY + flagSize * 0.35,
+  );
 }
 
 /** 窓の格子を建物の面に描く */
@@ -313,6 +338,64 @@ function drawFactory(ctx: TerrainDecorationContext): void {
   drawOwnerFlag(ctx, hallR - 2, hallT, hallT - size * 0.16);
 }
 
+/** 空港: 舗装された滑走路と中央の破線、小さな管制塔・所有者旗を描く */
+function drawAirport(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size } = ctx;
+  const apron = 0x596570;
+  const runway = 0x424c56;
+  const marking = 0xe6ecf2;
+  const tower = 0xb9c1cb;
+  const towerShade = 0x8c95a1;
+
+  // エプロン(舗装面)
+  g.fillStyle(apron, 1);
+  g.fillRect(x + size * 0.08, y + size * 0.08, size * 0.84, size * 0.84);
+
+  // 斜めの滑走路(左下→右上)
+  const rw = size * 0.16;
+  g.fillStyle(runway, 1);
+  g.fillTriangle(
+    x + size * 0.14,
+    y + size * 0.82,
+    x + size * 0.14 + rw,
+    y + size * 0.82,
+    x + size * 0.86,
+    y + size * 0.14,
+  );
+  g.fillTriangle(
+    x + size * 0.14 + rw,
+    y + size * 0.82,
+    x + size * 0.86,
+    y + size * 0.14,
+    x + size * 0.86 - rw,
+    y + size * 0.14,
+  );
+
+  // 滑走路の中央破線
+  g.lineStyle(1.5, marking, 0.9);
+  dashLine(
+    g,
+    x + size * (0.14 + rw / size / 2),
+    y + size * 0.82,
+    x + size * (0.86 - rw / size / 2),
+    y + size * 0.14,
+  );
+
+  // 管制塔(右下)
+  const towerX = x + size * 0.66;
+  const towerY = y + size * 0.6;
+  g.fillStyle(tower, 1);
+  g.fillRect(towerX, towerY, size * 0.12, size * 0.24);
+  g.fillStyle(towerShade, 1);
+  g.fillRect(towerX + size * 0.09, towerY, size * 0.03, size * 0.24);
+  // 塔の展望室
+  g.fillStyle(0x2f3a44, 1);
+  g.fillRect(towerX - size * 0.02, towerY - size * 0.05, size * 0.16, size * 0.06);
+
+  // 左上に所有者旗
+  drawOwnerFlag(ctx, x + size * 0.22, y + size * 0.4, y + size * 0.14);
+}
+
 /** 本拠地: 天守を持つ城郭と大きめの所有者旗を描く */
 function drawHeadquarters(ctx: TerrainDecorationContext): void {
   const { graphics: g, x, y, size } = ctx;
@@ -354,7 +437,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路)に加え、拠点(都市・工場・本拠地)も
+ * 自然地形(平地・森・山・道路・海)に加え、拠点(都市・工場・空港・本拠地)も
  * 建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -374,11 +457,17 @@ export function drawTerrainDecoration(
     case 'road':
       drawRoad(ctx);
       break;
+    case 'sea':
+      drawSea(ctx);
+      break;
     case 'city':
       drawCity(ctx);
       break;
     case 'factory':
       drawFactory(ctx);
+      break;
+    case 'airport':
+      drawAirport(ctx);
       break;
     case 'headquarters':
       drawHeadquarters(ctx);
