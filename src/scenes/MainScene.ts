@@ -1566,6 +1566,14 @@ export class MainScene extends Phaser.Scene {
       onSelect: (unitType) => this.handleProductionSelect(unitType),
       onClose: () => this.handleProductionWindowClose(),
     });
+
+    // 「生産」ボタンの押下ハンドラは pointerConsumedByButton を true にしてから
+    // このメソッドを呼ぶ。通常はグローバルの押下ハンドラがこのフラグを下ろすが、
+    // ウィンドウを開いた直後はグローバル側が「ウィンドウ表示中ガード」で先に
+    // return してしまい、フラグが true のまま取り残される。そのままだとウィンドウを
+    // 閉じた後の最初のマップクリックが誤って握りつぶされ、「一度クリックしないと
+    // 反応しない」状態になるため、ここで明示的にフラグを下ろしておく。
+    this.pointerConsumedByButton = false;
   }
 
   /** 生産ウィンドウで行が選ばれたときの処理(生産可能なら生産して閉じる) */
