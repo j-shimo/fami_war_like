@@ -71,6 +71,18 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0xb7a98a,
   },
+  sea: {
+    terrainType: 'sea',
+    terrainName: '海',
+    defense: 0,
+    canCapture: false,
+    canProduce: false,
+    canRepair: false,
+    // 地上ユニット(歩兵・車両)は進入不可。飛行・海上ユニットは今後追加予定で、
+    // 追加時にその移動タイプの moveCost を定義する。
+    moveCost: { infantry: IMPASSABLE, vehicle: IMPASSABLE },
+    color: 0x2f6aa0,
+  },
   city: {
     terrainType: 'city',
     terrainName: '都市',
@@ -90,6 +102,19 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canRepair: true,
     moveCost: { infantry: 1, vehicle: 1 },
     color: 0x7a7a86,
+  },
+  airport: {
+    terrainType: 'airport',
+    terrainName: '空港',
+    defense: 2,
+    canCapture: true,
+    // 都市と同じく占領で収入が増える拠点。飛行ユニットの生産(本拠地に近い空港のみ)は
+    // 飛行ユニット追加時に対応するため、現時点では canProduce は false とする。
+    // ここを true にすると地上ユニットを生産できてしまうため注意(docs/TerrainSpec.md 参照)。
+    canProduce: false,
+    canRepair: true,
+    moveCost: { infantry: 1, vehicle: 1 },
+    color: 0x6f7d8c,
   },
   headquarters: {
     terrainType: 'headquarters',

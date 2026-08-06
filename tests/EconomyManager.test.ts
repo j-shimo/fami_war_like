@@ -44,6 +44,22 @@ describe('EconomyManager', () => {
     expect(economy.countBases('enemy', map)).toBe(1);
   });
 
+  it('空港も占領拠点として収入に数える(都市と同様)', () => {
+    // 自軍: 都市 1・空港 1 の 2 拠点を所有する
+    const airportMap: MapDefinition = {
+      name: '空港テストマップ',
+      terrain: ['cA', '..'],
+      owners: [
+        { col: 0, row: 0, owner: 'player' }, // 都市
+        { col: 1, row: 0, owner: 'player' }, // 空港
+      ],
+    };
+    const map = MapManager.fromDefinition(airportMap);
+    const economy = new EconomyManager({ initialFunds: 0, incomePerBase: 1000 });
+    expect(economy.countBases('player', map)).toBe(2);
+    expect(economy.collectIncome('player', map)).toBe(2000);
+  });
+
   it('収入は所有拠点数×拠点あたり収入で加算される', () => {
     const map = MapManager.fromDefinition(ECONOMY_MAP);
     const economy = new EconomyManager({ initialFunds: 0, incomePerBase: 1000 });

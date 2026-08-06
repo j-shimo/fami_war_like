@@ -26,6 +26,30 @@ describe('MapManager', () => {
     expect(map.getTile(gridPosition(2, 1))?.terrainType).toBe('factory');
   });
 
+  it('海・空港の地形記号を地形種別へ変換する', () => {
+    const def: MapDefinition = { name: 'mini2', terrain: ['~A'] };
+    const map = MapManager.fromDefinition(def);
+    expect(map.getTile(gridPosition(0, 0))?.terrainType).toBe('sea');
+    expect(map.getTile(gridPosition(1, 0))?.terrainType).toBe('airport');
+  });
+
+  it('海は地上ユニット(歩兵・車両)ともに進入不可', () => {
+    const def: MapDefinition = { name: 'sea', terrain: ['~'] };
+    const map = MapManager.fromDefinition(def);
+    expect(map.getMoveCost(gridPosition(0, 0), 'infantry')).toBeNull();
+    expect(map.getMoveCost(gridPosition(0, 0), 'vehicle')).toBeNull();
+  });
+
+  it('空港は占領可能地形なので所有者を指定できる', () => {
+    const def: MapDefinition = {
+      name: 'airport',
+      terrain: ['A'],
+      owners: [{ col: 0, row: 0, owner: 'player' }],
+    };
+    const map = MapManager.fromDefinition(def);
+    expect(map.getTile(gridPosition(0, 0))?.owner).toBe('player');
+  });
+
   it('占領可能地形の初期所有者は中立で占領耐久値は初期値', () => {
     const def: MapDefinition = { name: 'c', terrain: ['c'] };
     const map = MapManager.fromDefinition(def);

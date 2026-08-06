@@ -2,7 +2,15 @@
 
 /** 地形の種別 */
 export type TerrainType =
-  'plain' | 'forest' | 'mountain' | 'road' | 'city' | 'factory' | 'headquarters';
+  | 'plain'
+  | 'forest'
+  | 'mountain'
+  | 'road'
+  | 'sea'
+  | 'city'
+  | 'factory'
+  | 'airport'
+  | 'headquarters';
 
 /** 拠点の所有軍。中立を含む */
 export type ArmyType = 'player' | 'enemy' | 'neutral';
@@ -19,7 +27,9 @@ export const TERRAIN_TYPES: readonly TerrainType[] = [
   'forest',
   'mountain',
   'road',
+  'sea',
   'city',
   'factory',
+  'airport',
   'headquarters',
 ];
