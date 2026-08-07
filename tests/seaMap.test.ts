@@ -74,22 +74,32 @@ describe('SEA_MAP(沿岸対角マップ)', () => {
     expect(neutralAirports).toBeGreaterThanOrEqual(2);
   });
 
-  it('中立の島の空港は海に囲まれ、地上ユニットが進入できない', () => {
+  it('中立の島の空港は「連続 2 マス」の陸地で、海に囲まれた孤島になっている', () => {
     const map = MapManager.fromDefinition(SEA_MAP);
-    map.forEachTile((tile) => {
-      if (tile.terrainType !== 'airport' || tile.owner !== 'neutral') return;
-      const { col, row } = tile.position;
-      const neighbors = [
+    const isLand = (col: number, row: number): boolean => {
+      const t = map.getTile({ col, row });
+      return t !== undefined && t.terrainType !== 'sea';
+    };
+    const landNeighbors = (col: number, row: number): { col: number; row: number }[] =>
+      [
         { col, row: row - 1 },
         { col, row: row + 1 },
         { col: col - 1, row },
         { col: col + 1, row },
-      ];
-      for (const pos of neighbors) {
-        const adjacent = map.getTile(pos);
-        // 盤内の隣接マスはすべて海(=島)。歩兵・車両は海に進入できないため到達できない。
-        if (adjacent) expect(adjacent.terrainType).toBe('sea');
-      }
+      ].filter((p) => isLand(p.col, p.row));
+
+    map.forEachTile((tile) => {
+      if (tile.terrainType !== 'airport' || tile.owner !== 'neutral') return;
+      const { col, row } = tile.position;
+      // 空港マスに隣接する陸地はちょうど 1 マス(相方の平地)。これで「連続 2 マス」の島になる。
+      // 1 マスだけの島だと、降ろした歩兵が海上の輸送ヘリに乗り込めず詰むため、必ず 2 マス確保する。
+      const airportLand = landNeighbors(col, row);
+      expect(airportLand).toHaveLength(1);
+      // 相方の平地マスは、空港マス以外の隣接がすべて海(=島全体が海に囲まれ孤立している)。
+      const partner = airportLand[0];
+      const partnerLand = landNeighbors(partner.col, partner.row);
+      expect(partnerLand).toHaveLength(1);
+      expect(partnerLand[0]).toEqual({ col, row });
     });
   });
 
