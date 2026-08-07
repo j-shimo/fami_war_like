@@ -1215,6 +1215,13 @@ export class MainScene extends Phaser.Scene {
         this.infoText.setText('マスを選択してください');
       },
     });
+
+    // 「音量」ボタンの押下ハンドラは pointerConsumedByButton を true にしてから
+    // このメソッドを呼ぶ。生産ウィンドウと同様に、ウィンドウを開いた直後は
+    // グローバルの押下ハンドラが「ウィンドウ表示中ガード」で先に return するため、
+    // フラグが true のまま取り残される。そのままだとウィンドウを閉じた後の最初の
+    // マップクリックが誤って握りつぶされるため、ここで明示的にフラグを下ろしておく。
+    this.pointerConsumedByButton = false;
   }
 
   /** 情報メニューを閉じ、ハイライト・ボタンを片付ける */
