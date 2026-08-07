@@ -914,6 +914,9 @@ export class MainScene extends Phaser.Scene {
       }
       // 右クリックは情報メニューの表示に使う(ドラッグ/マス選択の対象にはしない)
       if (pointer.rightButtonDown()) {
+        // 仮移動(移動後コマンド選択待ち)中に右クリックしたら、まずユニットを移動前の
+        // 位置へ戻す。戻さないと仮移動先が確定し、その地点から再度移動できてしまう。
+        this.revertPendingMove();
         this.showInfoMenuAtPointer(pointer);
         return;
       }
@@ -1012,6 +1015,8 @@ export class MainScene extends Phaser.Scene {
       this.longPressFired = true;
       // 長押し後にそのまま指を動かしてもスクロールしないよう、ドラッグ受付を終了しておく
       this.dragActive = false;
+      // 右クリック同様、仮移動中に情報メニューを開くときはユニットを移動前の位置へ戻す
+      this.revertPendingMove();
       this.showInfoMenuAtPointer(pointer);
     });
   }
@@ -1451,6 +1456,26 @@ export class MainScene extends Phaser.Scene {
     let y = screenY;
     y = Math.max(MENU_MARGIN, Math.min(y, this.viewHeight - menuHeight - MENU_MARGIN));
     return { x, y };
+  }
+
+  /**
+   * 仮移動(移動後コマンド選択待ち)の状態なら、ユニットを移動前の位置へ戻し、
+   * 選択・コマンドの状態を初期化する。右クリックやタッチ長押しで情報メニューを開く前に呼ぶ。
+   * これを行わないと、仮移動先に置き去りのまま状態だけリセットされ、確定していない移動先から
+   * もう一度移動できてしまう。仮移動中でなければ何もしない。
+   */
+  private revertPendingMove(): void {
+    const unit = this.commandUnit;
+    const origin = this.commandOrigin;
+    if (!unit || !origin) {
+      return;
+    }
+    // 「その場で待機」相当(元居たマスを選んだ)で実際には動いていない場合は巻き戻し不要
+    if (!equals(unit.position, origin)) {
+      this.units.moveUnit(unit, origin, { markActed: false });
+      this.drawUnits();
+    }
+    this.clearSelection();
   }
 
   /**
