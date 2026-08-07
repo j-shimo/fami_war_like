@@ -5,6 +5,7 @@ import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition
 import type { MapManager } from '@/core/map/MapManager';
 import { Unit } from '@/core/units/Unit';
 import { canMerge, mergedHp } from '@/core/units/merge';
+import { canCarry } from '@/core/units/transport';
 import type { UnitType } from '@/core/units/UnitType';
 import { getUnitData } from '@/data/unitData';
 
@@ -163,6 +164,46 @@ export class UnitManager {
     target.currentHp = mergedHp(source, target);
     target.hasActed = true;
     this.removeUnit(source);
+  }
+
+  /**
+   * passenger を transport に搭乗させる。
+   * passenger を盤面(管理対象)から取り除いて transport.carried に保持する。
+   * 搭乗した passenger は行動済み(このターンは行動できない)にする。
+   * 搭乗できない組み合わせはデータ不整合として例外を投げる
+   * (呼び出し側で canCarry により事前判定する想定)。
+   */
+  carryUnit(transport: Unit, passenger: Unit): void {
+    if (!canCarry(transport, passenger)) {
+      throw new Error('このユニットは搭乗できません');
+    }
+    passenger.hasActed = true;
+    transport.carried = passenger;
+    this.removeUnit(passenger);
+  }
+
+  /**
+   * transport が運んでいるユニットを dest マスへ降ろす。
+   * 降車したユニットを盤面へ戻して行動済み(このターンは行動できない)にし、
+   * transport も行動済みにする。降ろしたユニットを返す。
+   * 何も運んでいない、または降車先が埋まっている場合はデータ不整合として例外を投げる。
+   */
+  dropUnit(transport: Unit, dest: GridPosition): Unit {
+    const passenger = transport.carried;
+    if (!passenger) {
+      throw new Error('搭乗しているユニットがいません');
+    }
+    if (this.isOccupied(dest)) {
+      throw new Error(
+        `ユニットのいるマスには降ろせません(col ${dest.col}, row ${dest.row})`,
+      );
+    }
+    passenger.position = gridPosition(dest.col, dest.row);
+    passenger.hasActed = true;
+    transport.carried = null;
+    transport.hasActed = true;
+    this.units.push(passenger);
+    return passenger;
   }
 
   /** ユニットを管理対象から取り除く(撃破時などに使う) */

@@ -16,6 +16,8 @@ import type { TileData } from '@/core/map/TileData';
 import {
   calculateMovementRange,
   findMergeTargets,
+  findTransportTargets,
+  findUnloadPositions,
   type MovementRange,
 } from '@/core/movement/MovementRange';
 import { TurnManager } from '@/core/turn/TurnManager';
@@ -84,6 +86,12 @@ const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果'] as cons
 
 /** 合流できる味方ユニットを示す枠の色(攻撃対象の赤枠と区別する緑枠) */
 const MERGE_TARGET_COLOR = 0x5ad469;
+
+/** 搭乗できる輸送ユニットを示す枠の色(合流の緑・攻撃の赤と区別する水色) */
+const BOARD_TARGET_COLOR = 0x5ad0f0;
+
+/** 輸送ヘリが運んでいるユニットの降車先を示す枠の色(合流と同じ緑系) */
+const UNLOAD_TILE_COLOR = 0x5ad469;
 
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
@@ -178,6 +186,12 @@ export class MainScene extends Phaser.Scene {
   private attackTargets: Unit[] = [];
   /** movingUnit が移動範囲内で合流できる味方の同種ユニット */
   private mergeTargets: Unit[] = [];
+  /** movingUnit(歩兵)が移動範囲内で搭乗できる味方の輸送ユニット(輸送ヘリ) */
+  private boardTargets: Unit[] = [];
+  /** コマンドメニューの「降ろす」を選び、降車先マスのクリック待ちになっているか */
+  private awaitingUnloadTarget = false;
+  /** 輸送ヘリが運んでいるユニットを降ろせる隣接マス(降車先の選択待ち中に保持) */
+  private unloadPositions: GridPosition[] = [];
   /** 移動後に攻撃/占領/待機の選択待ちになっているユニット(いなければ null) */
   private commandUnit: Unit | null = null;
   /** commandUnit が乗っているマス(占領コマンドの対象。いなければ null) */
@@ -421,6 +435,16 @@ export class MainScene extends Phaser.Scene {
       // HP が減っている場合のみ、HP バーと数値を表示する
       if (unit.currentHp < unit.maxHp) {
         this.drawHpIndicator(graphics, unit, x, y, radius);
+      }
+
+      // 輸送ヘリがユニットを運んでいるときは、右上に小さな搭乗マーカーを描く
+      if (unit.carried) {
+        const markerX = x + radius * 0.7;
+        const markerY = y - radius * 0.7;
+        graphics.fillStyle(0x12121e, unit.hasActed ? 0.5 : 0.85);
+        graphics.fillCircle(markerX, markerY, radius * 0.28);
+        graphics.fillStyle(BOARD_TARGET_COLOR, unit.hasActed ? 0.5 : 1);
+        graphics.fillCircle(markerX, markerY, radius * 0.18);
       }
     }
   }
@@ -1027,6 +1051,18 @@ export class MainScene extends Phaser.Scene {
 
     // 移動後のコマンド選択中はメニューの状態で分岐する。
     if (this.commandUnit) {
+      // 「降ろす」を選んで降車先の選択待ち中の挙動:
+      //  - 緑枠の降車先マスをクリック → そのマスへ搭乗ユニットを降ろす
+      //  - それ以外のマスをクリック → 降車を取りやめ、コマンドメニューへ戻る
+      if (this.awaitingUnloadTarget) {
+        const dest = this.unloadPositions.find((p) => equals(p, pos));
+        if (dest) {
+          this.executeUnload(dest);
+          return;
+        }
+        this.showPostMoveMenu();
+        return;
+      }
       // 「攻撃」を選んで攻撃対象の選択待ち中の挙動:
       //  - 赤枠の敵(射程内)をクリック → 攻撃する
       //  - 射程外の敵をクリック → 攻撃できないので「操作不能」の音を鳴らして選択を続ける
@@ -1066,6 +1102,13 @@ export class MainScene extends Phaser.Scene {
       const mergeTarget = this.mergeTargets.find((t) => equals(t.position, pos));
       if (mergeTarget) {
         this.mergeSelectedUnit(mergeTarget);
+        return;
+      }
+      // 搭乗できる輸送ユニット(水色枠)をクリックしたら搭乗する。
+      // 搭乗先マスも味方が占有しており movementRange には含まれないため、移動判定より先に扱う。
+      const boardTarget = this.boardTargets.find((t) => equals(t.position, pos));
+      if (boardTarget) {
+        this.boardSelectedUnit(boardTarget);
         return;
       }
       // 移動可能範囲内(元居たマス自身も含む)をクリックしたらそのマスへ移動する。
@@ -1172,7 +1215,14 @@ export class MainScene extends Phaser.Scene {
       this.attackTargets = findAttackableTargets(unit, this.units);
       // 移動範囲内にいる合流可能な味方(同種・双方 HP 減)を移動先候補に加える
       this.mergeTargets = findMergeTargets(unit, this.map, this.units);
-      this.drawActionRange(this.movementRange, this.attackTargets, this.mergeTargets);
+      // 移動範囲内にいる搭乗可能な味方の輸送ユニット(輸送ヘリ)を移動先候補に加える
+      this.boardTargets = findTransportTargets(unit, this.map, this.units);
+      this.drawActionRange(
+        this.movementRange,
+        this.attackTargets,
+        this.mergeTargets,
+        this.boardTargets,
+      );
       // 占領は移動先(元居たマスを含む)を選んだあとのコマンドメニューから行う。
       // 情報パネルに占領ボタンは出さない。
       return;
@@ -1182,6 +1232,7 @@ export class MainScene extends Phaser.Scene {
     this.movementRange = null;
     this.attackTargets = [];
     this.mergeTargets = [];
+    this.boardTargets = [];
     this.rangeGraphics.clear();
 
     // ユニットのいない自軍の生産拠点を選んだら「生産」コマンドを表示する
@@ -1230,6 +1281,66 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
+   * 選択中ユニット(歩兵)を、水色枠で示した味方の輸送ユニット(輸送ヘリ)に搭乗させる。
+   * 搭乗した歩兵は盤面から取り除かれて輸送ヘリに保持され、そのターンは行動済みになる。
+   * 搭乗はコマンドメニューを介さず、その場で確定する(結果は情報パネルに表示)。
+   */
+  private boardSelectedUnit(transport: Unit): void {
+    const unit = this.movingUnit;
+    if (!unit) {
+      return;
+    }
+    this.units.carryUnit(transport, unit);
+    // 搭乗も「乗り込む」移動なので、移動と同じ効果音で知らせる
+    this.audio.playSfx('move');
+    this.resetSelection();
+    this.drawUnits();
+    this.infoText.setText(['搭乗', `${transport.unitName}に${unit.unitName}を乗せた`]);
+  }
+
+  /**
+   * コマンドメニューで「降ろす」を選んだときの、降車先マスの選択に移る。
+   * 降ろせる隣接マス(空きマス・搭乗ユニットが進入できる地形)を緑枠で示してクリック待ちにする。
+   * 降車先以外(緑枠のないマス)をクリックしたときの挙動は handleClick で扱う。
+   */
+  private enterUnloadSelection(): void {
+    const unit = this.commandUnit;
+    if (!unit || !unit.carried) {
+      return;
+    }
+    this.audio.playSfx('select');
+    this.awaitingUnloadTarget = true;
+    this.unloadPositions = findUnloadPositions(unit, this.map, this.units);
+    // 降ろすボタンなどのコマンドメニューを閉じ、降車先の選択だけに集中させる
+    this.clearActionButtons();
+    this.drawSelectionHighlight(unit.position);
+    this.drawUnloadPositions(this.unloadPositions);
+    this.infoText.setText([
+      '降ろす先を選択',
+      unit.carried.unitName,
+      '緑枠のマスをクリック',
+      '枠外で取り消し',
+    ]);
+  }
+
+  /**
+   * 選択中の降車先マスへ、輸送ヘリが運んでいるユニットを降ろす。
+   * 降ろしたユニットとその輸送ヘリはどちらもそのターンは行動済みになる。
+   */
+  private executeUnload(dest: GridPosition): void {
+    const unit = this.commandUnit;
+    if (!unit || !unit.carried) {
+      return;
+    }
+    const passenger = this.units.dropUnit(unit, dest);
+    this.audio.playSfx('move');
+    this.commandUnit = null;
+    this.resetSelection();
+    this.drawUnits();
+    this.infoText.setText(['降ろす', `${passenger.unitName}を配置`]);
+  }
+
+  /**
    * 移動後のコマンド選択に入る。
    * 攻撃・占領の可否にかかわらず、必ずコマンドメニューを表示する。
    * これにより、攻撃も占領もできない移動先でも「待機」を明示的に選ぶことになり、
@@ -1269,8 +1380,11 @@ export class MainScene extends Phaser.Scene {
     if (!unit || !tile) {
       return;
     }
-    // メニュー表示中は攻撃対象クリックを受け付けない(攻撃はメニューの「攻撃」から始める)
+    // メニュー表示中は攻撃対象・降車先のクリックを受け付けない
+    // (攻撃はメニューの「攻撃」、降車はメニューの「降ろす」から始める)
     this.awaitingAttackTarget = false;
+    this.awaitingUnloadTarget = false;
+    this.unloadPositions = [];
     this.attackTargets = [];
     this.rangeGraphics.clear();
     this.hideForecastPopup();
@@ -1291,6 +1405,11 @@ export class MainScene extends Phaser.Scene {
       // この軍が実際に減らし始める耐久値(実効値)を表示する
       info.push(`占領耐久: ${this.capture.effectiveCaptureHp(unit, tile)}`);
       buttons.push({ label: '占領する', onClick: () => this.executeCapture(unit, tile) });
+    }
+    // 輸送ヘリがユニットを運んでいて、降ろせる隣接マスがあれば「降ろす」を出す
+    if (unit.carried && findUnloadPositions(unit, this.map, this.units).length > 0) {
+      info.push(`降ろす: ${unit.carried.unitName}`);
+      buttons.push({ label: '降ろす', onClick: () => this.enterUnloadSelection() });
     }
     // 待機は常に選べるようにする(メニュー外クリックで移動を取り消せる)
     buttons.push({ label: '待機', onClick: () => this.commitWait() });
@@ -1548,8 +1667,9 @@ export class MainScene extends Phaser.Scene {
     this.clearActionButtons();
     this.productionTile = tile;
 
-    // 各ユニットの資金充足(生産可否)を判定して行データを作る
-    const items = listProductionItems().map((item) => ({
+    // 各ユニットの資金充足(生産可否)を判定して行データを作る。
+    // 生産できる種別は生産拠点(地形)ごとに異なる(工場・本拠地は地上、空港は飛行)。
+    const items = listProductionItems(tile.terrainType).map((item) => ({
       ...item,
       affordable: this.production.canProduce(army, tile, item.unitType),
     }));
@@ -1630,11 +1750,15 @@ export class MainScene extends Phaser.Scene {
     return lines;
   }
 
-  /** 移動可能範囲(青)・攻撃可能な敵(赤)・合流できる味方(緑)を重ねて表示する */
+  /**
+   * 移動可能範囲(青)・攻撃可能な敵(赤)・合流できる味方(緑)・
+   * 搭乗できる輸送ユニット(水色)を重ねて表示する。
+   */
   private drawActionRange(
     range: MovementRange,
     targets: readonly Unit[],
     mergeTargets: readonly Unit[] = [],
+    boardTargets: readonly Unit[] = [],
   ): void {
     this.rangeGraphics.clear();
 
@@ -1650,8 +1774,20 @@ export class MainScene extends Phaser.Scene {
 
     // 合流できる味方マスを緑枠で強調表示する
     this.strokeMergeTargets(mergeTargets);
+    // 搭乗できる輸送ユニットのマスを水色枠で強調表示する
+    this.strokeUnitTargets(boardTargets, BOARD_TARGET_COLOR);
     // 攻撃可能な敵マスを赤枠で強調表示する
     this.strokeAttackTargets(targets);
+  }
+
+  /** 輸送ヘリの降車先マスを緑枠で表示する(移動範囲は描かない。降車先の選択用) */
+  private drawUnloadPositions(positions: readonly GridPosition[]): void {
+    this.rangeGraphics.clear();
+    this.rangeGraphics.lineStyle(3, UNLOAD_TILE_COLOR, 0.95);
+    for (const pos of positions) {
+      const { x, y } = gridToWorld(pos, TILE_SIZE);
+      this.rangeGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    }
   }
 
   /** 攻撃可能な敵マスだけを赤枠で表示する(移動範囲は描かない。移動後コマンド用) */
@@ -1671,7 +1807,12 @@ export class MainScene extends Phaser.Scene {
 
   /** 合流できる味方マスに緑枠を描く(rangeGraphics のクリアは呼び出し側で行う) */
   private strokeMergeTargets(targets: readonly Unit[]): void {
-    this.rangeGraphics.lineStyle(3, MERGE_TARGET_COLOR, 0.95);
+    this.strokeUnitTargets(targets, MERGE_TARGET_COLOR);
+  }
+
+  /** ユニットのいるマスを指定色の枠で囲む(rangeGraphics のクリアは呼び出し側で行う) */
+  private strokeUnitTargets(targets: readonly Unit[], color: number): void {
+    this.rangeGraphics.lineStyle(3, color, 0.95);
     for (const target of targets) {
       const { x, y } = gridToWorld(target.position, TILE_SIZE);
       this.rangeGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -1764,11 +1905,14 @@ export class MainScene extends Phaser.Scene {
     this.movementRange = null;
     this.attackTargets = [];
     this.mergeTargets = [];
+    this.boardTargets = [];
     this.commandUnit = null;
     this.commandTile = null;
     this.commandOrigin = null;
     this.pendingAttackTargets = [];
     this.awaitingAttackTarget = false;
+    this.awaitingUnloadTarget = false;
+    this.unloadPositions = [];
     this.infoMenuOpen = false;
     this.highlight.setVisible(false);
     this.rangeGraphics.clear();

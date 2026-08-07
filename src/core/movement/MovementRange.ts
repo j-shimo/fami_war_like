@@ -7,6 +7,7 @@ import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { canMerge } from '@/core/units/merge';
+import { canCarry } from '@/core/units/transport';
 
 /** 到達可能な 1 マスと、そこへ到達するのに必要な最小移動コスト */
 export interface ReachableTile {
@@ -196,4 +197,60 @@ export function findMergeTargets(
     }
   }
   return targets;
+}
+
+/**
+ * 指定ユニットが移動範囲内で搭乗できる、味方の輸送ユニット(輸送ヘリ)を列挙する。
+ *
+ * 味方ユニットのいるマスは通常「通過はできるが停止できない」が、搭乗の場合は
+ * そのマスへ進んで味方の輸送ユニットに乗り込める(移動先として選べる)。
+ * 搭乗の可否(同じ軍・輸送可能な種別・空きあり)は canCarry で判定する。
+ * unit が輸送可能な種別でない場合は、該当する輸送ユニットが見つからず空配列を返す。
+ */
+export function findTransportTargets(
+  unit: Unit,
+  map: MapManager,
+  units: UnitManager,
+): Unit[] {
+  const dist = computeReachableCosts(unit, map, units);
+  const targets: Unit[] = [];
+  for (const key of dist.keys()) {
+    const occupant = units.getUnitAt(fromKey(key));
+    if (occupant && canCarry(occupant, unit)) {
+      targets.push(occupant);
+    }
+  }
+  return targets;
+}
+
+/**
+ * 輸送ユニットが運んでいるユニットを降ろせる、隣接マスの一覧を返す。
+ *
+ * 条件:
+ * - 輸送ユニットの上下左右いずれかの隣接マスであること
+ * - 搭乗しているユニットの移動タイプで進入できる地形であること(進入不可地形は除く)
+ * - 他ユニットがいないこと(空きマス)
+ * 何も運んでいない場合は空配列を返す。
+ */
+export function findUnloadPositions(
+  transport: Unit,
+  map: MapManager,
+  units: UnitManager,
+): GridPosition[] {
+  const passenger = transport.carried;
+  if (!passenger) {
+    return [];
+  }
+  const result: GridPosition[] = [];
+  for (const { dc, dr } of NEIGHBOR_OFFSETS) {
+    const pos = gridPosition(transport.position.col + dc, transport.position.row + dr);
+    if (map.getMoveCost(pos, passenger.movementType) === null) {
+      continue;
+    }
+    if (units.getUnitAt(pos)) {
+      continue;
+    }
+    result.push(pos);
+  }
+  return result;
 }

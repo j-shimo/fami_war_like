@@ -44,13 +44,26 @@ describe('economyInfo', () => {
     expect(formatProductionLabel('tank')).toBe('戦車 (7000)');
   });
 
-  it('生産ウィンドウの一覧は種別・名前・料金を表示順で返す', () => {
-    const items = listProductionItems();
+  it('工場の生産一覧は地上ユニットを表示順で返す', () => {
+    const items = listProductionItems('factory');
     expect(items).toEqual([
       { unitType: 'infantry', unitName: '歩兵', cost: 1000 },
       { unitType: 'tank', unitName: '戦車', cost: 7000 },
       { unitType: 'artillery', unitName: '自走砲', cost: 6000 },
+      { unitType: 'antiAirTank', unitName: '対空戦車', cost: 8000 },
     ]);
+  });
+
+  it('空港の生産一覧は飛行ユニットを表示順で返す', () => {
+    const items = listProductionItems('airport');
+    expect(items).toEqual([
+      { unitType: 'attackHelicopter', unitName: '戦闘ヘリ', cost: 7000 },
+      { unitType: 'transportHelicopter', unitName: '輸送ヘリ', cost: 4000 },
+    ]);
+  });
+
+  it('生産できない地形(都市)の生産一覧は空になる', () => {
+    expect(listProductionItems('city')).toEqual([]);
   });
 
   it('占領未完了は残り耐久を表示する', () => {

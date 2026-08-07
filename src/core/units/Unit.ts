@@ -37,6 +37,12 @@ export class Unit {
   currentHp: number;
   /** 行動済みか。ターン内に移動・攻撃を終えると true になる */
   hasActed: boolean;
+  /**
+   * 輸送中のユニット(輸送ヘリが歩兵を運んでいるときの搭乗ユニット)。
+   * 搭乗中のユニットは盤面(UnitManager)からは取り除かれ、この参照だけが保持される。
+   * 何も運んでいない場合は null。
+   */
+  carried: Unit | null = null;
 
   constructor(params: UnitParams) {
     this.id = params.id;
@@ -93,6 +99,16 @@ export class Unit {
   /** 拠点を占領できるか */
   get canCapture(): boolean {
     return this.data.canCapture;
+  }
+
+  /** 攻撃できるユニットか(最大射程が 1 以上)。輸送ヘリは false */
+  get canAttack(): boolean {
+    return this.data.maxAttackRange >= 1;
+  }
+
+  /** 輸送できるユニット数(輸送ヘリのみ 1 以上) */
+  get capacity(): number {
+    return this.data.capacity;
   }
 
   /** 生存しているか(HP が 1 以上) */

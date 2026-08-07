@@ -71,6 +71,63 @@ function drawArtillery(ctx: UnitIconContext): void {
   g.lineBetween(cx - r * 0.05, cy - r * 0.02, cx + r * 0.62, cy - r * 0.52);
 }
 
+/** 回転翼(ローターと機体上のマスト)を描く。ヘリ系アイコンで共用する */
+function drawRotor(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  // 機体上のマスト
+  g.lineStyle(Math.max(2, r * 0.1), color, alpha);
+  g.lineBetween(cx, cy - r * 0.5, cx, cy - r * 0.24);
+  // メインローター(水平のブレード)
+  g.lineStyle(Math.max(2, r * 0.12), color, alpha);
+  g.lineBetween(cx - r * 0.62, cy - r * 0.5, cx + r * 0.62, cy - r * 0.5);
+}
+
+/** 戦闘ヘリ: 細身の機体・尾翼・攻撃ヘリらしいスタブ翼とローター */
+function drawAttackHelicopter(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 機体(前方が細くなる紡錘形)
+  g.fillPoints(
+    [
+      { x: cx - r * 0.5, y: cy - r * 0.06 },
+      { x: cx + r * 0.5, y: cy - r * 0.02 },
+      { x: cx + r * 0.5, y: cy + r * 0.18 },
+      { x: cx - r * 0.5, y: cy + r * 0.26 },
+    ],
+    true,
+  );
+  // 尾部(右へ伸びるテールブーム)
+  g.fillRect(cx + r * 0.4, cy + r * 0.0, r * 0.34, r * 0.08);
+  // スタブ翼(下向きの武装ポッド)
+  g.fillRect(cx - r * 0.16, cy + r * 0.24, r * 0.34, r * 0.12);
+  drawRotor(ctx);
+}
+
+/** 輸送ヘリ: ずんぐりした胴体(貨物室)とローター */
+function drawTransportHelicopter(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 丸みのある大きな胴体(貨物室)
+  g.fillRoundedRect(cx - r * 0.5, cy - r * 0.14, r * 0.86, r * 0.42, r * 0.14);
+  // 尾部(右へ伸びるテールブーム)
+  g.fillRect(cx + r * 0.34, cy - r * 0.04, r * 0.4, r * 0.08);
+  drawRotor(ctx);
+}
+
+/** 対空戦車: 車体の上に上向きの連装砲(対空機銃)を載せたシルエット */
+function drawAntiAirTank(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 履帯を含む車体下部
+  g.fillRoundedRect(cx - r * 0.6, cy + r * 0.12, r * 1.2, r * 0.38, r * 0.14);
+  // 車体上部(砲塔基部)
+  g.fillRoundedRect(cx - r * 0.36, cy - r * 0.1, r * 0.72, r * 0.28, r * 0.08);
+  // 上向きに伸びる連装の対空砲身(斜め上を向く 2 本で戦車と見分ける)
+  g.lineStyle(Math.max(2, r * 0.1), color, alpha);
+  g.lineBetween(cx - r * 0.04, cy - r * 0.02, cx + r * 0.4, cy - r * 0.56);
+  g.lineBetween(cx + r * 0.12, cy - r * 0.02, cx + r * 0.56, cy - r * 0.5);
+}
+
 /**
  * ユニット種別に応じたシルエットアイコンを描く。
  * 軍勢を示すトークン(円)の上に重ねて使う。
@@ -85,6 +142,15 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'artillery':
       drawArtillery(ctx);
+      break;
+    case 'attackHelicopter':
+      drawAttackHelicopter(ctx);
+      break;
+    case 'transportHelicopter':
+      drawTransportHelicopter(ctx);
+      break;
+    case 'antiAirTank':
+      drawAntiAirTank(ctx);
       break;
     default:
       break;

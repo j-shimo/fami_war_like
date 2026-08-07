@@ -25,7 +25,7 @@ import { calculateMovementRange } from '@/core/movement/MovementRange';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { getTerrainData } from '@/data/terrainData';
-import { PRODUCIBLE_UNIT_TYPES, getUnitData } from '@/data/unitData';
+import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
 
 /** AI が 1 手番で実行した行動 1 件を表すログ。呼び出し側の表示に使う */
 export type AiAction =
@@ -302,12 +302,12 @@ export class EnemyAi {
       }
     });
 
-    // 高価な(強力な)ユニットから順に購入を試みる
-    const byCostDesc = [...PRODUCIBLE_UNIT_TYPES].sort(
-      (a, b) => getUnitData(b).cost - getUnitData(a).cost,
-    );
-
     for (const tile of producibleTiles) {
+      // 生産拠点(工場・本拠地・空港)ごとに生産できる種別が異なるため、
+      // そのマスで生産できる種別の中から、高価な(強力な)ユニットを優先して購入する。
+      const byCostDesc = [...producibleUnitTypesAt(tile.terrainType)].sort(
+        (a, b) => getUnitData(b).cost - getUnitData(a).cost,
+      );
       const unitType = byCostDesc.find((type) =>
         this.production.canProduce(this.army, tile, type),
       );

@@ -6,7 +6,7 @@ import type { MapDefinition } from '@/data/maps/mapDefinition';
 export const TEST_MAP: MapDefinition = {
   name: 'テストマップ 01',
   terrain: [
-    '...HFc....',
+    '..AHFc....',
     '..f.....f.',
     'c..rrrr...',
     '...rmmr.f.',
@@ -15,17 +15,19 @@ export const TEST_MAP: MapDefinition = {
     '...rrrr..c',
     '.f....r...',
     '........f.',
-    '....cFH...',
+    '....cFHA..',
   ],
   owners: [
-    // 敵軍の陣地(上)
+    // 敵軍の陣地(上)。空港では飛行ユニット(戦闘ヘリ・輸送ヘリ)を生産できる。
     { col: 3, row: 0, owner: 'enemy' }, // 本拠地
     { col: 4, row: 0, owner: 'enemy' }, // 工場
     { col: 5, row: 0, owner: 'enemy' }, // 都市
-    // 自軍の陣地(下)
+    { col: 2, row: 0, owner: 'enemy' }, // 空港
+    // 自軍の陣地(下)。空港では飛行ユニット(戦闘ヘリ・輸送ヘリ)を生産できる。
     { col: 6, row: 9, owner: 'player' }, // 本拠地
     { col: 5, row: 9, owner: 'player' }, // 工場
     { col: 4, row: 9, owner: 'player' }, // 都市
+    { col: 7, row: 9, owner: 'player' }, // 空港
   ],
   units: [
     // 敵軍の初期部隊(上、row 1 付近)
