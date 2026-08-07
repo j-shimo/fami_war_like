@@ -46,8 +46,44 @@ export class MapSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // ゲーム説明ボタン(右上)。押すとゲームの流れを紹介する GuideScene を開く
+    this.createGuideButton(width);
+
     MAP_LIST.forEach((entry, index) => {
       this.createMapCard(entry, index, width);
+    });
+  }
+
+  /** ゲームの流れを説明する画面(GuideScene)へ移動するボタンを右上に置く */
+  private createGuideButton(width: number): void {
+    const w = 108;
+    const h = 30;
+    const cx = width - w / 2 - 12;
+    const cy = 24;
+
+    const button = this.add
+      .rectangle(cx, cy, w, h, 0x1f2740)
+      .setStrokeStyle(2, 0x3a4a6a)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(cx, cy, '❔ ゲーム説明', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#8ad0ff',
+      })
+      .setOrigin(0.5);
+
+    button.on(Phaser.Input.Events.POINTER_OVER, () => {
+      button.setStrokeStyle(2, 0x8ad0ff);
+      button.setFillStyle(0x263255);
+    });
+    button.on(Phaser.Input.Events.POINTER_OUT, () => {
+      button.setStrokeStyle(2, 0x3a4a6a);
+      button.setFillStyle(0x1f2740);
+    });
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.scene.start('GuideScene');
     });
   }
 
