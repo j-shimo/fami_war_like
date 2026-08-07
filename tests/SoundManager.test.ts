@@ -169,6 +169,43 @@ describe('SoundManager', () => {
     manager.unlock();
     expect(recorder.resumed).toBe(1);
   });
+
+  it('初期音量は 100%(1)である', async () => {
+    const manager = await loadManager();
+    expect(manager.volume).toBe(1);
+  });
+
+  it('setVolume で音量を変えるとマスターゲインが更新され、volume に反映される', async () => {
+    const manager = await loadManager();
+    manager.setVolume(0.5);
+    expect(manager.volume).toBe(0.5);
+    // 実効ゲインは 0(ミュート)より大きく、100% 時より小さい
+    const applied = recorder.masterGainTargets.at(-1) ?? -1;
+    expect(applied).toBeGreaterThan(0);
+    expect(applied).toBeLessThan(manager.volume);
+  });
+
+  it('setVolume は 0〜1 の範囲に丸める', async () => {
+    const manager = await loadManager();
+    manager.setVolume(2);
+    expect(manager.volume).toBe(1);
+    manager.setVolume(-1);
+    expect(manager.volume).toBe(0);
+    expect(recorder.masterGainTargets.at(-1)).toBe(0);
+  });
+
+  it('ミュート中に setVolume してもマスターゲインは 0 のまま(解除後に反映)', async () => {
+    const manager = await loadManager();
+    manager.setMuted(true);
+    manager.setVolume(0.5);
+    expect(manager.volume).toBe(0.5);
+    expect(manager.isMuted).toBe(true);
+    // ミュート中は実効ゲイン 0 を保つ
+    expect(recorder.masterGainTargets.at(-1)).toBe(0);
+    // 解除すると設定した音量が反映される(0 より大きい)
+    manager.setMuted(false);
+    expect(recorder.masterGainTargets.at(-1)).toBeGreaterThan(0);
+  });
 });
 
 describe('SoundManager - Web Audio 非対応環境', () => {
