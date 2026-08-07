@@ -124,3 +124,87 @@ describe('RepairManager', () => {
     expect(economy.getFunds('player')).toBe(100);
   });
 });
+
+// 移動タイプ別の修理拠点の振り分けを検証する。
+// (0,0)自軍都市・(1,0)自軍工場・(2,0)自軍空港・(0,1)自軍本拠地を持つテストマップ。
+const REPAIR_BY_TYPE_MAP: MapDefinition = {
+  name: '移動タイプ別修理テストマップ',
+  terrain: ['cFA', 'H..'],
+  owners: [
+    { col: 0, row: 0, owner: 'player' }, // 都市
+    { col: 1, row: 0, owner: 'player' }, // 工場
+    { col: 2, row: 0, owner: 'player' }, // 空港
+    { col: 0, row: 1, owner: 'player' }, // 本拠地
+  ],
+};
+
+function setupByType(initialFunds = 10000) {
+  const map = MapManager.fromDefinition(REPAIR_BY_TYPE_MAP);
+  const units = UnitManager.fromPlacements([], map);
+  const economy = new EconomyManager({ initialFunds });
+  const repair = new RepairManager(map, units, economy);
+  return { map, units, economy, repair };
+}
+
+/** 指定マス・指定 HP の自軍ユニットを生成して配置する */
+function placeUnit(
+  units: UnitManager,
+  unitType: 'infantry' | 'attackHelicopter',
+  col: number,
+  row: number,
+  hp: number,
+) {
+  const unit = units.spawnUnit({
+    unitType,
+    army: 'player',
+    position: gridPosition(col, row),
+  });
+  unit.currentHp = hp;
+  return unit;
+}
+
+describe('RepairManager(移動タイプ別の修理拠点)', () => {
+  it('地上ユニットは都市・工場・本拠地で修理でき、空港では修理できない', () => {
+    const { units, repair } = setupByType();
+    expect(repair.canRepair(placeUnit(units, 'infantry', 0, 0, 5), 'player')).toBe(true); // 都市
+    expect(repair.canRepair(placeUnit(units, 'infantry', 1, 0, 5), 'player')).toBe(true); // 工場
+    expect(repair.canRepair(placeUnit(units, 'infantry', 0, 1, 5), 'player')).toBe(true); // 本拠地
+    expect(repair.canRepair(placeUnit(units, 'infantry', 2, 0, 5), 'player')).toBe(false); // 空港
+  });
+
+  it('飛行ユニットは空港でのみ修理でき、都市・工場・本拠地では修理できない', () => {
+    const { units, repair } = setupByType();
+    expect(
+      repair.canRepair(placeUnit(units, 'attackHelicopter', 2, 0, 5), 'player'),
+    ).toBe(true); // 空港
+    expect(
+      repair.canRepair(placeUnit(units, 'attackHelicopter', 0, 0, 5), 'player'),
+    ).toBe(false); // 都市
+    expect(
+      repair.canRepair(placeUnit(units, 'attackHelicopter', 1, 0, 5), 'player'),
+    ).toBe(false); // 工場
+    expect(
+      repair.canRepair(placeUnit(units, 'attackHelicopter', 0, 1, 5), 'player'),
+    ).toBe(false); // 本拠地
+  });
+
+  it('repairAll は空港上の飛行ユニットを回復する', () => {
+    const { units, repair } = setupByType();
+    const heli = placeUnit(units, 'attackHelicopter', 2, 0, 6);
+    const results = repair.repairAll('player');
+
+    expect(results.map((r) => r.unit)).toContain(heli);
+    expect(heli.currentHp).toBe(8);
+  });
+
+  it('repairAll は空港上の地上ユニットを回復しない', () => {
+    const { units, repair } = setupByType();
+    // 平地に生成してから空港マスへ移す(空港上に地上ユニットがいる状況を作る)
+    const infantry = placeUnit(units, 'infantry', 1, 1, 6);
+    infantry.position = gridPosition(2, 0);
+
+    const results = repair.repairAll('player');
+    expect(results).toHaveLength(0);
+    expect(infantry.currentHp).toBe(6);
+  });
+});

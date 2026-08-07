@@ -3,6 +3,7 @@
 
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+import { SEA_MAP } from '@/data/maps/seaMap';
 import { TEST_MAP } from '@/data/maps/testMap';
 
 /** マップ選択画面に並べる 1 枚ぶんのエントリ */
@@ -26,6 +27,12 @@ export const MAP_LIST: readonly MapEntry[] = [
     id: 'test',
     definition: TEST_MAP,
     description: '上下に陣地を構える標準サイズのマップ。基本の遊び方を試せる。',
+  },
+  {
+    id: 'sea',
+    definition: SEA_MAP,
+    description:
+      '海を配した 20x20 の大型対角マップ。左下と右上に分かれて広大な戦場を奪い合う。',
   },
 ];
 

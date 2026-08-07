@@ -22,7 +22,7 @@ describe('CAPTURE_MAP(拠点争奪マップ)', () => {
     expect(CAPTURE_MAP.initialFunds).toBe(0);
   });
 
-  it('自軍・敵軍は本拠地 1・工場 2・空港 1 の計 4 拠点を所有して開始する', () => {
+  it('自軍・敵軍は本拠地 1・工場 2 の計 3 拠点を所有して開始する', () => {
     const map = MapManager.fromDefinition(CAPTURE_MAP);
     const owned = {
       player: { total: 0, factory: 0, headquarters: 0, airport: 0 },
@@ -37,14 +37,14 @@ describe('CAPTURE_MAP(拠点争奪マップ)', () => {
       if (tile.terrainType === 'airport') side.airport += 1;
     });
     for (const side of [owned.player, owned.enemy]) {
-      expect(side.total).toBe(4);
+      expect(side.total).toBe(3);
       expect(side.factory).toBe(2);
       expect(side.headquarters).toBe(1);
-      expect(side.airport).toBe(1);
+      expect(side.airport).toBe(0);
     }
   });
 
-  it('各軍は工場・本拠地・空港の 4 生産拠点を所有して開始する', () => {
+  it('各軍は工場・本拠地の 3 生産拠点を所有して開始する', () => {
     const map = MapManager.fromDefinition(CAPTURE_MAP);
     let producibleTiles = 0;
     map.forEachTile((tile) => {
@@ -52,7 +52,7 @@ describe('CAPTURE_MAP(拠点争奪マップ)', () => {
         producibleTiles += 1;
       }
     });
-    expect(producibleTiles).toBe(4);
+    expect(producibleTiles).toBe(3);
   });
 
   it('中央に取り合いの対象となる中立拠点が存在する', () => {
