@@ -15,8 +15,11 @@ import {
 
 /** 効果音ステップの既定音量(volume 未指定時に使う) */
 const DEFAULT_STEP_VOLUME = 0.3;
-/** マスター音量の既定値 */
-const DEFAULT_MASTER_VOLUME = 0.35;
+/**
+ * 音量 100%(volumeLevel = 1)のときの実効マスターゲイン。
+ * チップチューン音源が歪まない上限として、これを最大音量とする。
+ */
+const MAX_MASTER_VOLUME = 0.35;
 /** BGM スケジューラの先読み時間(秒)。この先までの音を前もって予約する */
 const BGM_SCHEDULE_AHEAD = 0.2;
 /** BGM スケジューラの起動間隔(ミリ秒) */
@@ -27,10 +30,13 @@ const BGM_TIMER_INTERVAL = 40;
  * - playSfx: 効果音を 1 回鳴らす
  * - startBgm / stopBgm: BGM をループ再生・停止する
  * - setMuted / toggleMuted: 全体のミュートを切り替える
+ * - setVolume / volume: マスター音量(0〜1)を調整・取得する
  */
 export class SoundManager {
   private readonly engine: SoundEngine;
   private muted = false;
+  /** ユーザー設定のマスター音量(0〜1 の正規化値。実効ゲインは MAX_MASTER_VOLUME を掛ける) */
+  private volumeLevel = 1;
 
   /** 現在再生中の BGM 名(なければ null) */
   private currentBgm: BgmName | null = null;
@@ -42,7 +48,8 @@ export class SoundManager {
   private bgmNodes = new Set<OscillatorNode>();
 
   constructor() {
-    this.engine = new SoundEngine(DEFAULT_MASTER_VOLUME);
+    // 初期音量は 100%(volumeLevel = 1)なので実効ゲインは MAX_MASTER_VOLUME
+    this.engine = new SoundEngine(MAX_MASTER_VOLUME);
   }
 
   /** 発音可能か(AudioContext が使えるか) */
@@ -53,6 +60,11 @@ export class SoundManager {
   /** 現在ミュート中か */
   get isMuted(): boolean {
     return this.muted;
+  }
+
+  /** 現在のマスター音量(0〜1 の正規化値) */
+  get volume(): number {
+    return this.volumeLevel;
   }
 
   /**
@@ -66,13 +78,27 @@ export class SoundManager {
   /** ミュート状態を設定する。BGM 再生自体は止めず、音量だけを絞る */
   setMuted(muted: boolean): void {
     this.muted = muted;
-    this.engine.setMasterVolume(muted ? 0 : DEFAULT_MASTER_VOLUME);
+    this.applyMasterVolume();
   }
 
   /** ミュートを切り替え、切り替え後の状態を返す */
   toggleMuted(): boolean {
     this.setMuted(!this.muted);
     return this.muted;
+  }
+
+  /**
+   * マスター音量を設定する(0〜1 に丸める)。ミュート状態は変えず、音量だけを更新する。
+   * ミュート中は値を保持するだけで、ミュート解除時にこの音量が反映される。
+   */
+  setVolume(level: number): void {
+    this.volumeLevel = Math.min(1, Math.max(0, level));
+    this.applyMasterVolume();
+  }
+
+  /** ミュートと音量設定から実効マスターゲインを求めてエンジンに反映する */
+  private applyMasterVolume(): void {
+    this.engine.setMasterVolume(this.muted ? 0 : this.volumeLevel * MAX_MASTER_VOLUME);
   }
 
   /** 効果音を 1 回再生する */

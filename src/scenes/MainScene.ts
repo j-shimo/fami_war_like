@@ -48,6 +48,7 @@ import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
 import { ProductionWindow } from '@/rendering/ProductionWindow';
+import { VolumeWindow } from '@/rendering/VolumeWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 import { drawUnitIcon } from '@/rendering/unitIcon';
 
@@ -80,9 +81,9 @@ const MENU_DEPTH = 150;
 
 /**
  * 何もないマスの右クリックで出す情報メニューの項目。
- * 各項目の画面は今後実装する(現時点ではメニュー表示までを行う)。
+ * 「音量」は音量調整ウィンドウを開く。それ以外の項目の画面は今後実装する。
  */
-const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果'] as const;
+const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果', '音量'] as const;
 
 /** 合流できる味方ユニットを示す枠の色(攻撃対象の赤枠と区別する緑枠) */
 const MERGE_TARGET_COLOR = 0x5ad469;
@@ -208,6 +209,8 @@ export class MainScene extends Phaser.Scene {
   private actionButtons: Phaser.GameObjects.GameObject[] = [];
   /** 生産ウィンドウ(「生産」コマンドで開くユニット選択画面。初回オープン時に生成) */
   private productionWindow: ProductionWindow | null = null;
+  /** 音量調整ウィンドウ(情報メニューの「音量」で開く。初回オープン時に生成) */
+  private volumeWindow: VolumeWindow | null = null;
   /** 「生産」コマンドで選んでいる生産拠点のマス(生産ウィンドウ表示中に保持) */
   private productionTile: TileData | null = null;
   /**
@@ -898,8 +901,8 @@ export class MainScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
       this.ensureAudioStarted();
-      // 生産ウィンドウ表示中はウィンドウ側が入力を処理するため、マップ操作は行わない
-      if (this.productionWindow?.isOpen()) {
+      // 生産・音量ウィンドウ表示中はウィンドウ側が入力を処理するため、マップ操作は行わない
+      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
         return;
       }
       // 勝敗が決した後はマップ操作を受け付けない
@@ -938,8 +941,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      // 生産ウィンドウ表示中はウィンドウ側がスクロールを処理する
-      if (this.productionWindow?.isOpen()) {
+      // 生産・音量ウィンドウ表示中はウィンドウ側が入力(スクロール・ドラッグ)を処理する
+      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
         return;
       }
       // マップ領域で押下中なら、移動量に応じてスクロール(スワイプ)する
@@ -965,8 +968,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
-      // 生産ウィンドウ表示中はウィンドウ側が処理するため、マップのクリック確定は行わない
-      if (this.productionWindow?.isOpen()) {
+      // 生産・音量ウィンドウ表示中はウィンドウ側が処理するため、マップのクリック確定は行わない
+      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
         return;
       }
       const wasActive = this.dragActive;
@@ -1181,12 +1184,37 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 情報メニューの項目が選ばれたときの処理。
-   * 各画面は今後実装する。現時点ではメニューを閉じ、選んだ項目名を表示するだけにとどめる。
+   * 「音量」は音量調整ウィンドウを開く。その他の画面は今後実装するため、
+   * 現時点ではメニューを閉じ、選んだ項目名を表示するだけにとどめる。
    */
   private selectInfoMenuItem(label: string): void {
     this.audio.playSfx('button');
     this.closeInfoMenu();
+    if (label === '音量') {
+      this.openVolumeWindow();
+      return;
+    }
     this.infoText.setText([label, '(準備中)']);
+  }
+
+  /**
+   * 音量調整ウィンドウ(横スライダーでマスター音量を 0〜100% で調整)を開く。
+   * 調整の結果をすぐ音で確認できるよう、開くタイミングで AudioContext と BGM を起動する。
+   */
+  private openVolumeWindow(): void {
+    this.ensureAudioStarted();
+    this.volumeWindow ??= new VolumeWindow(this);
+    this.volumeWindow.open({
+      gameWidth: this.gameWidth,
+      gameHeight: this.gameHeight,
+      viewWidth: this.viewWidth,
+      viewHeight: this.viewHeight,
+      initialVolume: this.audio.volume,
+      onChange: (volume) => this.audio.setVolume(volume),
+      onClose: () => {
+        this.infoText.setText('マスを選択してください');
+      },
+    });
   }
 
   /** 情報メニューを閉じ、ハイライト・ボタンを片付ける */
@@ -1922,8 +1950,9 @@ export class MainScene extends Phaser.Scene {
 
   /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
   private resetSelection(): void {
-    // 生産ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
+    // 生産・音量ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
     this.productionWindow?.close();
+    this.volumeWindow?.close();
     this.productionTile = null;
     this.selected = null;
     this.movingUnit = null;
