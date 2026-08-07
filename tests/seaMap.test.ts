@@ -52,13 +52,45 @@ describe('SEA_MAP(沿岸対角マップ)', () => {
     expect(enemyHq?.owner).toBe('enemy');
   });
 
-  it('海が配置されている', () => {
+  it('海が盤面の大きな割合(1/4 以上)を占める', () => {
     const map = MapManager.fromDefinition(SEA_MAP);
     let seaTiles = 0;
     map.forEachTile((tile) => {
       if (tile.terrainType === 'sea') seaTiles += 1;
     });
-    expect(seaTiles).toBeGreaterThan(0);
+    // 20x20 = 400 マスのうち海が 100 マス(1/4)以上。海主体のマップである。
+    expect(seaTiles).toBeGreaterThanOrEqual(100);
+  });
+
+  it('飛行ユニットで奪い合う中立の空港が存在する', () => {
+    const map = MapManager.fromDefinition(SEA_MAP);
+    let neutralAirports = 0;
+    map.forEachTile((tile) => {
+      if (tile.terrainType === 'airport' && tile.owner === 'neutral') {
+        neutralAirports += 1;
+      }
+    });
+    // 海に囲まれた島の中立空港。飛行ユニットの前進生産拠点として争う対象。
+    expect(neutralAirports).toBeGreaterThanOrEqual(2);
+  });
+
+  it('中立の島の空港は海に囲まれ、地上ユニットが進入できない', () => {
+    const map = MapManager.fromDefinition(SEA_MAP);
+    map.forEachTile((tile) => {
+      if (tile.terrainType !== 'airport' || tile.owner !== 'neutral') return;
+      const { col, row } = tile.position;
+      const neighbors = [
+        { col, row: row - 1 },
+        { col, row: row + 1 },
+        { col: col - 1, row },
+        { col: col + 1, row },
+      ];
+      for (const pos of neighbors) {
+        const adjacent = map.getTile(pos);
+        // 盤内の隣接マスはすべて海(=島)。歩兵・車両は海に進入できないため到達できない。
+        if (adjacent) expect(adjacent.terrainType).toBe('sea');
+      }
+    });
   });
 
   it('中立で占領可能な拠点が存在する', () => {
