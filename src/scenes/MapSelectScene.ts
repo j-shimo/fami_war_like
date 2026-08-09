@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
+import { INITIAL_FUNDS } from '@/data/economyConfig';
 import { MAP_LIST, type MapEntry } from '@/data/maps';
 
 /** 選択画面のカードの寸法・間隔 */
@@ -116,6 +117,17 @@ export class MapSelectScene extends Phaser.Scene {
       fontSize: '13px',
       color: '#ffe08a',
     });
+
+    // 初期軍資金(マップ個別指定がなければ economyConfig の既定値)。
+    // マップごとに序盤のテンポが違うため、選ぶ前に把握できるようにする。
+    const initialFunds = entry.definition.initialFunds ?? INITIAL_FUNDS;
+    this.add
+      .text(x + cardWidth - 16, y + 38, `初期軍資金: ${initialFunds.toLocaleString()}`, {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        color: '#8affc0',
+      })
+      .setOrigin(1, 0);
 
     // 1 行説明
     this.add.text(x + 16, y + 58, entry.description, {
