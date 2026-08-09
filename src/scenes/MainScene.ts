@@ -315,8 +315,40 @@ export class MainScene extends Phaser.Scene {
     }
     this.setupInput();
 
+    // 開始時は自軍の本拠地へカメラを寄せ、どこから始めるか分かりやすくする
+    this.focusPlayerHeadquarters();
+
     // 開始演出として自軍第1ターンのバナーを表示する
     this.showTurnStartBanner();
+  }
+
+  /**
+   * 自軍の本拠地へカメラの中心を合わせる。
+   * マップがビューポートに収まる場合はカメラ境界によりスクロール量が 0 に固定されるため、
+   * 従来どおりの表示になる。本拠地が無いマップでは自軍所有の拠点、それも無ければ何もしない。
+   */
+  private focusPlayerHeadquarters(): void {
+    let target: TileData | undefined;
+    let fallback: TileData | undefined;
+
+    this.map.forEachTile((tile) => {
+      if (tile.owner !== 'player') {
+        return;
+      }
+      if (tile.terrainType === 'headquarters' && target === undefined) {
+        target = tile;
+      } else if (fallback === undefined && getTerrainData(tile.terrainType).canCapture) {
+        fallback = tile;
+      }
+    });
+
+    const focusTile = target ?? fallback;
+    if (focusTile === undefined) {
+      return;
+    }
+
+    const center = gridToWorldCenter(focusTile.position, TILE_SIZE);
+    this.cameras.main.centerOn(center.x, center.y);
   }
 
   /**
