@@ -49,6 +49,7 @@ import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
 import { ProductionWindow } from '@/rendering/ProductionWindow';
 import { VolumeWindow } from '@/rendering/VolumeWindow';
+import { UnitGuideWindow } from '@/rendering/UnitGuideWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 import { drawUnitIcon } from '@/rendering/unitIcon';
 
@@ -211,6 +212,8 @@ export class MainScene extends Phaser.Scene {
   private productionWindow: ProductionWindow | null = null;
   /** 音量調整ウィンドウ(情報メニューの「音量」で開く。初回オープン時に生成) */
   private volumeWindow: VolumeWindow | null = null;
+  /** ユニット説明ウィンドウ(情報メニューの「ユニット説明」で開く。初回オープン時に生成) */
+  private unitGuideWindow: UnitGuideWindow | null = null;
   /** 「生産」コマンドで選んでいる生産拠点のマス(生産ウィンドウ表示中に保持) */
   private productionTile: TileData | null = null;
   /**
@@ -933,8 +936,8 @@ export class MainScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 初回クリックで AudioContext を起動し BGM を鳴らし始める(自動再生制限への対応)
       this.ensureAudioStarted();
-      // 生産・音量ウィンドウ表示中はウィンドウ側が入力を処理するため、マップ操作は行わない
-      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
+      // 各種ウィンドウ表示中はウィンドウ側が入力を処理するため、マップ操作は行わない
+      if (this.isAnyWindowOpen()) {
         return;
       }
       // 勝敗が決した後はマップ操作を受け付けない
@@ -973,8 +976,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      // 生産・音量ウィンドウ表示中はウィンドウ側が入力(スクロール・ドラッグ)を処理する
-      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
+      // 各種ウィンドウ表示中はウィンドウ側が入力(スクロール・ドラッグ)を処理する
+      if (this.isAnyWindowOpen()) {
         return;
       }
       // マップ領域で押下中なら、移動量に応じてスクロール(スワイプ)する
@@ -1000,8 +1003,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     this.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
-      // 生産・音量ウィンドウ表示中はウィンドウ側が処理するため、マップのクリック確定は行わない
-      if (this.productionWindow?.isOpen() || this.volumeWindow?.isOpen()) {
+      // 各種ウィンドウ表示中はウィンドウ側が処理するため、マップのクリック確定は行わない
+      if (this.isAnyWindowOpen()) {
         return;
       }
       const wasActive = this.dragActive;
@@ -1222,11 +1225,46 @@ export class MainScene extends Phaser.Scene {
   private selectInfoMenuItem(label: string): void {
     this.audio.playSfx('button');
     this.closeInfoMenu();
+    if (label === 'ユニット説明') {
+      this.openUnitGuideWindow();
+      return;
+    }
     if (label === '音量') {
       this.openVolumeWindow();
       return;
     }
     this.infoText.setText([label, '(準備中)']);
+  }
+
+  /** いずれかのモーダルウィンドウ(生産・音量・ユニット説明)を表示中か */
+  private isAnyWindowOpen(): boolean {
+    return (
+      this.productionWindow?.isOpen() === true ||
+      this.volumeWindow?.isOpen() === true ||
+      this.unitGuideWindow?.isOpen() === true
+    );
+  }
+
+  /**
+   * ユニット説明ウィンドウ(各ユニットの説明と、全ユニットとの対戦相性を表示)を開く。
+   */
+  private openUnitGuideWindow(): void {
+    this.unitGuideWindow ??= new UnitGuideWindow(this);
+    this.unitGuideWindow.open({
+      gameWidth: this.gameWidth,
+      gameHeight: this.gameHeight,
+      viewWidth: this.viewWidth,
+      viewHeight: this.viewHeight,
+      tokenColor: UNIT_BODY_COLOR.player,
+      onClose: () => {
+        this.infoText.setText('マスを選択してください');
+      },
+    });
+
+    // 「ユニット説明」ボタンの押下ハンドラは pointerConsumedByButton を true にしてから
+    // このメソッドを呼ぶ。音量ウィンドウと同様に、開いた直後はグローバルの押下ハンドラが
+    // 「ウィンドウ表示中ガード」で先に return してフラグが取り残されるため、明示的に下ろす。
+    this.pointerConsumedByButton = false;
   }
 
   /**
@@ -1989,9 +2027,10 @@ export class MainScene extends Phaser.Scene {
 
   /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
   private resetSelection(): void {
-    // 生産・音量ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
+    // 生産・音量・ユニット説明ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
     this.productionWindow?.close();
     this.volumeWindow?.close();
+    this.unitGuideWindow?.close();
     this.productionTile = null;
     this.selected = null;
     this.movingUnit = null;
