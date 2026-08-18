@@ -59,6 +59,24 @@ export class SoundEngine {
     }
   }
 
+  /**
+   * AudioContext を一時停止する。
+   * 予約済みの音も含めて時間の進行が止まるため、ブラウザが非アクティブな間に
+   * BGM や効果音が鳴り続けるのを防げる。resume() で続きから再開する。
+   */
+  suspend(): void {
+    if (this.ctx && this.ctx.state === 'running') {
+      void this.ctx.suspend();
+    }
+  }
+
+  /** AudioContext を破棄する。シーン終了時に呼び、コンテキストの作りっぱなしを防ぐ */
+  close(): void {
+    if (this.ctx && this.ctx.state !== 'closed') {
+      void this.ctx.close();
+    }
+  }
+
   /** マスター音量を設定する(0〜1)。ミュートに使う */
   setMasterVolume(volume: number): void {
     if (this.master) {

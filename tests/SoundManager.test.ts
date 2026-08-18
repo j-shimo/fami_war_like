@@ -10,6 +10,8 @@ interface Recorder {
   bufferSources: FakeBufferSource[];
   masterGainTargets: number[];
   resumed: number;
+  suspended: number;
+  closed: number;
 }
 
 class FakeParam {
@@ -87,14 +89,64 @@ function createFakeAudioContext(recorder: Recorder) {
       this.state = 'running';
       return Promise.resolve();
     }
+
+    suspend(): Promise<void> {
+      recorder.suspended += 1;
+      this.state = 'suspended';
+      return Promise.resolve();
+    }
+
+    close(): Promise<void> {
+      recorder.closed += 1;
+      this.state = 'closed' as 'running';
+      return Promise.resolve();
+    }
   };
+}
+
+/** addEventListener / removeEventListener を備えた最小のイベント発生源 */
+class FakeEventTarget {
+  readonly listeners = new Map<string, Set<() => void>>();
+
+  addEventListener(type: string, listener: () => void): void {
+    const set = this.listeners.get(type) ?? new Set<() => void>();
+    set.add(listener);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: string, listener: () => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  /** 登録済みリスナを発火する */
+  emit(type: string): void {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) {
+      listener();
+    }
+  }
+
+  /** 登録されているリスナの総数 */
+  listenerCount(): number {
+    let count = 0;
+    for (const set of this.listeners.values()) {
+      count += set.size;
+    }
+    return count;
+  }
 }
 
 let recorder: Recorder;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  recorder = { oscillators: [], bufferSources: [], masterGainTargets: [], resumed: 0 };
+  recorder = {
+    oscillators: [],
+    bufferSources: [],
+    masterGainTargets: [],
+    resumed: 0,
+    suspended: 0,
+    closed: 0,
+  };
   (globalThis as { window?: unknown }).window = {
     AudioContext: createFakeAudioContext(recorder),
   };
@@ -208,6 +260,131 @@ describe('SoundManager', () => {
   });
 });
 
+describe('SoundManager - ブラウザ非アクティブ時の停止', () => {
+  /** window / document を差し替えたうえで SoundManager を読み込む */
+  async function loadManager() {
+    const { SoundManager } = await import('@/audio/SoundManager');
+    return new SoundManager();
+  }
+
+  /** window と document をイベント発火できる偽物に差し替える */
+  function installFakeDom(): {
+    win: FakeEventTarget;
+    doc: FakeEventTarget & { hidden: boolean };
+  } {
+    const win = new FakeEventTarget() as FakeEventTarget & { AudioContext: unknown };
+    win.AudioContext = createFakeAudioContext(recorder);
+    const doc = new FakeEventTarget() as FakeEventTarget & { hidden: boolean };
+    doc.hidden = false;
+    (globalThis as { window?: unknown }).window = win;
+    (globalThis as { document?: unknown }).document = doc;
+    return { win, doc };
+  }
+
+  afterEach(() => {
+    delete (globalThis as { document?: unknown }).document;
+  });
+
+  it('非アクティブになるとマスター音量が 0 になり AudioContext が止まる', async () => {
+    const manager = await loadManager();
+    manager.unlock(); // ユーザー操作で起動済みの状態にする
+    manager.setPageActive(false);
+
+    expect(manager.isPageActive).toBe(false);
+    expect(recorder.masterGainTargets.at(-1)).toBe(0);
+    expect(recorder.suspended).toBe(1);
+  });
+
+  it('アクティブに戻ると音量が戻り AudioContext が再開する', async () => {
+    const manager = await loadManager();
+    manager.unlock();
+    const resumedAfterUnlock = recorder.resumed;
+
+    manager.setPageActive(false);
+    manager.setPageActive(true);
+
+    expect(manager.isPageActive).toBe(true);
+    expect(recorder.masterGainTargets.at(-1)).toBeGreaterThan(0);
+    expect(recorder.resumed).toBe(resumedAfterUnlock + 1);
+  });
+
+  it('同じ状態を続けて指定しても余計な suspend / resume はしない', async () => {
+    const manager = await loadManager();
+    manager.unlock();
+    manager.setPageActive(false);
+    manager.setPageActive(false);
+    expect(recorder.suspended).toBe(1);
+  });
+
+  it('初回のユーザー操作前(unlock 前)は復帰しても resume しない', async () => {
+    const manager = await loadManager();
+    manager.setPageActive(false);
+    manager.setPageActive(true);
+    // 自動再生制限に引っかかるため、勝手に鳴らし始めない
+    expect(recorder.resumed).toBe(0);
+  });
+
+  it('ミュート中に復帰してもマスター音量は 0 のまま', async () => {
+    const manager = await loadManager();
+    manager.unlock();
+    manager.setMuted(true);
+    manager.setPageActive(false);
+    manager.setPageActive(true);
+    expect(recorder.masterGainTargets.at(-1)).toBe(0);
+  });
+
+  it('bindPageVisibility でタブ非表示・ウィンドウ blur を拾う', async () => {
+    const { win, doc } = installFakeDom();
+    const manager = await loadManager();
+    manager.unlock();
+    manager.bindPageVisibility();
+
+    doc.hidden = true;
+    doc.emit('visibilitychange');
+    expect(manager.isPageActive).toBe(false);
+
+    doc.hidden = false;
+    doc.emit('visibilitychange');
+    expect(manager.isPageActive).toBe(true);
+
+    // 別ウィンドウ・別アプリへ切り替えたとき(タブは表示されたまま)
+    win.emit('blur');
+    expect(manager.isPageActive).toBe(false);
+    win.emit('focus');
+    expect(manager.isPageActive).toBe(true);
+  });
+
+  it('bindPageVisibility を二重に呼んでもリスナは増えない', async () => {
+    const { win, doc } = installFakeDom();
+    const manager = await loadManager();
+    manager.bindPageVisibility();
+    const count = win.listenerCount() + doc.listenerCount();
+    manager.bindPageVisibility();
+    expect(win.listenerCount() + doc.listenerCount()).toBe(count);
+  });
+
+  it('dispose で BGM 停止・リスナ解除・AudioContext の破棄を行う', async () => {
+    const { win, doc } = installFakeDom();
+    const manager = await loadManager();
+    manager.unlock();
+    manager.bindPageVisibility();
+    manager.startBgm('playerBattle');
+    expect(recorder.oscillators.length).toBeGreaterThan(0);
+
+    manager.dispose();
+
+    for (const osc of recorder.oscillators) {
+      expect(osc.stop).toHaveBeenCalled();
+    }
+    expect(win.listenerCount() + doc.listenerCount()).toBe(0);
+    expect(recorder.closed).toBe(1);
+    // 解除済みなのでイベントが来ても状態は変わらない
+    doc.hidden = true;
+    doc.emit('visibilitychange');
+    expect(manager.isPageActive).toBe(true);
+  });
+});
+
 describe('SoundManager - Web Audio 非対応環境', () => {
   it('window が無ければ available は false で、呼び出しても例外を投げない', async () => {
     delete (globalThis as { window?: unknown }).window;
@@ -222,6 +399,10 @@ describe('SoundManager - Web Audio 非対応環境', () => {
       manager.stopBgm();
       manager.unlock();
       manager.setMuted(true);
+      manager.bindPageVisibility();
+      manager.setPageActive(false);
+      manager.setPageActive(true);
+      manager.dispose();
     }).not.toThrow();
   });
 });

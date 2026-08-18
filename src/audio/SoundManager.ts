@@ -31,10 +31,18 @@ const BGM_TIMER_INTERVAL = 40;
  * - startBgm / stopBgm: BGM をループ再生・停止する
  * - setMuted / toggleMuted: 全体のミュートを切り替える
  * - setVolume / volume: マスター音量(0〜1)を調整・取得する
+ * - bindPageVisibility / setPageActive: ブラウザが非アクティブな間は音を止める
+ * - dispose: BGM 停止・監視解除・AudioContext の破棄
  */
 export class SoundManager {
   private readonly engine: SoundEngine;
   private muted = false;
+  /** ブラウザ(タブ・ウィンドウ)が非アクティブで音を止めているか */
+  private pageInactive = false;
+  /** ユーザー操作で AudioContext を起動済みか(自動再生制限のため再開の可否に使う) */
+  private unlocked = false;
+  /** ページ表示状態の監視を解除する関数(未監視なら null) */
+  private unbindPageVisibility: (() => void) | null = null;
   /** ユーザー設定のマスター音量(0〜1 の正規化値。実効ゲインは MAX_MASTER_VOLUME を掛ける) */
   private volumeLevel = 1;
 
@@ -72,6 +80,7 @@ export class SoundManager {
    * ブラウザの自動再生制限に対応するため、クリックなどの起点で呼ぶ。
    */
   unlock(): void {
+    this.unlocked = true;
     this.engine.resume();
   }
 
@@ -96,9 +105,80 @@ export class SoundManager {
     this.applyMasterVolume();
   }
 
-  /** ミュートと音量設定から実効マスターゲインを求めてエンジンに反映する */
+  /** ミュート・ページ非アクティブ・音量設定から実効マスターゲインを求めてエンジンに反映する */
   private applyMasterVolume(): void {
-    this.engine.setMasterVolume(this.muted ? 0 : this.volumeLevel * MAX_MASTER_VOLUME);
+    const silent = this.muted || this.pageInactive;
+    this.engine.setMasterVolume(silent ? 0 : this.volumeLevel * MAX_MASTER_VOLUME);
+  }
+
+  /** ブラウザが非アクティブ(タブ非表示・別ウィンドウへ切替)になっているか */
+  get isPageActive(): boolean {
+    return !this.pageInactive;
+  }
+
+  /**
+   * ブラウザ(タブ・ウィンドウ)のアクティブ状態を反映する。
+   * 非アクティブになったら音量を 0 にしたうえで AudioContext を止め、
+   * 予約済みの BGM・効果音が裏で鳴り続けないようにする。
+   * 復帰時は止めた地点から再開する(ミュート中ならミュートのまま)。
+   */
+  setPageActive(active: boolean): void {
+    if (this.pageInactive === !active) {
+      return;
+    }
+    this.pageInactive = !active;
+    // 音量を先に反映してから止める/再開する
+    this.applyMasterVolume();
+    if (!active) {
+      this.engine.suspend();
+    } else if (this.unlocked) {
+      // 初回のユーザー操作前に resume すると自動再生制限で弾かれるため、起動済みのときだけ再開する
+      this.engine.resume();
+    }
+  }
+
+  /**
+   * ブラウザの表示状態を監視し、非アクティブになったら音を止める。
+   * visibilitychange(タブ切替・アプリ切替)と blur/focus(別ウィンドウへの切替)の
+   * 両方を見る。二重登録はせず、解除は dispose() で行う。
+   */
+  bindPageVisibility(): void {
+    if (this.unbindPageVisibility) {
+      return;
+    }
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      return;
+    }
+    const doc = document;
+    const win = window;
+    if (
+      typeof doc.addEventListener !== 'function' ||
+      typeof win.addEventListener !== 'function'
+    ) {
+      return;
+    }
+    const onVisibilityChange = (): void => this.setPageActive(!doc.hidden);
+    const onBlur = (): void => this.setPageActive(false);
+    const onFocus = (): void => this.setPageActive(true);
+    doc.addEventListener('visibilitychange', onVisibilityChange);
+    win.addEventListener('blur', onBlur);
+    win.addEventListener('focus', onFocus);
+    this.unbindPageVisibility = () => {
+      doc.removeEventListener('visibilitychange', onVisibilityChange);
+      win.removeEventListener('blur', onBlur);
+      win.removeEventListener('focus', onFocus);
+    };
+  }
+
+  /**
+   * サウンドを破棄する。BGM を止め、表示状態の監視を解除し、AudioContext を閉じる。
+   * シーン終了時に呼び、AudioContext やイベントリスナが残り続けるのを防ぐ。
+   */
+  dispose(): void {
+    this.stopBgm();
+    this.unbindPageVisibility?.();
+    this.unbindPageVisibility = null;
+    this.engine.close();
   }
 
   /** 効果音を 1 回再生する */
