@@ -321,6 +321,10 @@ export class MainScene extends Phaser.Scene {
       production: this.production,
     });
     this.audio = new SoundManager();
+    // ブラウザが非アクティブ(タブ切替・アプリ切替)の間はゲーム音を止める
+    this.audio.bindPageVisibility();
+    // シーンを抜けるときに BGM 停止・監視解除・AudioContext の破棄まで行う
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.audio.dispose());
 
     this.createTerrainLayer();
     this.drawTerrain();

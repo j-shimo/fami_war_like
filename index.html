@@ -2,27 +2,52 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      スマホ表示のためのビューポート設定。
+      user-scalable=no でゲーム操作(タップ・スワイプ)によるピンチズームや
+      ダブルタップ拡大が起きないようにする。
+      ノッチ端末の余白(セーフエリア)はブラウザの既定( viewport-fit=auto )に任せる。
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>グリッドウォーズ(仮題)</title>
     <style>
       html,
       body {
         margin: 0;
         padding: 0;
+        height: 100%;
         background-color: #1a1a2e;
         color: #eaeaea;
         font-family: sans-serif;
+        overflow: hidden;
+        /* ゲーム画面のスワイプでページが引っ張られたり
+           プルツーリフレッシュが働いたりしないようにする */
+        overscroll-behavior: none;
       }
 
+      /*
+        キャンバスの親要素。Phaser はこの要素の大きさに合わせてキャンバスを拡大縮小する。
+        - 画面いっぱいの大きさを与えて、拡大できる余地を最大にする
+        - 高さは 100dvh(動的ビューポート高さ)を使い、スマホのアドレスバーの
+          出入りによるずれをなくす。非対応ブラウザ向けに 100vh を先に書いておく
+        - ここで flex による中央寄せはしない。Phaser の autoCenter は margin で
+          位置を合わせるため、CSS 側でも中央寄せすると二重に効いて画面が下寄りになる
+      */
       #app {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 100vh;
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
       }
 
       canvas {
         image-rendering: pixelated;
+        display: block;
+        /* ブラウザ既定のタッチ操作(スクロール・ズーム)を切り、
+           ゲーム側のドラッグ操作だけを効かせる */
+        touch-action: none;
       }
     </style>
   </head>

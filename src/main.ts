@@ -13,8 +13,12 @@ const config: Phaser.Types.Core.GameConfig = {
   backgroundColor: '#1a1a2e',
   pixelArt: true,
   scale: {
+    // 画面(親要素)に収まる最大サイズまで拡大する。
+    // スマホでは横幅いっぱいまで引き伸ばされる。
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // 横は中央寄せ、縦は上寄せにする。縦持ちのスマホでは画面上部から表示され、
+    // 下に余白が寄るぶん指で操作しやすくなる。
+    autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
   },
   scene: [BootScene, MapSelectScene, GuideScene, MainScene],
 };
