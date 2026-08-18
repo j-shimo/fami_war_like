@@ -32,7 +32,7 @@ export interface SpawnParams {
 export class UnitManager {
   private readonly units: Unit[] = [];
   /** 生産で生成したユニットに一意な ID を振るための連番 */
-  private spawnCounter = 0;
+  private spawnSequence = 0;
 
   /**
    * 初期配置定義から UnitManager を生成する。
@@ -82,6 +82,48 @@ export class UnitManager {
     });
 
     return manager;
+  }
+
+  /**
+   * 既存の Unit 群から UnitManager を生成する(中断データからの復元に使う)。
+   * 通常のゲーム開始は fromPlacements を使い、このメソッドは復元専用とする。
+   * 同一マスへの重複配置、および map を渡した場合のマップ範囲外はデータ不整合として例外を投げる。
+   * spawnCounter には保存時点の連番を渡し、復元後に生産したユニットの ID が
+   * 既存ユニットと衝突しないようにする。
+   */
+  static fromUnits(
+    units: readonly Unit[],
+    options?: { spawnCounter?: number; map?: MapManager },
+  ): UnitManager {
+    const manager = new UnitManager();
+    const occupied = new Set<string>();
+
+    for (const unit of units) {
+      if (options?.map && !options.map.isInBounds(unit.position)) {
+        throw new Error(
+          `ユニット位置がマップ範囲外です(col ${unit.position.col}, row ${unit.position.row})`,
+        );
+      }
+      const key = `${unit.position.col},${unit.position.row}`;
+      if (occupied.has(key)) {
+        throw new Error(
+          `同一マスにユニットが重複しています(col ${unit.position.col}, row ${unit.position.row})`,
+        );
+      }
+      occupied.add(key);
+      manager.units.push(unit);
+    }
+
+    manager.spawnSequence = options?.spawnCounter ?? 0;
+    return manager;
+  }
+
+  /**
+   * 生産で生成したユニット数(次に振る ID の連番)。
+   * 中断データへ書き出し、復元時に fromUnits へ渡して ID の衝突を防ぐ。
+   */
+  get spawnCounter(): number {
+    return this.spawnSequence;
   }
 
   /** 生存しているすべてのユニットを返す */
@@ -140,7 +182,7 @@ export class UnitManager {
       );
     }
     const unit = new Unit({
-      id: `spawn-${params.army}-${this.spawnCounter++}`,
+      id: `spawn-${params.army}-${this.spawnSequence++}`,
       unitType: params.unitType,
       armyType: params.army,
       position: params.position,

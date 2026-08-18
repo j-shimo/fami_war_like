@@ -41,6 +41,18 @@ export class EconomyManager {
     this.funds[army] += amount;
   }
 
+  /**
+   * 指定した軍の資金を直接設定する(0 以上、負の額は不正)。
+   * 中断データからゲーム状態を復元するときに使う。
+   * 通常のゲーム進行では addFunds / spend を使う。
+   */
+  setFunds(army: EconomyArmy, amount: number): void {
+    if (amount < 0) {
+      throw new Error('設定する資金は 0 以上である必要があります');
+    }
+    this.funds[army] = amount;
+  }
+
   /** 指定した軍が cost を支払えるか */
   canAfford(army: EconomyArmy, cost: number): boolean {
     return this.funds[army] >= cost;

@@ -30,8 +30,18 @@ export class TurnManager {
 
   /**
    * @param units ターン開始時に行動済み状態をリセットする対象のユニット群
+   * @param restore 中断データからの復元時に、保存されていたターン状態を渡す。
+   *   復元時は手番開始処理(行動済みのリセット)を行わず、保存時点の行動済み状態を保つ。
    */
-  constructor(private readonly units: UnitManager) {
+  constructor(
+    private readonly units: UnitManager,
+    restore?: TurnState,
+  ) {
+    if (restore) {
+      this.turn = restore.turnNumber;
+      this.index = this.order.indexOf(restore.currentArmy);
+      return;
+    }
     // 開始時は自軍ターン。手番軍の行動済み状態を初期化する。
     this.startTurn();
   }
