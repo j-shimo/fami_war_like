@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
+import { matchesMap, type SaveData } from '@/core/save/SaveData';
+import { clearSuspendData, readSuspendData } from '@/core/save/SaveStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { INITIAL_FUNDS } from '@/data/economyConfig';
 import { MAP_LIST, type MapEntry } from '@/data/maps';
+import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 
 /** 選択画面のカードの寸法・間隔 */
 const CARD_MARGIN_X = 40;
@@ -13,13 +16,23 @@ const CARD_GAP = 16;
  * インゲームの前段階に表示するマップ選択画面。
  * 登録済みマップ(MAP_LIST)をカードとして縦に並べ、
  * クリックすると選んだマップを MainScene へ渡してゲームを開始する。
+ * 選んだマップの中断データが残っている場合は、再開するかどうかを確認ダイアログで尋ね、
+ * 「はい」なら中断データから再開し、「いいえ」なら中断データを破棄して新規に開始する。
  */
 export class MapSelectScene extends Phaser.Scene {
+  /** 中断データの再開確認に使うダイアログ(初回オープン時に生成) */
+  private confirmWindow: ConfirmWindow | null = null;
+  /** 画面表示時点の中断データ(なければ null)。カードの「中断データあり」表示にも使う */
+  private suspendData: SaveData | null = null;
+
   constructor() {
     super('MapSelectScene');
   }
 
   create(): void {
+    // 保存済みの中断データを読み込む(壊れていた場合は null になり、新規開始の扱いになる)
+    this.suspendData = readSuspendData();
+    this.confirmWindow = null;
     // 直前に大きなマップを遊んでいた場合に備え、選択画面用の寸法へ戻す
     this.scale.resize(DEFAULT_DIMENSIONS.gameWidth, DEFAULT_DIMENSIONS.gameHeight);
 
@@ -147,7 +160,66 @@ export class MapSelectScene extends Phaser.Scene {
       card.setFillStyle(0x1f2740);
     });
     card.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      this.scene.start('MainScene', { map: entry.definition });
+      this.selectMap(entry);
+    });
+
+    // このマップの中断データが残っていることをカード右上に示す
+    if (this.savedDataFor(entry)) {
+      this.add
+        .text(x + cardWidth - 16, y + 12, '中断データあり', {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          fontStyle: 'bold',
+          color: '#ffd479',
+        })
+        .setOrigin(1, 0);
+    }
+  }
+
+  /** 指定マップで再開できる中断データがあれば返す。なければ null */
+  private savedDataFor(entry: MapEntry): SaveData | null {
+    const save = this.suspendData;
+    if (save && matchesMap(save, entry.id, entry.definition)) {
+      return save;
+    }
+    return null;
+  }
+
+  /**
+   * マップが選ばれたときの処理。
+   * 中断データがあれば再開するか確認し、なければそのまま新規ゲームを始める。
+   */
+  private selectMap(entry: MapEntry): void {
+    const save = this.savedDataFor(entry);
+    if (!save) {
+      this.startGame(entry);
+      return;
+    }
+
+    this.confirmWindow ??= new ConfirmWindow(this);
+    this.confirmWindow.open({
+      gameWidth: DEFAULT_DIMENSIONS.gameWidth,
+      gameHeight: DEFAULT_DIMENSIONS.gameHeight,
+      viewWidth: DEFAULT_DIMENSIONS.gameWidth,
+      viewHeight: DEFAULT_DIMENSIONS.gameHeight,
+      title: '中断データ',
+      message: '中断データがあります。再開しますか?',
+      onYes: () => this.startGame(entry, save),
+      onNo: () => {
+        // 再開しないと決めたので中断データは破棄し、新規ゲームとして始める
+        clearSuspendData();
+        this.suspendData = null;
+        this.startGame(entry);
+      },
+    });
+  }
+
+  /** 選んだマップでゲームを開始する。save を渡すとその中断データから再開する */
+  private startGame(entry: MapEntry, save?: SaveData): void {
+    this.scene.start('MainScene', {
+      map: entry.definition,
+      mapId: entry.id,
+      save,
     });
   }
 }

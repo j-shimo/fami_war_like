@@ -20,6 +20,13 @@ import {
   findUnloadPositions,
   type MovementRange,
 } from '@/core/movement/MovementRange';
+import {
+  createSaveData,
+  restoreGameState,
+  type RestoredState,
+  type SaveData,
+} from '@/core/save/SaveData';
+import { clearSuspendData, writeSuspendData } from '@/core/save/SaveStorage';
 import { TurnManager } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { mergedHp } from '@/core/units/merge';
@@ -47,6 +54,7 @@ import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
+import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { ProductionWindow } from '@/rendering/ProductionWindow';
 import { VolumeWindow } from '@/rendering/VolumeWindow';
 import { UnitGuideWindow } from '@/rendering/UnitGuideWindow';
@@ -82,9 +90,10 @@ const MENU_DEPTH = 150;
 
 /**
  * 何もないマスの右クリックで出す情報メニューの項目。
- * 「音量」は音量調整ウィンドウを開く。それ以外の項目の画面は今後実装する。
+ * 「音量」は音量調整ウィンドウを、「中断」は中断確認ダイアログを開く。
+ * それ以外の項目の画面は今後実装する。
  */
-const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果', '音量'] as const;
+const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果', '音量', '中断'] as const;
 
 /** 合流できる味方ユニットを示す枠の色(攻撃対象の赤枠と区別する緑枠) */
 const MERGE_TARGET_COLOR = 0x5ad469;
@@ -146,8 +155,10 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   移動先として「元々居たマス」を選んでも同じメニューを出す(その場で待機/占領/攻撃を選べる)。
  *   このため、占領は情報パネルの専用ボタンではなくこのメニューから行う。
  * 情報メニュー: 何もないマス(ユニットのいないマス)を右クリックすると、移動後メニューと同じ位置に
- *   「ユニット説明 / 操作 / 地形効果」のメニューを出す。各項目の画面は今後実装する。
+ *   「ユニット説明 / 操作 / 地形効果 / 音量 / 中断」のメニューを出す。未実装の項目の画面は今後実装する。
  *   タッチ端末では右クリックの代わりに長押し(その場で一定時間押し続ける)で同じメニューを出す。
+ * 中断: 情報メニューの「中断」を選ぶと確認ダイアログを出し、「はい」で今の盤面を中断データとして
+ *   保存してマップ選択画面へ戻る。中断データはマップ選択画面から再開できる。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -214,6 +225,8 @@ export class MainScene extends Phaser.Scene {
   private volumeWindow: VolumeWindow | null = null;
   /** ユニット説明ウィンドウ(情報メニューの「ユニット説明」で開く。初回オープン時に生成) */
   private unitGuideWindow: UnitGuideWindow | null = null;
+  /** 確認ダイアログ(情報メニューの「中断」で開く。初回オープン時に生成) */
+  private confirmWindow: ConfirmWindow | null = null;
   /** 「生産」コマンドで選んでいる生産拠点のマス(生産ウィンドウ表示中に保持) */
   private productionTile: TileData | null = null;
   /**
@@ -226,6 +239,10 @@ export class MainScene extends Phaser.Scene {
   private gameOver = false;
   /** 遊ぶマップの定義(マップ選択画面から渡される。未指定なら既定マップ) */
   private mapDef: MapDefinition = DEFAULT_MAP_ENTRY.definition;
+  /** 遊ぶマップの識別子(中断データの保存・照合に使う) */
+  private mapId: string = DEFAULT_MAP_ENTRY.id;
+  /** 再開する中断データ(マップ選択画面から渡される。新規ゲームなら null) */
+  private resumeSave: SaveData | null = null;
   /** マップ描画領域(全体)のピクセル幅(マップのマス数から算出) */
   private mapWidth = 0;
   /** マップ描画領域(全体)のピクセル高さ(マップのマス数から算出) */
@@ -257,9 +274,14 @@ export class MainScene extends Phaser.Scene {
     super('MainScene');
   }
 
-  /** マップ選択画面から遊ぶマップを受け取る(未指定なら既定マップ) */
-  init(data: { map?: MapDefinition }): void {
+  /**
+   * マップ選択画面から遊ぶマップを受け取る(未指定なら既定マップ)。
+   * 中断データから再開する場合は save も渡され、create() で盤面を復元する。
+   */
+  init(data: { map?: MapDefinition; mapId?: string; save?: SaveData }): void {
     this.mapDef = data.map ?? DEFAULT_MAP_ENTRY.definition;
+    this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
+    this.resumeSave = data.save ?? null;
     // シーンを再入場したときのために状態を初期化しておく
     this.gameOver = false;
     this.audioStarted = false;
@@ -267,7 +289,10 @@ export class MainScene extends Phaser.Scene {
 
   create(): void {
     this.map = MapManager.fromDefinition(this.mapDef);
-    this.units = UnitManager.fromPlacements(this.mapDef.units ?? [], this.map);
+    // 中断データを渡されていれば、保存時の盤面(ユニット・占領状況・ターン・資金)を復元する
+    const restored = this.restoreFromSave();
+    this.units =
+      restored?.units ?? UnitManager.fromPlacements(this.mapDef.units ?? [], this.map);
 
     // マップのマス数に合わせて画面各部の寸法を決め、キャンバスをリサイズする。
     // これにより横長マップ(例: 横15マス)でも全マスが表示・操作できる。
@@ -281,8 +306,9 @@ export class MainScene extends Phaser.Scene {
     this.scale.resize(this.gameWidth, this.gameHeight);
     this.setupCamera();
     this.battle = new BattleManager(this.map, this.units);
-    this.turn = new TurnManager(this.units);
-    this.economy = new EconomyManager({ initialFunds: this.mapDef.initialFunds });
+    this.turn = restored?.turn ?? new TurnManager(this.units);
+    this.economy =
+      restored?.economy ?? new EconomyManager({ initialFunds: this.mapDef.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
@@ -308,8 +334,9 @@ export class MainScene extends Phaser.Scene {
     this.createEndTurnButton();
     this.createForecastPopup();
 
-    // 開始時(自軍第1ターン)の収入計上と拠点上ユニットの修理を行う
-    const repairs = this.runTurnStartEconomy();
+    // 開始時(自軍第1ターン)の収入計上と拠点上ユニットの修理を行う。
+    // 中断データからの再開はターンの途中からなので、開始時の経済処理はやり直さない。
+    const repairs = restored ? [] : this.runTurnStartEconomy();
     this.updateTurnText();
     this.updateFundsText();
     if (repairs.length > 0) {
@@ -323,6 +350,29 @@ export class MainScene extends Phaser.Scene {
 
     // 開始演出として自軍第1ターンのバナーを表示する
     this.showTurnStartBanner();
+  }
+
+  /**
+   * マップ選択画面から中断データを渡されていれば、その内容でゲーム状態を復元する。
+   * 復元した中断データは(成否にかかわらず)保存先から削除する。再開後は同じデータで
+   * 何度も再開できないようにし、壊れたデータが残り続けるのも防ぐ。
+   * 復元できなかった場合は null を返し、新規ゲームとして開始する。
+   */
+  private restoreFromSave(): RestoredState | null {
+    const save = this.resumeSave;
+    this.resumeSave = null;
+    if (!save) {
+      return null;
+    }
+    clearSuspendData();
+    try {
+      return restoreGameState(save, this.map);
+    } catch (error) {
+      console.warn('中断データを復元できませんでした', error);
+      // 途中まで書き戻したマップを捨て、マップ定義から作り直して新規ゲームとして始める
+      this.map = MapManager.fromDefinition(this.mapDef);
+      return null;
+    }
   }
 
   /**
@@ -1219,8 +1269,9 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 情報メニューの項目が選ばれたときの処理。
-   * 「音量」は音量調整ウィンドウを開く。その他の画面は今後実装するため、
-   * 現時点ではメニューを閉じ、選んだ項目名を表示するだけにとどめる。
+   * 「音量」は音量調整ウィンドウを、「中断」は中断の確認ダイアログを開く。
+   * その他の画面は今後実装するため、現時点ではメニューを閉じ、
+   * 選んだ項目名を表示するだけにとどめる。
    */
   private selectInfoMenuItem(label: string): void {
     this.audio.playSfx('button');
@@ -1233,15 +1284,70 @@ export class MainScene extends Phaser.Scene {
       this.openVolumeWindow();
       return;
     }
+    if (label === '中断') {
+      this.openSuspendConfirm();
+      return;
+    }
     this.infoText.setText([label, '(準備中)']);
   }
 
-  /** いずれかのモーダルウィンドウ(生産・音量・ユニット説明)を表示中か */
+  /**
+   * 情報メニューの「中断」で、今のゲームを保存してマップ選択画面へ戻るか確認する。
+   * 「はい」なら中断データを保存してマップ選択画面へ戻り、「いいえ」ならゲームへ戻る。
+   */
+  private openSuspendConfirm(): void {
+    this.confirmWindow ??= new ConfirmWindow(this);
+    this.confirmWindow.open({
+      gameWidth: this.gameWidth,
+      gameHeight: this.gameHeight,
+      viewWidth: this.viewWidth,
+      viewHeight: this.viewHeight,
+      title: '中断',
+      message: '今のゲームを保存してタイトルに戻りますか?',
+      onYes: () => this.suspendGame(),
+      onNo: () => {
+        this.audio.playSfx('button');
+        this.infoText.setText('マスを選択してください');
+      },
+    });
+
+    // 他のウィンドウと同様、開いた直後はグローバルの押下ハンドラが「ウィンドウ表示中ガード」で
+    // 先に return してしまいフラグが取り残されるため、明示的に下ろしておく。
+    this.pointerConsumedByButton = false;
+  }
+
+  /**
+   * 今のゲーム状態を中断データとして保存し、マップ選択画面へ戻る。
+   * 保存できない環境(localStorage が使えない・容量超過)では遊んでいるゲームを
+   * 失わせないよう、画面を移らずにその場でゲームを続けられるようにする。
+   */
+  private suspendGame(): void {
+    const saved = writeSuspendData(
+      createSaveData({
+        mapId: this.mapId,
+        map: this.map,
+        units: this.units,
+        turn: this.turn,
+        economy: this.economy,
+      }),
+    );
+    if (!saved) {
+      this.audio.playSfx('denied');
+      this.infoText.setText(['中断データを保存できませんでした', 'ゲームを続けます']);
+      return;
+    }
+    this.audio.playSfx('button');
+    this.audio.stopBgm();
+    this.scene.start('MapSelectScene');
+  }
+
+  /** いずれかのモーダルウィンドウ(生産・音量・ユニット説明・確認ダイアログ)を表示中か */
   private isAnyWindowOpen(): boolean {
     return (
       this.productionWindow?.isOpen() === true ||
       this.volumeWindow?.isOpen() === true ||
-      this.unitGuideWindow?.isOpen() === true
+      this.unitGuideWindow?.isOpen() === true ||
+      this.confirmWindow?.isOpen() === true
     );
   }
 
@@ -2027,10 +2133,12 @@ export class MainScene extends Phaser.Scene {
 
   /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
   private resetSelection(): void {
-    // 生産・音量・ユニット説明ウィンドウを開いていれば閉じる(この経路では onClose は呼ばない)
+    // 生産・音量・ユニット説明・確認ダイアログを開いていれば閉じる
+    // (この経路では onClose や はい/いいえ の通知は行わない)
     this.productionWindow?.close();
     this.volumeWindow?.close();
     this.unitGuideWindow?.close();
+    this.confirmWindow?.close();
     this.productionTile = null;
     this.selected = null;
     this.movingUnit = null;
