@@ -17,8 +17,18 @@ function rangeLabel(unit: Unit): string {
 }
 
 /**
+ * 輸送状況の表示テキスト。何も乗せていなければ「空」、
+ * 乗せているユニットがいれば名前を並べ、輸送枠が 2 以上のときは「1/2」の形で残量も示す。
+ */
+function carriedLabel(unit: Unit): string {
+  const names = unit.carried.map((passenger) => passenger.unitName).join('・');
+  const body = names === '' ? '空' : names;
+  return unit.capacity >= 2 ? `${body} (${unit.carried.length}/${unit.capacity})` : body;
+}
+
+/**
  * 選択中ユニットの情報を複数行のテキストとして返す。
- * 情報パネルへの表示に使う。輸送できるユニット(輸送ヘリ)は搭乗状況も併記する。
+ * 情報パネルへの表示に使う。輸送できるユニット(輸送ヘリ・輸送艦)は搭乗状況も併記する。
  */
 export function formatUnitInfo(unit: Unit): string[] {
   const lines = [
@@ -30,7 +40,7 @@ export function formatUnitInfo(unit: Unit): string[] {
     `占領: ${unit.canCapture ? '可' : '不可'}`,
   ];
   if (unit.capacity >= 1) {
-    lines.push(`輸送: ${unit.carried ? unit.carried.unitName : '空'}`);
+    lines.push(`輸送: ${carriedLabel(unit)}`);
   }
   lines.push(`状態: ${unit.hasActed ? '行動済み' : '待機'}`);
   return lines;

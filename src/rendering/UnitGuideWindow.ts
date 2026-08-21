@@ -34,22 +34,25 @@ export interface UnitGuideWindowConfig {
 const WIN_WIDTH = 452;
 /** タイトルバーの高さ */
 const TITLE_HEIGHT = 34;
-/** タイトルバー下の本体の高さ */
-const BODY_HEIGHT = 318;
+/**
+ * タイトルバー下の本体の高さ。
+ * 左の一覧(全ユニット種別ぶんの行)と右の相性表(同じ行数)が収まる高さにする。
+ */
+const BODY_HEIGHT = 400;
 /** ウィンドウ全体の高さ */
 const WIN_HEIGHT = TITLE_HEIGHT + BODY_HEIGHT;
 /** 左側のユニット一覧の幅 */
 const LIST_WIDTH = 148;
 /** 一覧の 1 行の高さ */
-const LIST_ROW_HEIGHT = 46;
+const LIST_ROW_HEIGHT = 38;
 /** 一覧のアイコン(軍色トークン)の半径 */
-const LIST_ICON_RADIUS = 15;
+const LIST_ICON_RADIUS = 13;
 /** 右側の詳細ペインの内側余白 */
 const DETAIL_PADDING = 16;
 /** 相性表の 1 行の高さ */
-const MATCHUP_ROW_HEIGHT = 27;
+const MATCHUP_ROW_HEIGHT = 22;
 /** 相性表のアイコン(軍色トークン)の半径 */
-const MATCHUP_ICON_RADIUS = 11;
+const MATCHUP_ICON_RADIUS = 9;
 /** ウィンドウの描画深度(生産・音量ウィンドウと同じく最前面帯) */
 const WINDOW_DEPTH = 300;
 

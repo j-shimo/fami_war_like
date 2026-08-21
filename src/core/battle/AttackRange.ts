@@ -3,6 +3,10 @@
 //
 // 射程はマンハッタン距離で判定する。最小射程・最大射程の間にあるマスを攻撃できる。
 // 直接攻撃(射程1)は隣接マスのみ、間接攻撃(射程2以上)は最小射程未満の敵を攻撃できない。
+//
+// 射程に加えて「相手の種別を攻撃できるか」も判定する。戦艦は潜水艦を、護衛艦は
+// ヘリ系・潜水艦以外を攻撃できないなど、相性表の基礎ダメージが 0 の組み合わせは
+// 射程内にいても攻撃対象にならない(canAttackUnit)。
 
 import {
   gridPosition,
@@ -11,6 +15,19 @@ import {
 } from '@/core/map/GridPosition';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
+import { canDamage } from '@/data/damageTable';
+
+/**
+ * 攻撃側が防御側を攻撃対象にできるかを、種別の相性だけで判定する(射程は見ない)。
+ * 基礎ダメージが 0 の組み合わせ(戦艦 → 潜水艦、護衛艦 → 水上艦、輸送ヘリ・輸送艦の
+ * 全対象など)は攻撃できない。味方同士も攻撃対象にならない。
+ */
+export function canAttackUnit(attacker: Unit, defender: Unit): boolean {
+  return (
+    attacker.armyType !== defender.armyType &&
+    canDamage(attacker.unitType, defender.unitType)
+  );
+}
 
 /**
  * 指定位置が攻撃側の射程内かどうかを判定する。
@@ -52,7 +69,7 @@ export function calculateAttackableTiles(
 
 /**
  * 攻撃側が指定位置から攻撃できる敵ユニットの一覧を返す。
- * 射程内にいる敵軍の生存ユニットのみを対象とする。
+ * 射程内にいて、かつ種別の相性として攻撃できる敵軍の生存ユニットのみを対象とする。
  */
 export function findAttackableTargets(
   attacker: Unit,
@@ -63,7 +80,7 @@ export function findAttackableTargets(
     .getAllUnits()
     .filter(
       (target) =>
-        target.armyType !== attacker.armyType &&
+        canAttackUnit(attacker, target) &&
         isWithinAttackRange(attacker, target.position, from),
     );
 }

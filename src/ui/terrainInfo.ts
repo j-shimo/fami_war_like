@@ -60,6 +60,11 @@ export function formatTerrainInfo(
   if (!options.compact) {
     lines.push(`移動コスト 歩兵: ${moveCostLabel(data.moveCost.infantry)}`);
     lines.push(`移動コスト 車両: ${moveCostLabel(data.moveCost.vehicle)}`);
+    // 海上ユニットが進入できる地形(海・港)だけ、海上の移動コストも併記する。
+    // 進入できない地形では自明に「×」なので、行数を増やさないために省略する。
+    if (data.moveCost.sea !== null) {
+      lines.push(`移動コスト 海上: ${moveCostLabel(data.moveCost.sea)}`);
+    }
   }
 
   if (data.canCapture) {

@@ -18,17 +18,34 @@ export interface UnitData {
   readonly movementType: MovementType;
   /** 最小射程 */
   readonly minAttackRange: number;
-  /** 最大射程。0 は攻撃できないユニット(輸送ヘリ)を表す */
+  /** 最大射程。0 は攻撃できないユニット(輸送ヘリ・輸送艦)を表す */
   readonly maxAttackRange: number;
   /** 生産コスト */
   readonly cost: number;
   /** 拠点を占領できるかどうか */
   readonly canCapture: boolean;
-  /** 輸送できるユニット数(輸送ヘリのみ 1 以上。輸送しないユニットは 0) */
+  /** 輸送できるユニット数(輸送ヘリは 1・輸送艦は 2。輸送しないユニットは 0) */
   readonly capacity: number;
-  /** 輸送できるユニット種別(capacity が 0 のユニットでは空配列) */
+  /**
+   * 輸送できるユニット種別(capacity が 0 のユニットでは空配列)。
+   * 輸送ヘリは歩兵のみ、輸送艦はすべての地上ユニットを運べる。
+   */
   readonly carriableTypes: readonly UnitType[];
+  /**
+   * 視界(マス数)。後に実装予定の夜戦で、このユニットが敵を発見できる範囲に使う。
+   * 通常は DEFAULT_VISION、護衛艦だけが広い視界(5)を持つ。
+   * 昼戦(現行の通常戦闘)では参照しない。
+   */
+  readonly vision: number;
+  /**
+   * 夜戦で「隣接マスまで近づかないと発見できない」隠密ユニットかどうか。
+   * 潜水艦のみ true。昼戦(現行の通常戦闘)では参照しない。
+   */
+  readonly nightStealth: boolean;
 }
+
+/** 視界(vision)の既定値。護衛艦以外のユニットはこの値を持つ */
+export const DEFAULT_VISION = 2;
 
 /** 全ユニットの静的パラメータ表 */
 export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
@@ -44,6 +61,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: true,
     capacity: 0,
     carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
   },
   tank: {
     unitType: 'tank',
@@ -57,6 +76,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
   },
   artillery: {
     unitType: 'artillery',
@@ -70,6 +91,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
   },
   attackHelicopter: {
     unitType: 'attackHelicopter',
@@ -83,6 +106,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
   },
   transportHelicopter: {
     unitType: 'transportHelicopter',
@@ -98,6 +123,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     // 歩兵を 1 体だけ輸送できる。
     capacity: 1,
     carriableTypes: ['infantry'],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
   },
   antiAirTank: {
     unitType: 'antiAirTank',
@@ -111,6 +138,73 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
+  },
+  battleship: {
+    unitType: 'battleship',
+    unitName: '戦艦',
+    maxHp: 10,
+    movement: 5,
+    movementType: 'sea',
+    // 遠距離砲撃のみを行う間接攻撃ユニット。隣接した相手は撃てない。
+    minAttackRange: 3,
+    maxAttackRange: 6,
+    cost: 35000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
+  },
+  escortShip: {
+    unitType: 'escortShip',
+    unitName: '護衛艦',
+    maxHp: 10,
+    movement: 6,
+    movementType: 'sea',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 22000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 夜戦で広い視界(5マス)を持つ、艦隊の目となるユニット。
+    vision: 5,
+    nightStealth: false,
+  },
+  transportShip: {
+    unitType: 'transportShip',
+    unitName: '輸送艦',
+    maxHp: 10,
+    movement: 6,
+    movementType: 'sea',
+    // 攻撃できないユニット。射程 0 で「攻撃不可」を表す。
+    minAttackRange: 0,
+    maxAttackRange: 0,
+    cost: 16500,
+    canCapture: false,
+    // すべての地上ユニットを最大 2 体まで運べる。
+    capacity: 2,
+    carriableTypes: ['infantry', 'tank', 'artillery', 'antiAirTank'],
+    vision: DEFAULT_VISION,
+    nightStealth: false,
+  },
+  submarine: {
+    unitType: 'submarine',
+    unitName: '潜水艦',
+    maxHp: 10,
+    movement: 4,
+    movementType: 'sea',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 30000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    vision: DEFAULT_VISION,
+    // 夜戦では隣接マスまで近づかれないと発見されない。
+    nightStealth: true,
   },
 };
 
@@ -121,7 +215,7 @@ export function getUnitData(unitType: UnitType): UnitData {
 
 /**
  * 生産拠点(地形)ごとに生産できるユニット種別の一覧(生産メニューの表示順)。
- * 工場・本拠地では地上ユニット、空港では飛行ユニットを生産する。
+ * 工場・本拠地では地上ユニット、空港では飛行ユニット、港では海上ユニットを生産する。
  * 生産できない地形(都市など)は一覧に含めない。
  */
 export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
@@ -130,6 +224,7 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   headquarters: ['infantry', 'tank', 'artillery', 'antiAirTank'],
   factory: ['infantry', 'tank', 'artillery', 'antiAirTank'],
   airport: ['attackHelicopter', 'transportHelicopter'],
+  port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
 };
 
 /** 指定した生産拠点(地形)で生産できるユニット種別の一覧を返す(生産不可地形は空配列) */

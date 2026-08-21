@@ -19,7 +19,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -30,8 +30,8 @@ export interface SavedUnit {
   readonly row: number;
   readonly currentHp: number;
   readonly hasActed: boolean;
-  /** 輸送中のユニット(輸送ヘリが運んでいる場合)。運んでいなければ null */
-  readonly carried: SavedUnit | null;
+  /** 輸送中のユニット(輸送ヘリ・輸送艦が運んでいる場合)。運んでいなければ空配列 */
+  readonly carried: readonly SavedUnit[];
 }
 
 /** 中断データに書き出す拠点マス 1 つぶんの状態 */
@@ -95,7 +95,7 @@ function toSavedUnit(unit: Unit): SavedUnit {
     row: unit.position.row,
     currentHp: unit.currentHp,
     hasActed: unit.hasActed,
-    carried: unit.carried ? toSavedUnit(unit.carried) : null,
+    carried: unit.carried.map(toSavedUnit),
   };
 }
 
@@ -109,7 +109,7 @@ function toUnit(saved: SavedUnit): Unit {
     currentHp: saved.currentHp,
     hasActed: saved.hasActed,
   });
-  unit.carried = saved.carried ? toUnit(saved.carried) : null;
+  unit.carried = saved.carried.map(toUnit);
   return unit;
 }
 
@@ -239,7 +239,8 @@ function isSavedUnit(value: unknown): value is SavedUnit {
     isInteger(value.row) &&
     isInteger(value.currentHp) &&
     typeof value.hasActed === 'boolean' &&
-    (value.carried === null || isSavedUnit(value.carried))
+    Array.isArray(value.carried) &&
+    value.carried.every(isSavedUnit)
   );
 }
 

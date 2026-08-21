@@ -396,6 +396,62 @@ function drawAirport(ctx: TerrainDecorationContext): void {
   drawOwnerFlag(ctx, x + size * 0.22, y + size * 0.4, y + size * 0.14);
 }
 
+/**
+ * 港: 岸壁(下半分は水面)と桟橋・クレーン・係留柱、所有者旗を描く。
+ * 上半分を陸(岸壁)、下半分を水面にして「陸と海の境目の拠点」だと一目で分かるようにする。
+ */
+function drawPort(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, col, row } = ctx;
+  const quay = 0x8d8f93;
+  const quayShade = 0x6f7176;
+  const water = 0x2f6aa0;
+  const foam = 0x9fd0ec;
+  const crane = 0xd8b45a;
+  const bollard = 0x3a3f46;
+
+  // 下半分の水面(海と同じ青)
+  g.fillStyle(water, 1);
+  g.fillRect(x, y + size * 0.5, size, size * 0.5);
+  // 水面のさざ波
+  for (let i = 0; i < 3; i++) {
+    const py = y + size * (0.62 + 0.3 * hash01(col, row, i + 11));
+    const px = x + size * (0.08 + 0.4 * hash01(col, row, i + 21));
+    const len = size * (0.16 + 0.16 * hash01(col, row, i + 31));
+    g.lineStyle(1.5, foam, 0.8);
+    g.lineBetween(px, py, px + len, py);
+  }
+
+  // 上半分の岸壁(舗装面)と、水際のコンクリート縁
+  g.fillStyle(quay, 1);
+  g.fillRect(x, y, size, size * 0.5);
+  g.fillStyle(quayShade, 1);
+  g.fillRect(x, y + size * 0.46, size, size * 0.06);
+
+  // 水面へ突き出す桟橋
+  g.fillStyle(quay, 1);
+  g.fillRect(x + size * 0.56, y + size * 0.5, size * 0.16, size * 0.34);
+  // 桟橋の脚
+  g.lineStyle(1.5, quayShade, 1);
+  g.lineBetween(x + size * 0.6, y + size * 0.84, x + size * 0.6, y + size * 0.92);
+  g.lineBetween(x + size * 0.68, y + size * 0.84, x + size * 0.68, y + size * 0.92);
+
+  // 岸壁のクレーン(縦の支柱と海側へ伸びるジブ)
+  g.lineStyle(2, crane, 1);
+  g.lineBetween(x + size * 0.28, y + size * 0.44, x + size * 0.28, y + size * 0.14);
+  g.lineBetween(x + size * 0.28, y + size * 0.16, x + size * 0.6, y + size * 0.24);
+  // ジブから下がる吊りワイヤ
+  g.lineStyle(1, crane, 0.9);
+  g.lineBetween(x + size * 0.56, y + size * 0.23, x + size * 0.56, y + size * 0.38);
+
+  // 水際の係留柱(ボラード)
+  g.fillStyle(bollard, 1);
+  g.fillRect(x + size * 0.14, y + size * 0.38, size * 0.06, size * 0.08);
+  g.fillRect(x + size * 0.84, y + size * 0.38, size * 0.06, size * 0.08);
+
+  // 左上に所有者旗
+  drawOwnerFlag(ctx, x + size * 0.72, y + size * 0.4, y + size * 0.08);
+}
+
 /** 本拠地: 天守を持つ城郭と大きめの所有者旗を描く */
 function drawHeadquarters(ctx: TerrainDecorationContext): void {
   const { graphics: g, x, y, size } = ctx;
@@ -437,7 +493,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・海)に加え、拠点(都市・工場・空港・本拠地)も
+ * 自然地形(平地・森・山・道路・海)に加え、拠点(都市・工場・空港・港・本拠地)も
  * 建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -468,6 +524,9 @@ export function drawTerrainDecoration(
       break;
     case 'airport':
       drawAirport(ctx);
+      break;
+    case 'port':
+      drawPort(ctx);
       break;
     case 'headquarters':
       drawHeadquarters(ctx);

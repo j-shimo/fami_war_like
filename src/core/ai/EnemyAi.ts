@@ -9,7 +9,7 @@
 //   4. どこへも進めなければ待機する
 // 全ユニットの行動後、資金があれば生産拠点でユニットを生産する。
 
-import { isWithinAttackRange } from '@/core/battle/AttackRange';
+import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 import type { AttackResult, BattleManager } from '@/core/battle/BattleManager';
 import type { CaptureResult, CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -64,6 +64,7 @@ export interface EnemyAiDeps {
 const CAPTURE_PRIORITY: Record<string, number> = {
   headquarters: 3,
   factory: 2,
+  port: 2,
   city: 1,
 };
 
@@ -135,6 +136,10 @@ export class EnemyAi {
     let bestFrom: GridPosition | null = null;
 
     for (const target of enemies) {
+      // 種別として攻撃できない相手(戦艦 → 潜水艦など)はそもそも狙わない
+      if (!canAttackUnit(unit, target)) {
+        continue;
+      }
       const damage = calculateDamage(unit, target, this.terrainDefense(target.position));
       // ダメージを与えられない相手には攻撃しない(無駄な行動を避ける)
       if (damage <= 0) {
@@ -192,7 +197,8 @@ export class EnemyAi {
     if (willKill || manhattanDistance(from, target.position) !== 1) {
       return 0;
     }
-    if (!isWithinAttackRange(target, from)) {
+    // 種別として撃ち返せない相手(護衛艦に撃たれた輸送艦など)は反撃してこない
+    if (!canAttackUnit(target, attacker) || !isWithinAttackRange(target, from)) {
       return 0;
     }
     // 反撃は被弾後の HP で行われるため、想定残 HP に一時的に置き換えて見積もる

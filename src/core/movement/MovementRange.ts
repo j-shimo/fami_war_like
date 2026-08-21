@@ -200,12 +200,14 @@ export function findMergeTargets(
 }
 
 /**
- * 指定ユニットが移動範囲内で搭乗できる、味方の輸送ユニット(輸送ヘリ)を列挙する。
+ * 指定ユニットが移動範囲内で搭乗できる、味方の輸送ユニット(輸送ヘリ・輸送艦)を列挙する。
  *
  * 味方ユニットのいるマスは通常「通過はできるが停止できない」が、搭乗の場合は
  * そのマスへ進んで味方の輸送ユニットに乗り込める(移動先として選べる)。
  * 搭乗の可否(同じ軍・輸送可能な種別・空きあり)は canCarry で判定する。
  * unit が輸送可能な種別でない場合は、該当する輸送ユニットが見つからず空配列を返す。
+ * 海上にいる輸送艦へは地上ユニットが進入できないため、実際に乗り込めるのは
+ * 港に停泊している輸送艦(地上ユニットが到達できるマス)に限られる。
  */
 export function findTransportTargets(
   unit: Unit,
@@ -228,23 +230,26 @@ export function findTransportTargets(
  *
  * 条件:
  * - 輸送ユニットの上下左右いずれかの隣接マスであること
- * - 搭乗しているユニットの移動タイプで進入できる地形であること(進入不可地形は除く)
+ * - 降ろすユニットの移動タイプで進入できる地形であること(進入不可地形は除く)
  * - 他ユニットがいないこと(空きマス)
- * 何も運んでいない場合は空配列を返す。
+ *
+ * 複数体を運べる輸送艦では、降ろす 1 体を passenger で指定する
+ * (省略時は先頭の搭乗ユニット)。何も運んでいない場合は空配列を返す。
  */
 export function findUnloadPositions(
   transport: Unit,
   map: MapManager,
   units: UnitManager,
+  passenger?: Unit,
 ): GridPosition[] {
-  const passenger = transport.carried;
-  if (!passenger) {
+  const target = passenger ?? transport.carried[0];
+  if (!target) {
     return [];
   }
   const result: GridPosition[] = [];
   for (const { dc, dr } of NEIGHBOR_OFFSETS) {
     const pos = gridPosition(transport.position.col + dc, transport.position.row + dr);
-    if (map.getMoveCost(pos, passenger.movementType) === null) {
+    if (map.getMoveCost(pos, target.movementType) === null) {
       continue;
     }
     if (units.getUnitAt(pos)) {
