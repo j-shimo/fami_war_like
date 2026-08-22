@@ -41,6 +41,15 @@ function floodFill(
   return seen;
 }
 
+/**
+ * 先手番ハンデの調整として、敵軍本土にだけ追加してある中立都市の位置。
+ * 自軍本土の対称位置(点対称)は平地のまま。
+ */
+const HANDICAP_CITIES: readonly GridPosition[] = [
+  { col: 12, row: 22 },
+  { col: 14, row: 21 },
+];
+
 describe('ISLAND_MAP(分断列島マップ)', () => {
   it('縦24・横20 のサイズで生成できる', () => {
     const map = MapManager.fromDefinition(ISLAND_MAP);
@@ -110,11 +119,13 @@ describe('ISLAND_MAP(分断列島マップ)', () => {
     expect(reachable.has('12,21')).toBe(false);
   });
 
-  it('本土は大きな島で、中立都市を 10 個ずつ抱える', () => {
+  it('本土は大きな島で、中立都市を自軍 10・敵軍 12 個抱える(先手番ハンデの調整)', () => {
     const map = MapManager.fromDefinition(ISLAND_MAP);
-    for (const hq of [
-      { col: 7, row: 2 },
-      { col: 12, row: 21 },
+    // 先手の自軍が 1 ターン早く占領・生産を始められるぶん、後手の敵軍本土だけ
+    // 中立都市を 2 個多く置いて収入で釣り合わせる
+    for (const { hq, cities: expected } of [
+      { hq: { col: 7, row: 2 }, cities: 10 },
+      { hq: { col: 12, row: 21 }, cities: 12 },
     ]) {
       const mainland = floodFill(map, hq, (col, row) => isLand(map, col, row));
       // 本土の広さ。小島(数マス)とは桁違いの大きさであること
@@ -125,14 +136,37 @@ describe('ISLAND_MAP(分断列島マップ)', () => {
         const tile = map.getTile({ col, row });
         if (tile?.terrainType === 'city' && tile.owner === 'neutral') cities += 1;
       }
-      expect(cities).toBe(10);
+      expect(cities).toBe(expected);
     }
+  });
+
+  it('敵軍のハンデ都市は本拠地の目の前にあり、序盤に確実に取り切れる', () => {
+    const map = MapManager.fromDefinition(ISLAND_MAP);
+    for (const pos of HANDICAP_CITIES) {
+      const tile = map.getTile(pos);
+      expect(tile?.terrainType).toBe('city');
+      // 中立都市なので、敵軍が歩兵で占領して初めて収入になる
+      expect(tile?.owner).toBe('neutral');
+      // 敵軍本拠地 (12,21) からのマンハッタン距離が 2 以内
+      expect(Math.abs(pos.col - 12) + Math.abs(pos.row - 21)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('開始時の所有拠点数は両軍とも 3 で等しい(ハンデは中立都市の数だけ)', () => {
+    const map = MapManager.fromDefinition(ISLAND_MAP);
+    const owned = { player: 0, enemy: 0 };
+    map.forEachTile((tile) => {
+      if (tile.owner === 'player') owned.player += 1;
+      if (tile.owner === 'enemy') owned.enemy += 1;
+    });
+    expect(owned.player).toBe(3);
+    expect(owned.enemy).toBe(3);
   });
 
   it('本土は車両が進入できるマスがすべてつながっている(孤立地帯がない)', () => {
     const map = MapManager.fromDefinition(ISLAND_MAP);
-    // 車両は山・海岸に進入できない。それらを避けても、車両が入れるマスへは
-    // 本拠地から一続きに到達できること(山や砂浜で分断された飛び地を作らない)
+    // 車両は山に進入できない。山を避けても、車両が入れるマスへは
+    // 本拠地から一続きに到達できること(山で分断された飛び地を作らない)
     const canDrive = (col: number, row: number): boolean => {
       const tile = map.getTile({ col, row });
       return (
@@ -260,13 +294,23 @@ describe('ISLAND_MAP(分断列島マップ)', () => {
     });
   });
 
-  it('盤面は中心点対称で、自軍・敵軍の初期条件が等しい', () => {
+  it('盤面はハンデ都市の 2 マスを除いて中心点対称である', () => {
     const rows = ISLAND_MAP.terrain.length;
     const cols = ISLAND_MAP.terrain[0].length;
+    const handicap = new Set(HANDICAP_CITIES.map(({ col, row }) => `${col},${row}`));
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
+        const mirrorCol = cols - 1 - col;
+        const mirrorRow = rows - 1 - row;
+        if (handicap.has(`${col},${row}`) || handicap.has(`${mirrorCol},${mirrorRow}`)) {
+          // ハンデ都市は敵軍側だけが都市、自軍側の対称位置は平地
+          expect(ISLAND_MAP.terrain[row][col]).toBe(
+            handicap.has(`${col},${row}`) ? 'c' : '.',
+          );
+          continue;
+        }
         expect(ISLAND_MAP.terrain[row][col]).toBe(
-          ISLAND_MAP.terrain[rows - 1 - row][cols - 1 - col],
+          ISLAND_MAP.terrain[mirrorRow][mirrorCol],
         );
       }
     }

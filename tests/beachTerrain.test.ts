@@ -20,10 +20,10 @@ describe('海岸(beach)の地形パラメータ', () => {
     expect(map.getTile(gridPosition(0, 0))?.terrainType).toBe('beach');
   });
 
-  it('歩兵は移動コスト 2、車両は進入不可', () => {
+  it('地上ユニット(歩兵・車両)は砂に足を取られて移動コスト 2 で進入できる', () => {
     const data = getTerrainData('beach');
     expect(data.moveCost.infantry).toBe(2);
-    expect(data.moveCost.vehicle).toBeNull();
+    expect(data.moveCost.vehicle).toBe(2);
   });
 
   it('海上ユニットは移動コスト 1 で進入でき、飛行ユニットも通れる', () => {
@@ -74,7 +74,7 @@ describe('海岸の移動', () => {
     expect(range.getCost(gridPosition(1, 0))).toBe(2);
   });
 
-  it('車両(戦車)は海岸へ進入できない', () => {
+  it('車両(戦車)も海岸へ入れるが、コスト 2 ぶん移動力を余分に使う', () => {
     const map = MapManager.fromDefinition(def);
     const units = UnitManager.fromPlacements(
       [{ col: 0, row: 0, unitType: 'tank', army: 'player' }],
@@ -84,7 +84,10 @@ describe('海岸の移動', () => {
     if (!tank) throw new Error('戦車が配置されていない');
 
     const range = calculateMovementRange(tank, map, units);
-    expect(range.canReach(gridPosition(1, 0))).toBe(false);
+    expect(range.canReach(gridPosition(1, 0))).toBe(true);
+    expect(range.getCost(gridPosition(1, 0))).toBe(2);
+    // 海岸の先は海なので、移動力が残っていても進めない
+    expect(range.canReach(gridPosition(2, 0))).toBe(false);
   });
 
   it('海上ユニットは海から海岸へ乗り上げられるが、その先の陸へは進めない', () => {
@@ -158,7 +161,7 @@ describe('海岸での乗船・上陸', () => {
     expect(findTransportTargets(infantry, map, units)).toContain(transport);
   });
 
-  it('車両は海岸では乗り込めない(積み込めるのは港だけ)', () => {
+  it('車両も海岸に着けた輸送艦へ乗り込める', () => {
     const map = MapManager.fromDefinition({ name: 'beach', terrain: ['.b~~~'] });
     const units = UnitManager.fromPlacements(
       [
@@ -171,8 +174,33 @@ describe('海岸での乗船・上陸', () => {
     const tank = units.getUnitAt(gridPosition(0, 0));
     if (!transport || !tank) throw new Error('ユニットが配置されていない');
 
-    // 海岸のマスへ進入できないので、そこにいる輸送艦へも乗り込めない
-    expect(findTransportTargets(tank, map, units)).not.toContain(transport);
+    // 海岸は車両も進入できる地形なので、港が無くても戦車を積み込める
+    expect(findTransportTargets(tank, map, units)).toContain(transport);
+  });
+
+  it('輸送艦は海岸へ車両を降ろせる(港が無くても揚陸できる)', () => {
+    const map = MapManager.fromDefinition({
+      name: 'island',
+      terrain: ['~~~~', '~b.~', '~~~~'],
+    });
+    const units = UnitManager.fromPlacements(
+      [
+        { col: 1, row: 1, unitType: 'transportShip', army: 'player' },
+        { col: 2, row: 1, unitType: 'tank', army: 'player' },
+      ],
+      map,
+    );
+    const transport = units.getUnitAt(gridPosition(1, 1));
+    const tank = units.getUnitAt(gridPosition(2, 1));
+    if (!transport || !tank) throw new Error('ユニットが配置されていない');
+
+    // 海岸に乗り上げた輸送艦は、海岸に立つ戦車を回収できる
+    expect(findTransportTargets(tank, map, units)).toContain(transport);
+    units.carryUnit(transport, tank);
+    // 降ろせるのは陸のマスだけ。海には降ろせない
+    const positions = findUnloadPositions(transport, map, units, tank);
+    expect(positions).toContainEqual(gridPosition(2, 1));
+    expect(positions).not.toContainEqual(gridPosition(1, 0));
   });
 });
 
