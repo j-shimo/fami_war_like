@@ -84,8 +84,23 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canRepair: false,
     // 地上ユニット(歩兵・車両)は進入不可。飛行ユニットは上空を、
     // 海上ユニット(戦艦・護衛艦・輸送艦・潜水艦)は水上を移動コスト 1 で進める。
+    // 海と陸の境目にあたる海岸(beach)・港(port)だけは海上ユニットも進入できる。
     moveCost: { infantry: IMPASSABLE, vehicle: IMPASSABLE, air: 1, sea: 1 },
     color: 0x2f6aa0,
+  },
+  beach: {
+    terrainType: 'beach',
+    terrainName: '海岸',
+    // 遮蔽の乏しい砂浜。上陸直後は身を隠す場所がなく無防備、という位置づけで防御は 0。
+    defense: 0,
+    canCapture: false,
+    canProduce: false,
+    canRepair: false,
+    // 陸と海が接する唯一の非拠点地形。海上ユニットは港と同じくコスト 1 で進入・停泊でき、
+    // 歩兵は砂に足を取られながらコスト 2 で乗り降りできる。車両は砂浜にはまるため進入不可。
+    // これにより「港が無くても歩兵だけは上陸・乗船できる」浜辺として機能する。
+    moveCost: { infantry: 2, vehicle: IMPASSABLE, air: 1, sea: 1 },
+    color: 0xd8c07c,
   },
   city: {
     terrainType: 'city',

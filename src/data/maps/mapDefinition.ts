@@ -13,6 +13,7 @@ export type TerrainSymbol =
   | 'm' // 山
   | 'r' // 道路
   | '~' // 海
+  | 'b' // 海岸
   | 'c' // 都市
   | 'F' // 工場
   | 'A' // 空港
@@ -26,6 +27,7 @@ export const SYMBOL_TO_TERRAIN: Readonly<Record<TerrainSymbol, TerrainType>> = {
   m: 'mountain',
   r: 'road',
   '~': 'sea',
+  b: 'beach',
   c: 'city',
   F: 'factory',
   A: 'airport',

@@ -129,26 +129,60 @@ describe('ISLAND_MAP(分断列島マップ)', () => {
     }
   });
 
-  it('本土の中立都市はすべて歩兵が本拠地から歩いて占領しに行ける', () => {
+  it('本土は車両が進入できるマスがすべてつながっている(孤立地帯がない)', () => {
     const map = MapManager.fromDefinition(ISLAND_MAP);
+    // 車両は山・海岸に進入できない。それらを避けても、車両が入れるマスへは
+    // 本拠地から一続きに到達できること(山や砂浜で分断された飛び地を作らない)
+    const canDrive = (col: number, row: number): boolean => {
+      const tile = map.getTile({ col, row });
+      return (
+        tile !== undefined && getTerrainData(tile.terrainType).moveCost.vehicle !== null
+      );
+    };
     for (const hq of [
       { col: 7, row: 2 },
       { col: 12, row: 21 },
     ]) {
       const mainland = floodFill(map, hq, (col, row) => isLand(map, col, row));
-      // 車両は山に入れないため、山を避けても本土の非山マスへ到達できることを確認する
-      const byVehicle = floodFill(
-        map,
-        hq,
-        (col, row) =>
-          isLand(map, col, row) && map.getTile({ col, row })?.terrainType !== 'mountain',
-      );
+      const byVehicle = floodFill(map, hq, canDrive);
       for (const cell of mainland) {
         const [col, row] = cell.split(',').map(Number);
-        if (map.getTile({ col, row })?.terrainType === 'mountain') continue;
+        if (!canDrive(col, row)) continue;
         expect(byVehicle.has(cell)).toBe(true);
       }
     }
+  });
+
+  it('すべての島に海岸があり、上陸した歩兵が輸送艦へ戻れる', () => {
+    const map = MapManager.fromDefinition(ISLAND_MAP);
+    const visited = new Set<string>();
+    map.forEachTile((tile) => {
+      const { col, row } = tile.position;
+      if (tile.terrainType === 'sea' || visited.has(`${col},${row}`)) return;
+      const island = floodFill(map, tile.position, (c, r) => isLand(map, c, r));
+      for (const member of island) visited.add(member);
+      // 海岸が 1 マスも無い島だと、降ろした歩兵が海上の輸送艦へ乗り込めず取り残される
+      const beaches = [...island].filter((cell) => {
+        const [c, r] = cell.split(',').map(Number);
+        return map.getTile({ col: c, row: r })?.terrainType === 'beach';
+      });
+      expect(beaches.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('海岸はすべて海に面しており、艦艇が着けられる', () => {
+    const map = MapManager.fromDefinition(ISLAND_MAP);
+    map.forEachTile((tile) => {
+      if (tile.terrainType !== 'beach') return;
+      const { col, row } = tile.position;
+      const facesSea = [
+        { col, row: row - 1 },
+        { col, row: row + 1 },
+        { col: col - 1, row },
+        { col: col + 1, row },
+      ].some((p) => map.getTile(p)?.terrainType === 'sea');
+      expect(facesSea).toBe(true);
+    });
   });
 
   it('分断帯には中立都市を持つ小島が点在する', () => {
@@ -193,7 +227,8 @@ describe('ISLAND_MAP(分断列島マップ)', () => {
     // 港は海上ユニットが進入できる拠点なので、港を起点に海マスをたどれる
     const sailable = floodFill(map, { col: 8, row: 4 }, (col, row) => {
       const terrainType = map.getTile({ col, row })?.terrainType;
-      return terrainType === 'sea' || terrainType === 'port';
+      // 海上ユニットは海・港・海岸に進入できる
+      return terrainType === 'sea' || terrainType === 'port' || terrainType === 'beach';
     });
     expect(sailable.has('11,19')).toBe(true);
 
