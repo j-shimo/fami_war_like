@@ -210,8 +210,9 @@ export class UnitManager {
 
   /**
    * passenger を transport に搭乗させる。
-   * passenger を盤面(管理対象)から取り除いて transport.carried に保持する。
+   * passenger を盤面(管理対象)から取り除いて transport.carried に加える。
    * 搭乗した passenger は行動済み(このターンは行動できない)にする。
+   * 輸送ヘリは 1 体、輸送艦は 2 体まで乗せられる。
    * 搭乗できない組み合わせはデータ不整合として例外を投げる
    * (呼び出し側で canCarry により事前判定する想定)。
    */
@@ -220,32 +221,38 @@ export class UnitManager {
       throw new Error('このユニットは搭乗できません');
     }
     passenger.hasActed = true;
-    transport.carried = passenger;
+    transport.carried.push(passenger);
     this.removeUnit(passenger);
   }
 
   /**
    * transport が運んでいるユニットを dest マスへ降ろす。
+   * 複数体を乗せている輸送艦では passenger で降ろす 1 体を指定する(省略時は先頭の 1 体)。
    * 降車したユニットを盤面へ戻して行動済み(このターンは行動できない)にし、
    * transport も行動済みにする。降ろしたユニットを返す。
-   * 何も運んでいない、または降車先が埋まっている場合はデータ不整合として例外を投げる。
+   * 何も運んでいない、指定ユニットを運んでいない、降車先が埋まっている場合は
+   * データ不整合として例外を投げる。
    */
-  dropUnit(transport: Unit, dest: GridPosition): Unit {
-    const passenger = transport.carried;
-    if (!passenger) {
+  dropUnit(transport: Unit, dest: GridPosition, passenger?: Unit): Unit {
+    const target = passenger ?? transport.carried[0];
+    if (!target) {
       throw new Error('搭乗しているユニットがいません');
+    }
+    const index = transport.carried.indexOf(target);
+    if (index === -1) {
+      throw new Error('指定したユニットを輸送していません');
     }
     if (this.isOccupied(dest)) {
       throw new Error(
         `ユニットのいるマスには降ろせません(col ${dest.col}, row ${dest.row})`,
       );
     }
-    passenger.position = gridPosition(dest.col, dest.row);
-    passenger.hasActed = true;
-    transport.carried = null;
+    target.position = gridPosition(dest.col, dest.row);
+    target.hasActed = true;
+    transport.carried.splice(index, 1);
     transport.hasActed = true;
-    this.units.push(passenger);
-    return passenger;
+    this.units.push(target);
+    return target;
   }
 
   /** ユニットを管理対象から取り除く(撃破時などに使う) */

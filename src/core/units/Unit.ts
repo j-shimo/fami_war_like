@@ -38,11 +38,11 @@ export class Unit {
   /** 行動済みか。ターン内に移動・攻撃を終えると true になる */
   hasActed: boolean;
   /**
-   * 輸送中のユニット(輸送ヘリが歩兵を運んでいるときの搭乗ユニット)。
-   * 搭乗中のユニットは盤面(UnitManager)からは取り除かれ、この参照だけが保持される。
-   * 何も運んでいない場合は null。
+   * 輸送中のユニット(輸送ヘリが歩兵を、輸送艦が地上ユニットを運んでいるときの搭乗ユニット)。
+   * 搭乗中のユニットは盤面(UnitManager)からは取り除かれ、この配列の参照だけが保持される。
+   * 何も運んでいない場合は空配列。乗せられる数は capacity で決まる(輸送ヘリ 1・輸送艦 2)。
    */
-  carried: Unit | null = null;
+  carried: Unit[] = [];
 
   constructor(params: UnitParams) {
     this.id = params.id;
@@ -101,14 +101,40 @@ export class Unit {
     return this.data.canCapture;
   }
 
-  /** 攻撃できるユニットか(最大射程が 1 以上)。輸送ヘリは false */
+  /** 攻撃できるユニットか(最大射程が 1 以上)。輸送ヘリ・輸送艦は false */
   get canAttack(): boolean {
     return this.data.maxAttackRange >= 1;
   }
 
-  /** 輸送できるユニット数(輸送ヘリのみ 1 以上) */
+  /** 輸送できるユニット数(輸送ヘリは 1・輸送艦は 2。輸送しないユニットは 0) */
   get capacity(): number {
     return this.data.capacity;
+  }
+
+  /** 現在ユニットを 1 体以上運んでいるか */
+  get isCarrying(): boolean {
+    return this.carried.length > 0;
+  }
+
+  /** あと何体乗せられるか(空き枠の数) */
+  get freeCapacity(): number {
+    return this.capacity - this.carried.length;
+  }
+
+  /**
+   * 夜戦で敵を発見できる視界(マス数)。護衛艦だけが広い(5)。
+   * 夜戦は今後実装予定で、現行の通常戦闘では参照しない。
+   */
+  get vision(): number {
+    return this.data.vision;
+  }
+
+  /**
+   * 夜戦で隣接マスまで近づかないと発見できない隠密ユニットか(潜水艦のみ true)。
+   * 夜戦は今後実装予定で、現行の通常戦闘では参照しない。
+   */
+  get nightStealth(): boolean {
+    return this.data.nightStealth;
   }
 
   /** 生存しているか(HP が 1 以上) */

@@ -6,7 +6,7 @@ import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
-import { isWithinAttackRange } from '@/core/battle/AttackRange';
+import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 
 /** 攻撃 1 回ぶんの結果 */
@@ -23,6 +23,8 @@ export interface AttackResult {
   readonly defenderDefeated: boolean;
   /** 反撃で攻撃側が撃破されたか */
   readonly attackerDefeated: boolean;
+  /** 攻撃・反撃の巻き添えで撃沈した輸送中のユニット(いなければ空配列) */
+  readonly lostPassengers: readonly Unit[];
 }
 
 /** 攻撃の実行を担うマネージャ */
@@ -38,39 +40,49 @@ export class BattleManager {
    * 手順:
    * 1. 攻撃側から防御側へダメージを与える。HP が 0 になれば撃破(除去)。
    * 2. 防御側が生存し、かつ直接攻撃(距離1)を受け、防御側が攻撃側を射程に
-   *    捉えている場合のみ反撃する。間接攻撃(距離2以上)には反撃しない。
+   *    捉え、種別としても攻撃できる場合のみ反撃する。
+   *    間接攻撃(距離2以上)には反撃しない。
    * 3. 攻撃側を行動済みにする。
    *
-   * 射程外・味方への攻撃はデータ不整合として例外を投げる。
+   * 射程外・味方への攻撃、および種別として攻撃できない相手(戦艦 → 潜水艦など)への
+   * 攻撃はデータ不整合として例外を投げる。
    */
   attack(attacker: Unit, defender: Unit): AttackResult {
     if (attacker.armyType === defender.armyType) {
       throw new Error('味方ユニットは攻撃できません');
+    }
+    if (!canAttackUnit(attacker, defender)) {
+      throw new Error(`${attacker.unitName}は${defender.unitName}を攻撃できません`);
     }
     if (!isWithinAttackRange(attacker, defender.position)) {
       throw new Error('攻撃対象が射程外です');
     }
 
     const distance = manhattanDistance(attacker.position, defender.position);
+    const lostPassengers: Unit[] = [];
 
     // 1. 攻撃
-    const damageDealt = this.applyDamage(attacker, defender);
+    const damageDealt = this.applyDamage(attacker, defender, lostPassengers);
     const defenderDefeated = !defender.isAlive;
     if (defenderDefeated) {
+      // 撃破された輸送ユニットが運んでいたユニットは、盤面に戻らず一緒に失われる
+      lostPassengers.push(...defender.carried.splice(0));
       this.units.removeUnit(defender);
     }
 
-    // 2. 反撃(直接攻撃のみ・防御側が攻撃側を射程に捉えている場合)
+    // 2. 反撃(直接攻撃のみ・防御側が攻撃側を射程に捉え、種別としても攻撃できる場合)
     let counterDamage = 0;
     let attackerDefeated = false;
     const canCounter =
       !defenderDefeated &&
       distance === 1 &&
+      canAttackUnit(defender, attacker) &&
       isWithinAttackRange(defender, attacker.position);
     if (canCounter) {
-      counterDamage = this.applyDamage(defender, attacker);
+      counterDamage = this.applyDamage(defender, attacker, lostPassengers);
       attackerDefeated = !attacker.isAlive;
       if (attackerDefeated) {
+        lostPassengers.push(...attacker.carried.splice(0));
         this.units.removeUnit(attacker);
       }
     }
@@ -85,15 +97,43 @@ export class BattleManager {
       counterDamage,
       defenderDefeated,
       attackerDefeated,
+      lostPassengers,
     };
   }
 
-  /** 攻撃側から防御側へダメージを与え、現在 HP を更新する。与えたダメージを返す */
-  private applyDamage(attacker: Unit, defender: Unit): number {
+  /**
+   * 攻撃側から防御側へダメージを与え、現在 HP を更新する。与えたダメージを返す。
+   * 防御側が輸送ユニットの場合、輸送中のユニットも同じダメージを受ける
+   * (docs/UnitSpec.md「輸送ルール」参照)。巻き添えで HP が 0 になった搭乗ユニットは
+   * lost へ積んで呼び出し側に知らせる。
+   */
+  private applyDamage(attacker: Unit, defender: Unit, lost: Unit[]): number {
     const terrain = this.map.getTerrainData(defender.position);
     const defense = terrain?.defense ?? 0;
     const damage = calculateDamage(attacker, defender, defense);
     defender.currentHp = Math.max(0, defender.currentHp - damage);
+    this.applyDamageToPassengers(defender, damage, lost);
     return damage;
+  }
+
+  /**
+   * 輸送中のユニットへ、輸送ユニットが受けたのと同じダメージを与える。
+   * HP が 0 になった搭乗ユニットは輸送枠から取り除き、lost へ積む
+   * (搭乗中は盤面にいないため、盤面からの除去は不要)。
+   */
+  private applyDamageToPassengers(transport: Unit, damage: number, lost: Unit[]): void {
+    if (damage <= 0 || !transport.isCarrying) {
+      return;
+    }
+    const survivors: Unit[] = [];
+    for (const passenger of transport.carried) {
+      passenger.currentHp = Math.max(0, passenger.currentHp - damage);
+      if (passenger.isAlive) {
+        survivors.push(passenger);
+      } else {
+        lost.push(passenger);
+      }
+    }
+    transport.carried = survivors;
   }
 }

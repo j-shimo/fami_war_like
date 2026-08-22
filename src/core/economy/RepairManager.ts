@@ -1,7 +1,8 @@
 // 自軍の修理拠点の上で待機しているダメージを受けたユニットを、
 // ターン開始時に資金を消費して修理する。Phaser には依存しない純粋なロジック。
-// 修理拠点はユニットの移動タイプで分かれており、飛行ユニットは空港でのみ、
-// 地上ユニット(歩兵・車両)は空港以外の修理拠点(都市・工場・本拠地)でのみ修理できる。
+// 修理拠点はユニットの移動タイプで分かれており、地上ユニット(歩兵・車両)は
+// 都市・工場・本拠地、飛行ユニットは空港、海上ユニットは港でのみ修理できる。
+// 対応表は terrainData の REPAIRABLE_MOVEMENT_TYPES_BY_TERRAIN が持つ。
 // docs/GameDesign.md「修理」を参照。
 
 import type { EconomyArmy, EconomyManager } from '@/core/economy/EconomyManager';
@@ -9,7 +10,7 @@ import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { REPAIR_HP_PER_TURN } from '@/data/economyConfig';
-import { getTerrainData } from '@/data/terrainData';
+import { canRepairAt } from '@/data/terrainData';
 
 /** 修理 1 回ぶんの結果 */
 export interface RepairResult {
@@ -36,7 +37,7 @@ export class RepairManager {
    * 生存する army のユニットが、自軍所有の修理拠点の上に立ち、
    * かつ HP が最大未満(ダメージを受けている)であることが条件。
    * さらに、修理拠点はユニットの移動タイプで分かれる:
-   * 飛行ユニットは空港でのみ、地上ユニットは空港以外の修理拠点でのみ修理できる。
+   * 地上ユニットは都市・工場・本拠地、飛行ユニットは空港、海上ユニットは港でのみ修理できる。
    */
   canRepair(unit: Unit, army: EconomyArmy): boolean {
     if (!unit.isAlive || unit.armyType !== army) {
@@ -50,14 +51,9 @@ export class RepairManager {
     if (!tile || tile.owner !== army) {
       return false;
     }
-    if (!getTerrainData(tile.terrainType).canRepair) {
-      return false;
-    }
-    // 飛行ユニットは空港でのみ、地上ユニットは空港以外の修理拠点でのみ修理できる。
-    // isAirport と isAirUnit が一致するときだけ修理可能。
-    const isAirport = tile.terrainType === 'airport';
-    const isAirUnit = unit.movementType === 'air';
-    return isAirport === isAirUnit;
+    // 修理拠点と、そこで修理できる移動タイプの対応で判定する
+    // (地上=都市・工場・本拠地、飛行=空港、海上=港)。
+    return canRepairAt(tile.terrainType, unit.movementType);
   }
 
   /**

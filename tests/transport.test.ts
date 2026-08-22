@@ -97,7 +97,7 @@ describe('canCarry(輸送の可否判定)', () => {
       armyType: 'player',
       position: gridPosition(0, 1),
     });
-    transport.carried = first;
+    transport.carried = [first];
     expect(canCarry(transport, second)).toBe(false);
   });
 });
@@ -115,7 +115,7 @@ describe('UnitManager の搭乗・降車', () => {
 
     // 歩兵は盤面から消え、輸送ヘリが保持する
     expect(units.getUnitAt(gridPosition(1, 0))).toBeUndefined();
-    expect(transport.carried).toBe(infantry);
+    expect(transport.carried).toEqual([infantry]);
     expect(infantry.hasActed).toBe(true);
     expect(units.getAllUnits()).toHaveLength(1);
   });
@@ -133,7 +133,7 @@ describe('UnitManager の搭乗・降車', () => {
 
     expect(dropped).toBe(infantry);
     expect(units.getUnitAt(gridPosition(0, 1))).toBe(infantry);
-    expect(transport.carried).toBeNull();
+    expect(transport.carried).toEqual([]);
     // 降車したユニットと輸送ヘリはどちらも行動済みになる
     expect(infantry.hasActed).toBe(true);
     expect(transport.hasActed).toBe(true);

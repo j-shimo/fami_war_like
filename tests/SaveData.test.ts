@@ -97,7 +97,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
 
     const restoredTransport = restored.units.getUnitAt(gridPosition(0, 8));
     expect(restoredTransport?.unitType).toBe('transportHelicopter');
-    expect(restoredTransport?.carried?.unitType).toBe('infantry');
+    expect(restoredTransport?.carried.map((u) => u.unitType)).toEqual(['infantry']);
     // 搭乗中のユニットは盤面には出ていない
     expect(restored.units.getUnitAt(gridPosition(5, 8))).toBeUndefined();
   });
@@ -149,7 +149,8 @@ describe('isSaveData(中断データの検証)', () => {
     expect(
       isSaveData({
         ...save,
-        units: [{ ...save.units[0], unitType: 'battleship' }],
+        // 存在しないユニット種別(将来の追加で実在しないよう架空の名前を使う)
+        units: [{ ...save.units[0], unitType: 'unknownUnit' }],
       }),
     ).toBe(false);
     expect(isSaveData(null)).toBe(false);

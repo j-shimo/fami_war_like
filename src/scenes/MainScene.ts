@@ -199,11 +199,13 @@ export class MainScene extends Phaser.Scene {
   private attackTargets: Unit[] = [];
   /** movingUnit が移動範囲内で合流できる味方の同種ユニット */
   private mergeTargets: Unit[] = [];
-  /** movingUnit(歩兵)が移動範囲内で搭乗できる味方の輸送ユニット(輸送ヘリ) */
+  /** movingUnit が移動範囲内で搭乗できる味方の輸送ユニット(輸送ヘリ・輸送艦) */
   private boardTargets: Unit[] = [];
   /** コマンドメニューの「降ろす」を選び、降車先マスのクリック待ちになっているか */
   private awaitingUnloadTarget = false;
-  /** 輸送ヘリが運んでいるユニットを降ろせる隣接マス(降車先の選択待ち中に保持) */
+  /** 「降ろす」で選んだ搭乗ユニット(輸送艦は 2 体まで運ぶため、どれを降ろすかを保持する) */
+  private unloadPassenger: Unit | null = null;
+  /** 輸送ユニットが運んでいるユニットを降ろせる隣接マス(降車先の選択待ち中に保持) */
   private unloadPositions: GridPosition[] = [];
   /** 移動後に攻撃/占領/待機の選択待ちになっているユニット(いなければ null) */
   private commandUnit: Unit | null = null;
@@ -529,8 +531,8 @@ export class MainScene extends Phaser.Scene {
         this.drawHpIndicator(graphics, unit, x, y, radius);
       }
 
-      // 輸送ヘリがユニットを運んでいるときは、右上に小さな搭乗マーカーを描く
-      if (unit.carried) {
+      // 輸送ユニットがユニットを運んでいるときは、右上に小さな搭乗マーカーを描く
+      if (unit.isCarrying) {
         const markerX = x + radius * 0.7;
         const markerY = y - radius * 0.7;
         graphics.fillStyle(0x12121e, unit.hasActed ? 0.5 : 0.85);
@@ -1520,44 +1522,47 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * コマンドメニューで「降ろす」を選んだときの、降車先マスの選択に移る。
-   * 降ろせる隣接マス(空きマス・搭乗ユニットが進入できる地形)を緑枠で示してクリック待ちにする。
+   * 降ろせる隣接マス(空きマス・降ろすユニットが進入できる地形)を緑枠で示してクリック待ちにする。
+   * 輸送艦は 2 体まで運べるため、どの搭乗ユニットを降ろすかは passenger で受け取る。
    * 降車先以外(緑枠のないマス)をクリックしたときの挙動は handleClick で扱う。
    */
-  private enterUnloadSelection(): void {
+  private enterUnloadSelection(passenger: Unit): void {
     const unit = this.commandUnit;
-    if (!unit || !unit.carried) {
+    if (!unit || !unit.carried.includes(passenger)) {
       return;
     }
     this.audio.playSfx('select');
     this.awaitingUnloadTarget = true;
-    this.unloadPositions = findUnloadPositions(unit, this.map, this.units);
+    this.unloadPassenger = passenger;
+    this.unloadPositions = findUnloadPositions(unit, this.map, this.units, passenger);
     // 降ろすボタンなどのコマンドメニューを閉じ、降車先の選択だけに集中させる
     this.clearActionButtons();
     this.drawSelectionHighlight(unit.position);
     this.drawUnloadPositions(this.unloadPositions);
     this.infoText.setText([
       '降ろす先を選択',
-      unit.carried.unitName,
+      passenger.unitName,
       '緑枠のマスをクリック',
       '枠外で取り消し',
     ]);
   }
 
   /**
-   * 選択中の降車先マスへ、輸送ヘリが運んでいるユニットを降ろす。
-   * 降ろしたユニットとその輸送ヘリはどちらもそのターンは行動済みになる。
+   * 選択中の降車先マスへ、輸送ユニットが運んでいるユニットを降ろす。
+   * 降ろしたユニットとその輸送ユニットはどちらもそのターンは行動済みになる。
    */
   private executeUnload(dest: GridPosition): void {
     const unit = this.commandUnit;
-    if (!unit || !unit.carried) {
+    const passenger = this.unloadPassenger;
+    if (!unit || !passenger) {
       return;
     }
-    const passenger = this.units.dropUnit(unit, dest);
+    const dropped = this.units.dropUnit(unit, dest, passenger);
     this.audio.playSfx('move');
     this.commandUnit = null;
     this.resetSelection();
     this.drawUnits();
-    this.infoText.setText(['降ろす', `${passenger.unitName}を配置`]);
+    this.infoText.setText(['降ろす', `${dropped.unitName}を配置`]);
   }
 
   /**
@@ -1626,10 +1631,18 @@ export class MainScene extends Phaser.Scene {
       info.push(`占領耐久: ${this.capture.effectiveCaptureHp(unit, tile)}`);
       buttons.push({ label: '占領する', onClick: () => this.executeCapture(unit, tile) });
     }
-    // 輸送ヘリがユニットを運んでいて、降ろせる隣接マスがあれば「降ろす」を出す
-    if (unit.carried && findUnloadPositions(unit, this.map, this.units).length > 0) {
-      info.push(`降ろす: ${unit.carried.unitName}`);
-      buttons.push({ label: '降ろす', onClick: () => this.enterUnloadSelection() });
+    // 輸送ユニットがユニットを運んでいて、降ろせる隣接マスがあれば「降ろす」を出す。
+    // 輸送艦は 2 体まで運べるため、降ろせる搭乗ユニットごとにボタンを並べる。
+    for (const passenger of unit.carried) {
+      if (findUnloadPositions(unit, this.map, this.units, passenger).length === 0) {
+        continue;
+      }
+      info.push(`降ろす: ${passenger.unitName}`);
+      buttons.push({
+        // 1 体しか乗せていないときは単に「降ろす」、複数乗せているときは種別を添える
+        label: unit.carried.length === 1 ? '降ろす' : `降ろす:${passenger.unitName}`,
+        onClick: () => this.enterUnloadSelection(passenger),
+      });
     }
     // 待機は常に選べるようにする(メニュー外クリックで移動を取り消せる)
     buttons.push({ label: '待機', onClick: () => this.commitWait() });
@@ -2156,6 +2169,7 @@ export class MainScene extends Phaser.Scene {
     this.pendingAttackTargets = [];
     this.awaitingAttackTarget = false;
     this.awaitingUnloadTarget = false;
+    this.unloadPassenger = null;
     this.unloadPositions = [];
     this.infoMenuOpen = false;
     this.highlight.setVisible(false);
