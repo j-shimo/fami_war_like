@@ -15,4 +15,13 @@ describe('turnInfo', () => {
       '第3ターン / 敵軍',
     );
   });
+
+  it('夜戦では見出しの末尾に印を添える', () => {
+    expect(
+      formatTurnBanner({ turnNumber: 2, currentArmy: 'player' }, { nightBattle: true }),
+    ).toBe('第2ターン / 自軍 🌙');
+    expect(
+      formatTurnBanner({ turnNumber: 2, currentArmy: 'player' }, { nightBattle: false }),
+    ).toBe('第2ターン / 自軍');
+  });
 });

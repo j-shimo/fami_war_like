@@ -28,8 +28,26 @@ describe('formatTerrainInfo', () => {
     expect(lines).toContain('座標: (1, 2)');
     expect(lines).toContain('防御: 3');
     expect(lines).toContain('移動コスト 車両: ×');
+    // 偵察車は山へ進入できない
+    expect(lines).toContain('移動コスト 偵察: ×');
     expect(lines.some((l) => l.startsWith('所有:'))).toBe(false);
     expect(lines.some((l) => l.startsWith('占領耐久:'))).toBe(false);
+  });
+
+  it('偵察車の移動コストを車両とは別に表示する', () => {
+    // 道路は 1、平地は 2、海岸は 4 と車両(いずれも 1〜2)と異なる
+    expect(formatTerrainInfo(tile({ terrainType: 'road' }))).toContain(
+      '移動コスト 偵察: 1',
+    );
+    expect(formatTerrainInfo(tile({ terrainType: 'plain' }))).toContain(
+      '移動コスト 偵察: 2',
+    );
+    expect(formatTerrainInfo(tile({ terrainType: 'beach' }))).toContain(
+      '移動コスト 偵察: 4',
+    );
+    expect(formatTerrainInfo(tile({ terrainType: 'forest' }))).toContain(
+      '移動コスト 偵察: ×',
+    );
   });
 
   it('占領地形は所有・占領耐久・生産の行を含む', () => {

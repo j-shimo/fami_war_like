@@ -19,7 +19,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -49,6 +49,8 @@ export interface SaveData {
   readonly version: number;
   /** 遊んでいたマップの識別子(MapEntry.id) */
   readonly mapId: string;
+  /** 夜戦モードで遊んでいたか(再開時に同じモードで続けるために保存する) */
+  readonly nightBattle: boolean;
   /** 保存時刻(エポックミリ秒。表示用) */
   readonly savedAt: number;
   /** 保存時のマップの横マス数・縦マス数(復元時の整合性チェックに使う) */
@@ -70,6 +72,8 @@ export interface SaveData {
 /** createSaveData に渡す、保存対象のゲーム状態 */
 export interface SaveSource {
   readonly mapId: string;
+  /** 夜戦モードで遊んでいるか */
+  readonly nightBattle: boolean;
   readonly map: MapManager;
   readonly units: UnitManager;
   readonly turn: TurnManager;
@@ -136,6 +140,7 @@ export function createSaveData(source: SaveSource): SaveData {
   return {
     version: SAVE_VERSION,
     mapId: source.mapId,
+    nightBattle: source.nightBattle,
     savedAt: source.savedAt ?? Date.now(),
     cols: source.map.cols,
     rows: source.map.rows,
@@ -270,6 +275,9 @@ export function isSaveData(value: unknown): value is SaveData {
     return false;
   }
   if (typeof value.mapId !== 'string' || !isInteger(value.savedAt)) {
+    return false;
+  }
+  if (typeof value.nightBattle !== 'boolean') {
     return false;
   }
   if (!isInteger(value.cols) || !isInteger(value.rows)) {

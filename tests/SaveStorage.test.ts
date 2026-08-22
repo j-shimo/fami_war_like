@@ -50,6 +50,7 @@ function makeSaveData(): SaveData {
   const units = UnitManager.fromPlacements(TEST_MAP.units ?? [], map);
   return createSaveData({
     mapId: 'test',
+    nightBattle: false,
     map,
     units,
     turn: new TurnManager(units),

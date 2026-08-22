@@ -6,12 +6,14 @@ import type { AiAction } from '@/core/ai/EnemyAi';
 /**
  * 敵軍の 1 手番ぶんの行動ログを、情報パネル用の複数行テキストに集計する。
  * 攻撃・占領・移動・生産の件数と、撃破・占領完了の数をまとめて表示する。
+ * 夜戦で見えない自軍ユニットに出くわして強制待機した件数は「遭遇」として示す。
  */
 export function formatEnemyTurnSummary(actions: readonly AiAction[]): string[] {
   let attack = 0;
   let capture = 0;
   let move = 0;
   let produce = 0;
+  let halt = 0;
   let defeated = 0;
   let captured = 0;
 
@@ -32,6 +34,9 @@ export function formatEnemyTurnSummary(actions: readonly AiAction[]): string[] {
       case 'move':
         move += 1;
         break;
+      case 'halt':
+        halt += 1;
+        break;
       case 'produce':
         produce += 1;
         break;
@@ -48,6 +53,9 @@ export function formatEnemyTurnSummary(actions: readonly AiAction[]): string[] {
   }
   if (move > 0) {
     lines.push(`移動: ${move}`);
+  }
+  if (halt > 0) {
+    lines.push(`遭遇: ${halt}(強制待機)`);
   }
   if (produce > 0) {
     lines.push(`生産: ${produce}`);

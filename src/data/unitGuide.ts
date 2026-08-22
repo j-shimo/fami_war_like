@@ -42,6 +42,11 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
     '航空戦力への主力となるが、',
     '戦車との撃ち合いには弱い。',
   ],
+  recon: [
+    '移動力8で戦場を駆ける軽装甲の偵察車。',
+    '道路と拠点は速いが森・山・海には入れず、',
+    '夜戦では広い視界(4マス)で敵を照らし出す。',
+  ],
   battleship: [
     '射程3〜6の艦砲で叩く海の主力。',
     '陸の戦車系・水上艦・飛行ユニットに強いが、',
@@ -50,7 +55,7 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
   escortShip: [
     '対潜と近接対空を担う護衛の艦。',
     '潜水艦とヘリしか攻撃できない代わりに、',
-    '夜戦では広い視界(5マス)で敵を見つける。',
+    '夜戦では最も広い視界(5マス)で敵を見つける。',
   ],
   transportShip: [
     '地上ユニットを2体まで運ぶ艦。',

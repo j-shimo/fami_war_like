@@ -122,16 +122,25 @@ export class Unit {
   }
 
   /**
-   * 夜戦で敵を発見できる視界(マス数)。護衛艦だけが広い(5)。
-   * 夜戦は今後実装予定で、現行の通常戦闘では参照しない。
+   * 夜戦で敵を発見できる視界(マス数)。護衛艦がもっとも広い(5)。
+   * 地形による補正込みの値は Visibility の unitVision() で求める。
+   * 昼戦(通常戦闘)ではマップ全体が明るいため参照しない。
    */
   get vision(): number {
     return this.data.vision;
   }
 
   /**
+   * 山の上にいるときに視界へ加算するマス数(歩兵のみ 3、それ以外は 0)。
+   * 夜戦でのみ参照する。
+   */
+  get mountainVisionBonus(): number {
+    return this.data.mountainVisionBonus;
+  }
+
+  /**
    * 夜戦で隣接マスまで近づかないと発見できない隠密ユニットか(潜水艦のみ true)。
-   * 夜戦は今後実装予定で、現行の通常戦闘では参照しない。
+   * 昼戦(通常戦闘)では参照しない。
    */
   get nightStealth(): boolean {
     return this.data.nightStealth;

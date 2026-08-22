@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { SoundManager } from '@/audio/SoundManager';
 import { EnemyAi } from '@/core/ai/EnemyAi';
-import { findAttackableTargets } from '@/core/battle/AttackRange';
+import {
+  findAttackableTargets,
+  type AttackTargetOptions,
+} from '@/core/battle/AttackRange';
 import { forecastBattle } from '@/core/battle/BattleForecast';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -18,8 +21,11 @@ import {
   findMergeTargets,
   findTransportTargets,
   findUnloadPositions,
+  resolveMovePath,
+  type MovementOptions,
   type MovementRange,
 } from '@/core/movement/MovementRange';
+import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
 import {
   createSaveData,
   restoreGameState,
@@ -105,6 +111,10 @@ const BOARD_TARGET_COLOR = 0x5ad0f0;
 /** 輸送ヘリが運んでいるユニットの降車先を示す枠の色(合流と同じ緑系) */
 const UNLOAD_TILE_COLOR = 0x5ad469;
 
+/** 夜戦で暗いマスに重ねる暗幕の色と濃さ(地形は透けて見える濃さにする) */
+const NIGHT_FOG_COLOR = 0x05050f;
+const NIGHT_FOG_ALPHA = 0.62;
+
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
 /** ターン開始演出バナーの描画深度(最前面) */
@@ -179,6 +189,8 @@ export class MainScene extends Phaser.Scene {
   /** ミュート切替ボタンのラベル(状態に応じて表示を更新する) */
   private muteLabel!: Phaser.GameObjects.Text;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
+  /** 夜戦で暗いマスに重ねる暗幕(地形の上・ユニットの下に描く) */
+  private fogGraphics!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
   private rangeGraphics!: Phaser.GameObjects.Graphics;
   private highlight!: Phaser.GameObjects.Graphics;
@@ -254,6 +266,14 @@ export class MainScene extends Phaser.Scene {
   private mapId: string = DEFAULT_MAP_ENTRY.id;
   /** 再開する中断データ(マップ選択画面から渡される。新規ゲームなら null) */
   private resumeSave: SaveData | null = null;
+  /** 夜戦モードで遊んでいるか(マップ選択画面で選ぶ) */
+  private nightBattle = false;
+  /**
+   * 自軍から見た現在の視界。夜戦では明るいマスと発見済みの敵を保持する。
+   * 昼戦ではすべてが見える視界になるため、判定を分岐せずにそのまま使える。
+   * 盤面が変わるたびに drawUnits() から計算し直す。
+   */
+  private visibility: Visibility = Visibility.daylightFor('player');
   /** マップ描画領域(全体)のピクセル幅(マップのマス数から算出) */
   private mapWidth = 0;
   /** マップ描画領域(全体)のピクセル高さ(マップのマス数から算出) */
@@ -289,10 +309,16 @@ export class MainScene extends Phaser.Scene {
    * マップ選択画面から遊ぶマップを受け取る(未指定なら既定マップ)。
    * 中断データから再開する場合は save も渡され、create() で盤面を復元する。
    */
-  init(data: { map?: MapDefinition; mapId?: string; save?: SaveData }): void {
+  init(data: {
+    map?: MapDefinition;
+    mapId?: string;
+    nightBattle?: boolean;
+    save?: SaveData;
+  }): void {
     this.mapDef = data.map ?? DEFAULT_MAP_ENTRY.definition;
     this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
     this.resumeSave = data.save ?? null;
+    this.nightBattle = data.nightBattle ?? false;
     // シーンを再入場したときのために状態を初期化しておく
     this.gameOver = false;
     this.audioStarted = false;
@@ -330,6 +356,8 @@ export class MainScene extends Phaser.Scene {
       battle: this.battle,
       capture: this.capture,
       production: this.production,
+      // 夜戦では敵軍AIも自軍と同じ視界のルールで戦う
+      nightBattle: this.nightBattle,
     });
     this.audio = new SoundManager();
     // ブラウザが非アクティブ(タブ切替・アプリ切替)の間はゲーム音を止める
@@ -340,6 +368,7 @@ export class MainScene extends Phaser.Scene {
     this.createTerrainLayer();
     this.drawTerrain();
     this.drawGridLines();
+    this.createFogLayer();
     this.createRangeOverlay();
     this.createUnitLayer();
     this.drawUnits();
@@ -437,9 +466,67 @@ export class MainScene extends Phaser.Scene {
     this.terrainGraphics = this.add.graphics();
   }
 
+  /**
+   * 夜戦の暗幕用グラフィックスを用意する(地形の上・移動範囲やユニットより下に描く)。
+   * 暗いマスでも地形は見える必要があるため、暗幕は半透明で重ねる。
+   */
+  private createFogLayer(): void {
+    this.fogGraphics = this.add.graphics();
+  }
+
   /** 移動範囲・攻撃範囲の塗り用グラフィックスを用意する(ユニットより下に描く) */
   private createRangeOverlay(): void {
     this.rangeGraphics = this.add.graphics();
+  }
+
+  /**
+   * 自軍から見た視界を計算し直し、暗幕を描き直す。
+   * ユニットの移動・撃破・生産や拠点の占領で明るい範囲が変わるため、
+   * 盤面を描き直す drawUnits() の冒頭から必ず呼ぶ。
+   */
+  private refreshVisibility(): void {
+    this.visibility = computeVisibility(this.map, this.units, 'player', this.nightBattle);
+    this.drawFog();
+  }
+
+  /** 夜戦で暗いマス(自軍の視界の外)へ暗幕を重ねる。昼戦では何も描かない */
+  private drawFog(): void {
+    this.fogGraphics.clear();
+    if (this.visibility.isDaylight) {
+      return;
+    }
+    this.fogGraphics.fillStyle(NIGHT_FOG_COLOR, NIGHT_FOG_ALPHA);
+    this.map.forEachTile((tile) => {
+      if (this.visibility.isLit(tile.position)) {
+        return;
+      }
+      const { x, y } = gridToWorld(tile.position, TILE_SIZE);
+      this.fogGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    });
+  }
+
+  /**
+   * 指定マスにいる「自軍から見えている」ユニットを返す。
+   * 夜戦の暗いマスにいる敵は見えていないため undefined を返し、
+   * 選択・情報表示・情報メニューのいずれからも存在が分からないようにする。
+   */
+  private visibleUnitAt(pos: GridPosition): Unit | undefined {
+    const unit = this.units.getUnitAt(pos);
+    return unit && this.visibility.isUnitVisible(unit) ? unit : undefined;
+  }
+
+  /**
+   * 移動範囲・経路の計算に渡すオプション。
+   * 夜戦では見えていない敵のマスを通過できる扱いにして移動範囲を求める
+   * (実際に踏み込むと 1 つ手前で強制待機になる)。
+   */
+  private movementOptions(): MovementOptions {
+    return { isHiddenEnemy: (unit) => this.visibility.isUnitHidden(unit) };
+  }
+
+  /** 攻撃対象の絞り込みに渡すオプション(夜戦では見えている敵しか攻撃できない) */
+  private attackOptions(): AttackTargetOptions {
+    return { isVisible: (unit) => this.visibility.isUnitVisible(unit) };
   }
 
   /**
@@ -507,8 +594,11 @@ export class MainScene extends Phaser.Scene {
   /**
    * 全ユニットをグリッド上に描画する。
    * コンテナにまとめて描くことで、移動・撃破時に再描画しやすくする。
+   * 夜戦では、自軍から見えていない敵ユニットは描画しない。
    */
   private drawUnits(): void {
+    // 盤面が変わるたびに夜戦の視界を求め直し、暗幕も描き直す
+    this.refreshVisibility();
     this.unitLayer.removeAll(true);
 
     const graphics = this.add.graphics();
@@ -516,6 +606,10 @@ export class MainScene extends Phaser.Scene {
 
     const radius = TILE_SIZE * 0.32;
     for (const unit of this.units.getAllUnits()) {
+      // 夜戦で見つけていない敵ユニットは描かない(暗いマスの敵は存在が分からない)
+      if (!this.visibility.isUnitVisible(unit)) {
+        continue;
+      }
       const { x, y } = gridToWorldCenter(unit.position, TILE_SIZE);
       // 行動済みのユニットは半透明にして待機中と区別する
       const bodyAlpha = unit.hasActed ? 0.45 : 1;
@@ -879,11 +973,18 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const sub = this.add
-      .text(this.viewWidth / 2, centerY + 20, `第${state.turnNumber}ターン`, {
-        fontFamily: 'sans-serif',
-        fontSize: '16px',
-        color: '#ffffff',
-      })
+      .text(
+        this.viewWidth / 2,
+        centerY + 20,
+        this.nightBattle
+          ? `第${state.turnNumber}ターン(夜戦)`
+          : `第${state.turnNumber}ターン`,
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '16px',
+          color: '#ffffff',
+        },
+      )
       .setOrigin(0.5);
 
     const banner = this.add
@@ -914,7 +1015,9 @@ export class MainScene extends Phaser.Scene {
 
   /** 手番の見出しを現在のターン状態に合わせて更新する */
   private updateTurnText(): void {
-    this.turnText.setText(formatTurnBanner(this.turn.state));
+    this.turnText.setText(
+      formatTurnBanner(this.turn.state, { nightBattle: this.nightBattle }),
+    );
   }
 
   /**
@@ -1201,7 +1304,8 @@ export class MainScene extends Phaser.Scene {
           return;
         }
         // 射程外の敵を選んだときは「攻撃できない」と分かるように音で知らせる
-        const other = this.units.getUnitAt(pos);
+        // (夜戦で見えていない敵は「いない」扱いにして、存在を悟らせない)
+        const other = this.visibleUnitAt(pos);
         if (other && other.armyType !== this.commandUnit.armyType) {
           this.audio.playSfx('denied');
           return;
@@ -1274,7 +1378,8 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     // 「何もない場所」= ユニットのいないマスのときだけメニューを出す
-    if (this.units.getUnitAt(pos)) {
+    // (夜戦で見えていない敵のマスは、プレイヤーには空きマスに見えるので開ける)
+    if (this.visibleUnitAt(pos)) {
       return;
     }
     this.audio.playSfx('select');
@@ -1364,6 +1469,7 @@ export class MainScene extends Phaser.Scene {
     const saved = writeSuspendData(
       createSaveData({
         mapId: this.mapId,
+        nightBattle: this.nightBattle,
         map: this.map,
         units: this.units,
         turn: this.turn,
@@ -1461,17 +1567,29 @@ export class MainScene extends Phaser.Scene {
     this.drawSelectionHighlight(pos);
     this.infoText.setText(this.buildInfo(tile));
 
-    const unit = this.units.getUnitAt(pos);
+    // 夜戦で見つけていない敵は「いない」ものとして扱う(選択しても情報が出ない)
+    const unit = this.visibleUnitAt(pos);
     // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
     if (unit && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
       this.audio.playSfx('select');
       this.movingUnit = unit;
-      this.movementRange = calculateMovementRange(unit, this.map, this.units);
-      this.attackTargets = findAttackableTargets(unit, this.units);
+      const moveOptions = this.movementOptions();
+      this.movementRange = calculateMovementRange(
+        unit,
+        this.map,
+        this.units,
+        moveOptions,
+      );
+      this.attackTargets = findAttackableTargets(
+        unit,
+        this.units,
+        unit.position,
+        this.attackOptions(),
+      );
       // 移動範囲内にいる合流可能な味方(同種・双方 HP 減)を移動先候補に加える
-      this.mergeTargets = findMergeTargets(unit, this.map, this.units);
+      this.mergeTargets = findMergeTargets(unit, this.map, this.units, moveOptions);
       // 移動範囲内にいる搭乗可能な味方の輸送ユニット(輸送ヘリ)を移動先候補に加える
-      this.boardTargets = findTransportTargets(unit, this.map, this.units);
+      this.boardTargets = findTransportTargets(unit, this.map, this.units, moveOptions);
       this.drawActionRange(
         this.movementRange,
         this.attackTargets,
@@ -1491,6 +1609,7 @@ export class MainScene extends Phaser.Scene {
     this.rangeGraphics.clear();
 
     // ユニットのいない自軍の生産拠点を選んだら「生産」コマンドを表示する
+    // (canProduceAt は実際の占有を見るため、見えていない敵がいる拠点では生産できない)
     if (!unit && this.production.canProduceAt(this.turn.currentArmy, tile)) {
       this.showProductionCommand(tile);
     }
@@ -1499,6 +1618,9 @@ export class MainScene extends Phaser.Scene {
   /**
    * 選択中ユニットを指定マスへ移動する。
    * 行動済みにせずに移動し、移動後の攻撃/占領/待機を選ばせる状態に入る。
+   *
+   * 夜戦では移動経路上に「見えていなかった敵」がいることがある。その場合は
+   * 1 つ手前のマスで止まり、そのまま強制待機(行動済み)となってコマンドは選べない。
    */
   private moveSelectedUnit(pos: GridPosition, tile: TileData): void {
     const unit = this.movingUnit;
@@ -1508,10 +1630,37 @@ export class MainScene extends Phaser.Scene {
 
     // メニュー外クリックで移動を取り消せるよう、移動前の位置を控えておく
     const origin = unit.position;
-    this.units.moveUnit(unit, pos, { markActed: false });
+    const resolved = resolveMovePath(
+      unit,
+      this.map,
+      this.units,
+      pos,
+      this.movementOptions(),
+    );
+    this.units.moveUnit(unit, resolved.destination, { markActed: false });
     this.audio.playSfx('move');
+
+    if (resolved.blockedBy) {
+      // 進路上で敵に出くわしたのでその手前で停止し、この手番の行動は終わる
+      unit.hasActed = true;
+      this.audio.playSfx('denied');
+      this.resetSelection();
+      this.drawUnits();
+      this.infoText.setText([
+        '強制待機',
+        `${resolved.blockedBy.unitName}を発見`,
+        '進路上に敵がいたため',
+        '手前のマスで停止した',
+      ]);
+      return;
+    }
+
     this.drawUnits();
-    this.enterPostMoveCommand(unit, tile, origin);
+    this.enterPostMoveCommand(
+      unit,
+      this.map.getTile(resolved.destination) ?? tile,
+      origin,
+    );
   }
 
   /**
@@ -1634,7 +1783,9 @@ export class MainScene extends Phaser.Scene {
     // 間接攻撃ユニットは移動後は攻撃できないが、移動せず元居たマスに留まったときだけ
     // その場から射程内の敵を攻撃できる(自走砲などが動かず撃てるように)。
     const canAttackHere = !unit.isIndirect || equals(unit.position, origin);
-    const targets = canAttackHere ? findAttackableTargets(unit, this.units) : [];
+    const targets = canAttackHere
+      ? findAttackableTargets(unit, this.units, unit.position, this.attackOptions())
+      : [];
 
     // コマンド選択状態へ移行する。移動範囲は消し、攻撃対象はメニューを介して確定させる
     this.movingUnit = null;
@@ -2146,11 +2297,19 @@ export class MainScene extends Phaser.Scene {
    * ユニットがいる場合はユニット情報を先頭に、続けて地形情報を並べる。
    */
   private buildInfo(tile: TileData): string[] {
-    const unit = this.units.getUnitAt(tile.position);
+    // 夜戦で見えていない敵はいないものとして扱い、地形情報だけを表示する
+    const unit = this.visibleUnitAt(tile.position);
     if (unit) {
       // ユニット情報と併記すると行数が多くなり、占領耐久などが下部のボタンに
       // 隠れてしまうため、地形情報は簡略表示にして重要な行を残す
-      return [...formatUnitInfo(unit), '', ...formatTerrainInfo(tile, { compact: true })];
+      return [
+        ...formatUnitInfo(unit, {
+          nightBattle: this.nightBattle,
+          vision: unitVision(unit, this.map),
+        }),
+        '',
+        ...formatTerrainInfo(tile, { compact: true }),
+      ];
     }
     return formatTerrainInfo(tile);
   }

@@ -67,20 +67,33 @@ export function calculateAttackableTiles(
   return tiles;
 }
 
+/** findAttackableTargets のオプション */
+export interface AttackTargetOptions {
+  /**
+   * 夜戦で、その敵ユニットが攻撃側の軍から見えているかを判定する述語。
+   * 見えていない敵は射程内にいても攻撃対象にならない(暗いマスの敵は撃てない)。
+   * 省略した場合(昼戦)はすべての敵が見えているものとして扱う。
+   */
+  readonly isVisible?: (unit: Unit) => boolean;
+}
+
 /**
  * 攻撃側が指定位置から攻撃できる敵ユニットの一覧を返す。
  * 射程内にいて、かつ種別の相性として攻撃できる敵軍の生存ユニットのみを対象とする。
+ * 夜戦では、加えて「見えている」敵だけを対象とする(options.isVisible)。
  */
 export function findAttackableTargets(
   attacker: Unit,
   units: UnitManager,
   from: GridPosition = attacker.position,
+  options: AttackTargetOptions = {},
 ): Unit[] {
   return units
     .getAllUnits()
     .filter(
       (target) =>
         canAttackUnit(attacker, target) &&
-        isWithinAttackRange(attacker, target.position, from),
+        isWithinAttackRange(attacker, target.position, from) &&
+        (options.isVisible?.(target) ?? true),
     );
 }
