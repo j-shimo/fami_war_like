@@ -171,8 +171,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    // 索敵を役割とするユニットなので、地上ユニットの中では最も広い視界(4)を持つ。
-    vision: 4,
+    // 索敵を役割とするユニットなので、護衛艦と並ぶ最も広い視界(5)を持つ。
+    // 地上ユニットの中では単独で最も広い。
+    vision: 5,
     mountainVisionBonus: 0,
     nightStealth: false,
   },
@@ -206,7 +207,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    // 夜戦で全ユニット中もっとも広い視界(5マス)を持つ、艦隊の目となるユニット。
+    // 夜戦で偵察車と並ぶ最も広い視界(5マス)を持つ、艦隊の目となるユニット。
     vision: 5,
     mountainVisionBonus: 0,
     nightStealth: false,

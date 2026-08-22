@@ -43,6 +43,13 @@ describe('偵察車の基本パラメータ', () => {
     expect(data.canCapture).toBe(false);
   });
 
+  it('夜戦では護衛艦と並ぶ最大の視界(5)を持つ', () => {
+    expect(getUnitData('recon').vision).toBe(5);
+    expect(getUnitData('recon').vision).toBe(getUnitData('escortShip').vision);
+    // 山の視界ボーナスは歩兵だけのもので、偵察車は山へ入れない
+    expect(getUnitData('recon').mountainVisionBonus).toBe(0);
+  });
+
   it('工場・本拠地でのみ生産できる', () => {
     expect(isProducibleAt('factory', 'recon')).toBe(true);
     expect(isProducibleAt('headquarters', 'recon')).toBe(true);

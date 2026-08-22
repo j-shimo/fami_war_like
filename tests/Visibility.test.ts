@@ -187,6 +187,8 @@ describe('ユニットごとの視界', () => {
     expect(vision('antiAirTank')).toBe(2);
     expect(vision('transportHelicopter')).toBe(2);
     expect(vision('attackHelicopter')).toBe(3);
+    // 偵察車は護衛艦と並ぶ最大の視界
+    expect(vision('recon')).toBe(5);
     expect(vision('battleship')).toBe(3);
     expect(vision('escortShip')).toBe(5);
     expect(vision('transportShip')).toBe(1);
