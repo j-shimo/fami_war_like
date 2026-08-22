@@ -133,12 +133,14 @@ describe('海上ユニットの攻撃対象', () => {
     );
   });
 
-  it('戦艦はヘリを攻撃できない(対空は護衛艦の役割)', () => {
+  it('戦艦は潜水艦以外(飛行ユニットを含む)を攻撃できる', () => {
     const battleship = makeUnit('battleship');
-    expect(canAttackUnit(battleship, makeUnit('attackHelicopter', 'enemy'))).toBe(false);
+    expect(canAttackUnit(battleship, makeUnit('attackHelicopter', 'enemy'))).toBe(true);
     expect(canAttackUnit(battleship, makeUnit('transportHelicopter', 'enemy'))).toBe(
-      false,
+      true,
     );
+    expect(canAttackUnit(battleship, makeUnit('infantry', 'enemy'))).toBe(true);
+    expect(canAttackUnit(battleship, makeUnit('escortShip', 'enemy'))).toBe(true);
   });
 
   it('護衛艦はヘリ系と潜水艦だけを攻撃できる', () => {
@@ -222,16 +224,42 @@ describe('海上ユニットの射程と相性', () => {
     expect(battleship.isIndirect).toBe(true);
   });
 
-  it('戦艦は対戦車・対空戦車に強く、対歩兵は控えめ', () => {
+  it('戦艦は対戦車系に 7〜8 割、対歩兵は 6 割', () => {
     const battleship = makeUnit('battleship');
     const vsInfantry = calculateDamage(battleship, makeUnit('infantry', 'enemy'), 0);
-    const vsTank = calculateDamage(battleship, makeUnit('tank', 'enemy'), 0);
-    const vsAntiAir = calculateDamage(battleship, makeUnit('antiAirTank', 'enemy'), 0);
-    // 基礎ダメージ: 歩兵60・戦車80・対空戦車85
+    // 戦車・自走砲・対空戦車はいずれも「戦車系」として 7〜8 割
+    const vsTankFamily = (['tank', 'artillery', 'antiAirTank'] as const).map((type) =>
+      calculateDamage(battleship, makeUnit(type, 'enemy'), 0),
+    );
+    // 基礎ダメージ: 歩兵60 → 6
     expect(vsInfantry).toBe(6);
-    expect(vsTank).toBe(8);
-    expect(vsAntiAir).toBeGreaterThanOrEqual(8);
-    expect(vsTank).toBeGreaterThan(vsInfantry);
+    for (const damage of vsTankFamily) {
+      expect(damage).toBeGreaterThanOrEqual(7);
+      expect(damage).toBeLessThanOrEqual(8);
+      expect(damage).toBeGreaterThan(vsInfantry);
+    }
+  });
+
+  it('戦艦は飛行ユニット(ヘリ系)に 8〜9 割', () => {
+    const battleship = makeUnit('battleship');
+    for (const type of ['attackHelicopter', 'transportHelicopter'] as const) {
+      const damage = calculateDamage(battleship, makeUnit(type, 'enemy'), 0);
+      expect(damage).toBeGreaterThanOrEqual(8);
+      expect(damage).toBeLessThanOrEqual(9);
+    }
+  });
+
+  it('隣接したヘリは戦艦の最小射程(3)の内側に入るため撃たれない', () => {
+    const units = UnitManager.fromPlacements([
+      { col: 0, row: 0, unitType: 'battleship', army: 'player' },
+      { col: 1, row: 0, unitType: 'attackHelicopter', army: 'enemy' },
+      { col: 3, row: 0, unitType: 'transportHelicopter', army: 'enemy' },
+    ]);
+    const battleship = units.getUnitAt(gridPosition(0, 0))!;
+    // 射程 3〜6 なので、隣接(距離1)のヘリは対象外・距離3のヘリだけが対象になる
+    expect(findAttackableTargets(battleship, units).map((t) => t.unitType)).toEqual([
+      'transportHelicopter',
+    ]);
   });
 
   it('戦艦は輸送艦・護衛艦に 9 割のダメージを与える', () => {

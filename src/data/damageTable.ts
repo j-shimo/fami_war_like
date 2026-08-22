@@ -18,8 +18,8 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
  * - 対空戦車(antiAirTank): 飛行ユニット・歩兵に強い(75〜90)が、戦車には不利(15)。
  * - 地上の非対空ユニット(戦車・自走砲)は飛行ユニットへの攻撃力が低い(10〜15)。
- * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上を叩く主力。潜水艦とヘリは撃てない(0)。
- * - 護衛艦(escortShip): 対潜・対空の護衛役。潜水艦とヘリ以外は撃てない(0)。
+ * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
+ * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ以外は撃てない(0)。
  * - 潜水艦(submarine): 海上ユニットだけを狙う。護衛艦にだけは分が悪い(25)。
  * - 潜水艦を攻撃できるのは護衛艦と潜水艦のみ(他はすべて 0)。
  */
@@ -98,14 +98,15 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       submarine: 0,
     },
     battleship: {
-      // 対歩兵は 6 割、対戦車系(戦車・自走砲)は 7〜8 割、対空戦車には 8〜9 割。
+      // 対歩兵は 6 割、対戦車系(戦車・自走砲・対空戦車)は 7〜8 割。
       infantry: 60,
       tank: 80,
       artillery: 75,
-      // 艦砲は上空のヘリを狙えない(対空は護衛艦の役割)。
-      attackHelicopter: 0,
-      transportHelicopter: 0,
-      antiAirTank: 85,
+      antiAirTank: 75,
+      // 対空砲を備えており、飛行ユニットには 8〜9 割。
+      // 今後追加する飛行ユニット(戦闘機・爆撃機など)もこの水準に合わせる。
+      attackHelicopter: 85,
+      transportHelicopter: 90,
       // 装甲の厚い戦艦同士の撃ち合いはやや削り合いになる。
       battleship: 70,
       // 対輸送艦・護衛艦は 9 割。
