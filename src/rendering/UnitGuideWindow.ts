@@ -43,14 +43,14 @@ const BODY_HEIGHT = 400;
 const WIN_HEIGHT = TITLE_HEIGHT + BODY_HEIGHT;
 /** 左側のユニット一覧の幅 */
 const LIST_WIDTH = 148;
-/** 一覧の 1 行の高さ */
-const LIST_ROW_HEIGHT = 38;
+/** 一覧の 1 行の高さ(全ユニット種別ぶんが BODY_HEIGHT に収まる高さにする) */
+const LIST_ROW_HEIGHT = 36;
 /** 一覧のアイコン(軍色トークン)の半径 */
 const LIST_ICON_RADIUS = 13;
 /** 右側の詳細ペインの内側余白 */
 const DETAIL_PADDING = 16;
-/** 相性表の 1 行の高さ */
-const MATCHUP_ROW_HEIGHT = 22;
+/** 相性表の 1 行の高さ(全ユニット種別ぶんの行が BODY_HEIGHT に収まる高さにする) */
+const MATCHUP_ROW_HEIGHT = 21;
 /** 相性表のアイコン(軍色トークン)の半径 */
 const MATCHUP_ICON_RADIUS = 9;
 /** ウィンドウの描画深度(生産・音量ウィンドウと同じく最前面帯) */
@@ -300,6 +300,18 @@ export class UnitGuideWindow {
           : `${data.minAttackRange}〜${data.maxAttackRange}`;
     const stats = `コスト${data.cost} / HP${data.maxHp} / 移動${data.movement} / 射程${rangeLabel}`;
     this.addText(px, y, stats, {
+      fontFamily: 'sans-serif',
+      fontSize: '12px',
+      color: COLOR.stats,
+    });
+    y += 16;
+
+    // 夜戦の視界(歩兵は山の上でさらに広がる)
+    const visionLabel =
+      data.mountainVisionBonus > 0
+        ? `夜戦の視界${data.vision}(山では${data.vision + data.mountainVisionBonus})`
+        : `夜戦の視界${data.vision}`;
+    this.addText(px, y, visionLabel, {
       fontFamily: 'sans-serif',
       fontSize: '12px',
       color: COLOR.stats,

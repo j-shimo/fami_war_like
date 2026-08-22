@@ -2,7 +2,7 @@
 // 詳細な仕様は docs/UnitSpec.md を参照。
 
 import type { MovementType, TerrainType } from '@/core/map/TerrainType';
-import type { UnitType } from '@/core/units/UnitType';
+import { GROUND_UNIT_TYPES, type UnitType } from '@/core/units/UnitType';
 
 /** ユニット 1 種類ぶんの静的パラメータ */
 export interface UnitData {
@@ -28,15 +28,20 @@ export interface UnitData {
   readonly capacity: number;
   /**
    * 輸送できるユニット種別(capacity が 0 のユニットでは空配列)。
-   * 輸送ヘリは歩兵のみ、輸送艦はすべての地上ユニットを運べる。
+   * 輸送ヘリは歩兵のみ、輸送艦はすべての地上ユニット(GROUND_UNIT_TYPES)を運べる。
    */
   readonly carriableTypes: readonly UnitType[];
   /**
-   * 視界(マス数)。後に実装予定の夜戦で、このユニットが敵を発見できる範囲に使う。
-   * 通常は DEFAULT_VISION、護衛艦だけが広い視界(5)を持つ。
-   * 昼戦(現行の通常戦闘)では参照しない。
+   * 視界(マス数)。夜戦で、このユニットの周囲何マスまでを明るくする(敵を発見できる)かを表す。
+   * 昼戦(通常戦闘)ではマップ全体が明るいため参照しない。
+   * 詳細は docs/GameDesign.md「夜戦」を参照。
    */
   readonly vision: number;
+  /**
+   * 山の上にいるときに視界へ加算するマス数。高所から見渡せる歩兵のみ 3 で、それ以外は 0。
+   * 夜戦でのみ参照する。
+   */
+  readonly mountainVisionBonus: number;
   /**
    * 夜戦で「隣接マスまで近づかないと発見できない」隠密ユニットかどうか。
    * 潜水艦のみ true。昼戦(現行の通常戦闘)では参照しない。
@@ -44,8 +49,11 @@ export interface UnitData {
   readonly nightStealth: boolean;
 }
 
-/** 視界(vision)の既定値。護衛艦以外のユニットはこの値を持つ */
+/** 視界(vision)の既定値。歩兵・戦車・対空戦車・輸送ヘリがこの値を持つ */
 export const DEFAULT_VISION = 2;
+
+/** 歩兵が山の上にいるときの視界ボーナス(マス数)。高所から遠くまで見渡せる */
+export const INFANTRY_MOUNTAIN_VISION_BONUS = 3;
 
 /** 全ユニットの静的パラメータ表 */
 export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
@@ -62,6 +70,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 0,
     carriableTypes: [],
     vision: DEFAULT_VISION,
+    // 山へ登ると高所から遠くまで見渡せる(夜戦の視界が 2 + 3 = 5 になる)
+    mountainVisionBonus: INFANTRY_MOUNTAIN_VISION_BONUS,
     nightStealth: false,
   },
   tank: {
@@ -77,6 +87,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 0,
     carriableTypes: [],
     vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   artillery: {
@@ -91,7 +102,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    vision: DEFAULT_VISION,
+    // 車内から周囲を見張る余裕がなく、夜戦では手元しか見えない(視界 1)
+    vision: 1,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   attackHelicopter: {
@@ -106,7 +119,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    vision: DEFAULT_VISION,
+    // 上空から見下ろすため地上ユニットより広い視界(3)を持つ
+    vision: 3,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   transportHelicopter: {
@@ -124,6 +139,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 1,
     carriableTypes: ['infantry'],
     vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   antiAirTank: {
@@ -139,6 +155,26 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 0,
     carriableTypes: [],
     vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  recon: {
+    unitType: 'recon',
+    unitName: '偵察車',
+    maxHp: 10,
+    movement: 8,
+    // 道路・拠点を走り抜ける偵察車専用の移動タイプ。森・山・海には進入できない。
+    movementType: 'recon',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 3500,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 索敵を役割とするユニットなので、護衛艦と並ぶ最も広い視界(5)を持つ。
+    // 地上ユニットの中では単独で最も広い。
+    vision: 5,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   battleship: {
@@ -154,7 +190,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    vision: DEFAULT_VISION,
+    // 高い艦橋から遠方を見張る(視界 3)。ただし索敵の主役は護衛艦。
+    vision: 3,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   escortShip: {
@@ -169,8 +207,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    // 夜戦で広い視界(5マス)を持つ、艦隊の目となるユニット。
+    // 夜戦で偵察車と並ぶ最も広い視界(5マス)を持つ、艦隊の目となるユニット。
     vision: 5,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   transportShip: {
@@ -186,8 +225,10 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     // すべての地上ユニットを最大 2 体まで運べる。
     capacity: 2,
-    carriableTypes: ['infantry', 'tank', 'artillery', 'antiAirTank'],
-    vision: DEFAULT_VISION,
+    carriableTypes: GROUND_UNIT_TYPES,
+    // 見張りに人手を割けない輸送船。夜戦では周囲 1 マスしか見えない。
+    vision: 1,
+    mountainVisionBonus: 0,
     nightStealth: false,
   },
   submarine: {
@@ -202,7 +243,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
-    vision: DEFAULT_VISION,
+    // 潜望鏡とソナーで広く索敵する(視界 3)。
+    vision: 3,
+    mountainVisionBonus: 0,
     // 夜戦では隣接マスまで近づかれないと発見されない。
     nightStealth: true,
   },
@@ -221,8 +264,8 @@ export function getUnitData(unitType: UnitType): UnitData {
 export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   Partial<Record<TerrainType, readonly UnitType[]>>
 > = {
-  headquarters: ['infantry', 'tank', 'artillery', 'antiAirTank'],
-  factory: ['infantry', 'tank', 'artillery', 'antiAirTank'],
+  headquarters: ['infantry', 'recon', 'tank', 'artillery', 'antiAirTank'],
+  factory: ['infantry', 'recon', 'tank', 'artillery', 'antiAirTank'],
   airport: ['attackHelicopter', 'transportHelicopter'],
   port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
 };

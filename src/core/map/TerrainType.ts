@@ -19,11 +19,13 @@ export type ArmyType = 'player' | 'enemy' | 'neutral';
 
 /**
  * 移動タイプ。地形ごとの移動コストは移動タイプ別に定義する。
- * 地上系の歩兵系(infantry)・車両系(vehicle)に加え、飛行系(air)・海上系(sea)を扱う。
+ * 地上系の歩兵系(infantry)・車両系(vehicle)・偵察系(recon)に加え、
+ * 飛行系(air)・海上系(sea)を扱う。
+ * 偵察系は道路・拠点を軽快に走る代わりに、森・山へは進入できない偵察車専用の移動タイプ。
  * 飛行系はすべての地形の上を一定コストで移動でき、海や山も越えられる。
  * 海上系は海・海岸・港の上だけを移動できる(それ以外の陸地には進入できない)。
  */
-export type MovementType = 'infantry' | 'vehicle' | 'air' | 'sea';
+export type MovementType = 'infantry' | 'vehicle' | 'recon' | 'air' | 'sea';
 
 /** すべての地形種別の一覧 */
 export const TERRAIN_TYPES: readonly TerrainType[] = [

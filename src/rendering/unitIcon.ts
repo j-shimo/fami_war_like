@@ -128,6 +128,32 @@ function drawAntiAirTank(ctx: UnitIconContext): void {
   g.lineBetween(cx + r * 0.12, cy - r * 0.02, cx + r * 0.56, cy - r * 0.5);
 }
 
+/** 偵察車: 車輪 2 つの軽装甲車体と、後方へ伸びる長いアンテナのシルエット */
+function drawRecon(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 低く平たい車体(装甲の薄さを表す)
+  g.fillRoundedRect(cx - r * 0.62, cy - r * 0.12, r * 1.24, r * 0.34, r * 0.1);
+  // 前面の傾斜した装甲板
+  g.fillPoints(
+    [
+      { x: cx + r * 0.34, y: cy - r * 0.12 },
+      { x: cx + r * 0.68, y: cy + r * 0.02 },
+      { x: cx + r * 0.68, y: cy + r * 0.22 },
+      { x: cx + r * 0.34, y: cy + r * 0.22 },
+    ],
+    true,
+  );
+  // 車輪(履帯ではなくタイヤ 2 つで戦車と見分ける)
+  g.fillCircle(cx - r * 0.36, cy + r * 0.3, r * 0.2);
+  g.fillCircle(cx + r * 0.4, cy + r * 0.3, r * 0.2);
+  // 小さな銃塔(近接攻撃のみの軽武装)
+  g.fillRoundedRect(cx - r * 0.16, cy - r * 0.34, r * 0.3, r * 0.24, r * 0.06);
+  // 後方へ長く伸びる索敵アンテナ(広い視界を表す)
+  g.lineStyle(Math.max(1.5, r * 0.08), color, alpha);
+  g.lineBetween(cx - r * 0.4, cy - r * 0.1, cx - r * 0.62, cy - r * 0.66);
+}
+
 /**
  * 艦艇共通の船体(下すぼまりの台形)を描く。水上艦のアイコンで共用する。
  * 上部構造の描き分けで戦艦・護衛艦・輸送艦を区別する。
@@ -230,6 +256,9 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'antiAirTank':
       drawAntiAirTank(ctx);
+      break;
+    case 'recon':
+      drawRecon(ctx);
       break;
     case 'battleship':
       drawBattleship(ctx);

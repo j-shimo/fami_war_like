@@ -10,7 +10,10 @@ import { UnitManager } from '@/core/units/UnitManager';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 /** テスト用に敵軍AIと関連マネージャを組み立てる */
-function setup(def: MapDefinition): {
+function setup(
+  def: MapDefinition,
+  options: { nightBattle?: boolean } = {},
+): {
   map: MapManager;
   units: UnitManager;
   economy: EconomyManager;
@@ -22,7 +25,14 @@ function setup(def: MapDefinition): {
   const battle = new BattleManager(map, units);
   const capture = new CaptureSystem();
   const production = new ProductionManager(units, economy);
-  const ai = new EnemyAi({ map, units, battle, capture, production });
+  const ai = new EnemyAi({
+    map,
+    units,
+    battle,
+    capture,
+    production,
+    nightBattle: options.nightBattle,
+  });
   return { map, units, economy, ai };
 }
 
@@ -258,5 +268,72 @@ describe('EnemyAi.run', () => {
     // 生産以外の行動(攻撃・占領・移動・待機)は敵ユニット数と一致する
     const unitActions = actions.filter((a) => a.kind !== 'produce');
     expect(unitActions).toHaveLength(2);
+  });
+});
+
+describe('EnemyAi.run(夜戦)', () => {
+  it('見えていない敵は攻撃せず、近づこうとする', () => {
+    // 一本道。敵自走砲(視界1・射程2〜3)から距離 3 の自軍歩兵は視界の外
+    const def: MapDefinition = {
+      name: 'night-artillery',
+      terrain: ['rrrrrrr'],
+      units: [
+        { col: 0, row: 0, unitType: 'artillery', army: 'enemy' },
+        { col: 3, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    };
+
+    // 昼戦なら射程 3 に入っているのでその場から砲撃する
+    const day = setup(def);
+    expect(actionsOfKind(day.ai.run(), 'attack')).toHaveLength(1);
+
+    // 夜戦では見えていないため攻撃しない
+    const night = setup(def, { nightBattle: true });
+    const actions = night.ai.run();
+    expect(actionsOfKind(actions, 'attack')).toHaveLength(0);
+  });
+
+  it('進路上の見えない敵に出くわすと手前で強制待機する', () => {
+    // 一本道の先に中立都市を置き、敵戦車がそこへ向かうようにする。
+    // 敵戦車(視界2)から距離 4 の自軍歩兵は見えておらず、進路上で出くわす。
+    const { units, ai } = setup(
+      {
+        name: 'night-halt',
+        terrain: ['rrrrrrrc'],
+        units: [
+          { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+          { col: 4, row: 0, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { nightBattle: true },
+    );
+    const tank = units.getUnitAt(gridPosition(0, 0))!;
+
+    const halts = actionsOfKind(ai.run(), 'halt');
+
+    expect(halts).toHaveLength(1);
+    expect(halts[0].blockedBy.armyType).toBe('player');
+    // 敵歩兵の 1 つ手前(3,0)で止まり、行動を終えている
+    expect(tank.position).toEqual(gridPosition(3, 0));
+    expect(tank.hasActed).toBe(true);
+  });
+
+  it('敵が 1 体も見えていなければ、自軍所有でない拠点へ向かって前進する', () => {
+    // 敵戦車の遠くに中立都市。自軍ユニットは見えないので拠点を目標に索敵する
+    const { units, ai } = setup(
+      {
+        name: 'night-scout',
+        terrain: ['rrrrrrrc'],
+        units: [{ col: 0, row: 0, unitType: 'tank', army: 'enemy' }],
+      },
+      { nightBattle: true },
+    );
+    const tank = units.getUnitAt(gridPosition(0, 0))!;
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    // 移動力 5 ぶん都市へ近づいている
+    expect(tank.position).toEqual(gridPosition(5, 0));
   });
 });

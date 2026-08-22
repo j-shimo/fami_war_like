@@ -30,7 +30,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     tank!.currentHp = 4;
     game.units.moveUnit(tank!, gridPosition(6, 7));
 
-    const save = createSaveData({ mapId: 'test', ...game });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...game });
     const map = MapManager.fromDefinition(TEST_MAP);
     const restored = restoreGameState(save, map);
 
@@ -49,7 +49,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     tile!.captureHp = 6;
     tile!.captureArmy = 'player';
 
-    const save = createSaveData({ mapId: 'test', ...game });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...game });
     const map = MapManager.fromDefinition(TEST_MAP);
     restoreGameState(save, map);
 
@@ -68,7 +68,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     const infantry = game.units.getUnitAt(gridPosition(5, 8));
     infantry!.hasActed = true;
 
-    const save = createSaveData({ mapId: 'test', ...game });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...game });
     const map = MapManager.fromDefinition(TEST_MAP);
     const restored = restoreGameState(save, map);
 
@@ -91,7 +91,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     expect(passenger?.unitType).toBe('infantry');
     game.units.carryUnit(transport, passenger!);
 
-    const save = createSaveData({ mapId: 'test', ...game });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...game });
     const map = MapManager.fromDefinition(TEST_MAP);
     const restored = restoreGameState(save, map);
 
@@ -110,7 +110,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       position: gridPosition(0, 9),
     });
 
-    const save = createSaveData({ mapId: 'test', ...game });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...game });
     const map = MapManager.fromDefinition(TEST_MAP);
     const restored = restoreGameState(save, map);
     const next = restored.units.spawnUnit({
@@ -125,26 +125,40 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
 
   it('マップサイズが一致しない中断データは復元できない', () => {
     const game = setupGame();
-    const save = { ...createSaveData({ mapId: 'test', ...game }), cols: 3 };
+    const save = {
+      ...createSaveData({ mapId: 'test', nightBattle: false, ...game }),
+      cols: 3,
+    };
     const map = MapManager.fromDefinition(TEST_MAP);
     expect(() => restoreGameState(save, map)).toThrow();
   });
 });
 
+describe('夜戦モードの保存', () => {
+  it('夜戦かどうかを書き出し、再開時に判別できる', () => {
+    const night = createSaveData({ mapId: 'test', nightBattle: true, ...setupGame() });
+    const day = createSaveData({ mapId: 'test', nightBattle: false, ...setupGame() });
+    expect(night.nightBattle).toBe(true);
+    expect(day.nightBattle).toBe(false);
+    expect(isSaveData(JSON.parse(JSON.stringify(night)))).toBe(true);
+  });
+});
+
 describe('isSaveData(中断データの検証)', () => {
   it('正しい中断データを受け入れる', () => {
-    const save = createSaveData({ mapId: 'test', ...setupGame() });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...setupGame() });
     expect(isSaveData(save)).toBe(true);
     // JSON を経由しても形式は保たれる
     expect(isSaveData(JSON.parse(JSON.stringify(save)))).toBe(true);
   });
 
   it('バージョンが違う・壊れているデータは拒否する', () => {
-    const save = createSaveData({ mapId: 'test', ...setupGame() });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...setupGame() });
     expect(isSaveData({ ...save, version: SAVE_VERSION + 1 })).toBe(false);
     expect(isSaveData({ ...save, currentArmy: 'neutral' })).toBe(false);
     expect(isSaveData({ ...save, turnNumber: 0 })).toBe(false);
     expect(isSaveData({ ...save, funds: { player: 100 } })).toBe(false);
+    expect(isSaveData({ ...save, nightBattle: undefined })).toBe(false);
     expect(isSaveData({ ...save, units: [{ id: 'x' }] })).toBe(false);
     expect(
       isSaveData({
@@ -160,12 +174,12 @@ describe('isSaveData(中断データの検証)', () => {
 
 describe('matchesMap(中断データとマップの照合)', () => {
   it('同じマップ ID とサイズなら再開できる', () => {
-    const save = createSaveData({ mapId: 'test', ...setupGame() });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...setupGame() });
     expect(matchesMap(save, 'test', TEST_MAP)).toBe(true);
   });
 
   it('別のマップでは再開しない', () => {
-    const save = createSaveData({ mapId: 'test', ...setupGame() });
+    const save = createSaveData({ mapId: 'test', nightBattle: false, ...setupGame() });
     expect(matchesMap(save, 'capture', TEST_MAP)).toBe(false);
     expect(
       matchesMap(save, 'test', { ...TEST_MAP, terrain: ['...', '...', '...'] }),

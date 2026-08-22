@@ -8,6 +8,10 @@
 //   3. 攻撃も占領もできなければ最寄りの敵へ近づく
 //   4. どこへも進めなければ待機する
 // 全ユニットの行動後、資金があれば生産拠点でユニットを生産する。
+//
+// 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
+// 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
+// 敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
 
 import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
@@ -21,7 +25,8 @@ import type {
 import { equals, manhattanDistance, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { TileData } from '@/core/map/TileData';
-import { calculateMovementRange } from '@/core/movement/MovementRange';
+import { calculateMovementRange, resolveMovePath } from '@/core/movement/MovementRange';
+import { computeVisibility, type Visibility } from '@/core/night/Visibility';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { getTerrainData } from '@/data/terrainData';
@@ -47,6 +52,15 @@ export type AiAction =
       readonly from: GridPosition;
       readonly to: GridPosition;
     }
+  | {
+      /** 夜戦で、移動経路上の見えない敵に出くわして手前のマスで強制待機になった */
+      readonly kind: 'halt';
+      readonly unit: Unit;
+      readonly from: GridPosition;
+      readonly to: GridPosition;
+      /** 行く手を阻んだ敵ユニット */
+      readonly blockedBy: Unit;
+    }
   | { readonly kind: 'produce'; readonly result: ProductionResult }
   | { readonly kind: 'wait'; readonly unit: Unit };
 
@@ -58,6 +72,8 @@ export interface EnemyAiDeps {
   readonly capture: CaptureSystem;
   /** 生産の可否判定・実行に使う(資金判定は ProductionManager 経由で行う) */
   readonly production: ProductionManager;
+  /** 夜戦かどうか(省略時は昼戦)。夜戦では AI も視界のルールに従う */
+  readonly nightBattle?: boolean;
 }
 
 /** 拠点占領の優先度。本拠地を最優先で狙う */
@@ -78,6 +94,7 @@ export class EnemyAi {
   private readonly battle: BattleManager;
   private readonly capture: CaptureSystem;
   private readonly production: ProductionManager;
+  private readonly nightBattle: boolean;
 
   /**
    * @param deps 盤面操作に使うマネージャ群
@@ -92,6 +109,7 @@ export class EnemyAi {
     this.battle = deps.battle;
     this.capture = deps.capture;
     this.production = deps.production;
+    this.nightBattle = deps.nightBattle ?? false;
   }
 
   /**
@@ -117,7 +135,45 @@ export class EnemyAi {
 
   /** ユニット 1 体の行動を優先順位に従って決定・実行する */
   private actUnit(unit: Unit): AiAction {
-    return this.tryAttack(unit) ?? this.tryCapture(unit) ?? this.moveOrWait(unit);
+    // 行動のたびに盤面が変わるため、そのユニットの手番ごとに視界を計算し直す
+    const vision = computeVisibility(this.map, this.units, this.army, this.nightBattle);
+    return (
+      this.tryAttack(unit, vision) ??
+      this.tryCapture(unit, vision) ??
+      this.moveOrWait(unit, vision)
+    );
+  }
+
+  /**
+   * 夜戦で見えない敵をすり抜けて移動範囲を計算するためのオプションを返す。
+   * 昼戦では見えない敵がいないため、従来どおり敵のマスは進入不可として扱われる。
+   */
+  private movementOptions(vision: Visibility): {
+    isHiddenEnemy: (unit: Unit) => boolean;
+  } {
+    return { isHiddenEnemy: (unit) => vision.isUnitHidden(unit) };
+  }
+
+  /**
+   * unit を dest へ動かす。夜戦で経路上の見えない敵に阻まれた場合は、
+   * 仕様どおり 1 つ手前のマスで止め、阻んだ敵を返す(呼び出し側で強制待機にする)。
+   */
+  private moveAlong(
+    unit: Unit,
+    dest: GridPosition,
+    vision: Visibility,
+  ): { readonly destination: GridPosition; readonly blockedBy: Unit | null } {
+    const resolved = resolveMovePath(
+      unit,
+      this.map,
+      this.units,
+      dest,
+      this.movementOptions(vision),
+    );
+    if (!equals(resolved.destination, unit.position)) {
+      this.units.moveUnit(unit, resolved.destination, { markActed: false });
+    }
+    return { destination: resolved.destination, blockedBy: resolved.blockedBy };
   }
 
   /**
@@ -127,9 +183,15 @@ export class EnemyAi {
    * その場から攻撃できる場合のみ攻撃する。
    * 有効な攻撃がなければ null を返す。
    */
-  private tryAttack(unit: Unit): AiAction | null {
-    const range = calculateMovementRange(unit, this.map, this.units);
-    const enemies = this.opposingUnits();
+  private tryAttack(unit: Unit, vision: Visibility): AiAction | null {
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
+    // 夜戦では見えていない敵は狙えない(暗いマスの敵は攻撃対象にならない)
+    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
 
     let bestScore = -Infinity;
     let bestTarget: Unit | null = null;
@@ -174,10 +236,20 @@ export class EnemyAi {
       return null;
     }
 
-    const movedTo = equals(bestFrom, unit.position) ? null : bestFrom;
-    if (movedTo) {
-      this.units.moveUnit(unit, movedTo, { markActed: false });
+    const from = unit.position;
+    const moved = this.moveAlong(unit, bestFrom, vision);
+    // 夜戦で見えない敵に行く手を阻まれたら、その手前のマスで強制待機になる
+    if (moved.blockedBy) {
+      unit.hasActed = true;
+      return {
+        kind: 'halt',
+        unit,
+        from,
+        to: moved.destination,
+        blockedBy: moved.blockedBy,
+      };
     }
+    const movedTo = equals(moved.destination, from) ? null : moved.destination;
     const result = this.battle.attack(unit, bestTarget);
     return { kind: 'attack', result, movedTo };
   }
@@ -214,11 +286,16 @@ export class EnemyAi {
    * 自軍所有でない占領地形へ(必要なら移動して)占領を行う。
    * 占領できなければ null を返す。
    */
-  private tryCapture(unit: Unit): AiAction | null {
+  private tryCapture(unit: Unit, vision: Visibility): AiAction | null {
     if (!unit.canCapture) {
       return null;
     }
-    const range = calculateMovementRange(unit, this.map, this.units);
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
 
     let bestTile: TileData | null = null;
     let bestFrom: GridPosition | null = null;
@@ -247,10 +324,20 @@ export class EnemyAi {
       return null;
     }
 
-    const movedTo = equals(bestFrom, unit.position) ? null : bestFrom;
-    if (movedTo) {
-      this.units.moveUnit(unit, movedTo, { markActed: false });
+    const from = unit.position;
+    const moved = this.moveAlong(unit, bestFrom, vision);
+    // 夜戦で見えない敵に行く手を阻まれたら、占領地点まで届かず手前で強制待機になる
+    if (moved.blockedBy) {
+      unit.hasActed = true;
+      return {
+        kind: 'halt',
+        unit,
+        from,
+        to: moved.destination,
+        blockedBy: moved.blockedBy,
+      };
     }
+    const movedTo = equals(moved.destination, from) ? null : moved.destination;
     const result = this.capture.capture(unit, bestTile);
     return { kind: 'capture', result, movedTo };
   }
@@ -258,17 +345,21 @@ export class EnemyAi {
   /**
    * 最寄りの敵へ近づく。近づけない(現在地が最善)場合は待機する。
    * どちらの場合も行動済みにする。
+   * 夜戦で敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
    */
-  private moveOrWait(unit: Unit): AiAction {
-    const enemies = this.opposingUnits();
-    if (enemies.length === 0) {
+  private moveOrWait(unit: Unit, vision: Visibility): AiAction {
+    const targetPos = this.approachTarget(unit, vision);
+    if (!targetPos) {
       unit.hasActed = true;
       return { kind: 'wait', unit };
     }
 
-    // 現在地から最も近い敵を接近目標にする
-    const targetPos = this.nearestEnemyPosition(unit, enemies);
-    const range = calculateMovementRange(unit, this.map, this.units);
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
 
     let bestPos = unit.position;
     let bestDist = manhattanDistance(unit.position, targetPos);
@@ -291,8 +382,51 @@ export class EnemyAi {
     }
 
     const from = unit.position;
-    this.units.moveUnit(unit, bestPos);
-    return { kind: 'move', unit, from, to: bestPos };
+    const moved = this.moveAlong(unit, bestPos, vision);
+    unit.hasActed = true;
+    if (moved.blockedBy) {
+      return {
+        kind: 'halt',
+        unit,
+        from,
+        to: moved.destination,
+        blockedBy: moved.blockedBy,
+      };
+    }
+    if (equals(moved.destination, from)) {
+      return { kind: 'wait', unit };
+    }
+    return { kind: 'move', unit, from, to: moved.destination };
+  }
+
+  /**
+   * 接近の目標地点を返す。見えている敵がいればその最寄りの敵、
+   * いなければ(夜戦の索敵中など)自軍所有でない最寄りの拠点を目標にする。
+   * どちらも無ければ null(その場で待機)。
+   */
+  private approachTarget(unit: Unit, vision: Visibility): GridPosition | null {
+    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    if (enemies.length > 0) {
+      return this.nearestEnemyPosition(unit, enemies);
+    }
+    return this.nearestUnownedBase(unit);
+  }
+
+  /** unit から最も近い、自軍所有でない拠点マスの位置を返す(無ければ null) */
+  private nearestUnownedBase(unit: Unit): GridPosition | null {
+    let nearest: GridPosition | null = null;
+    let nearestDist = Infinity;
+    this.map.forEachTile((tile) => {
+      if (!getTerrainData(tile.terrainType).canCapture || tile.owner === this.army) {
+        return;
+      }
+      const dist = manhattanDistance(unit.position, tile.position);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = tile.position;
+      }
+    });
+    return nearest;
   }
 
   /**

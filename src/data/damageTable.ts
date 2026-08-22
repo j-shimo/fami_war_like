@@ -17,6 +17,8 @@ import type { UnitType } from '@/core/units/UnitType';
  *   自走砲には中程度(50)。対空戦車には不利(15)。
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
  * - 対空戦車(antiAirTank): 飛行ユニット・歩兵に強い(75〜90)が、戦車には不利(15)。
+ * - 偵察車(recon): 近接攻撃のみの軽装甲車両。対歩兵は 6〜7 割だが、戦車系(1〜2 割)と
+ *   ヘリ系(1〜2 割、特に戦闘ヘリ)には不利で、海上ユニットには攻撃できない(0)。
  * - 地上の非対空ユニット(戦車・自走砲)は飛行ユニットへの攻撃力が低い(10〜15)。
  * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
  * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ以外は撃てない(0)。
@@ -32,6 +34,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 25,
       transportHelicopter: 25,
       antiAirTank: 10,
+      recon: 30,
       battleship: 5,
       escortShip: 10,
       transportShip: 15,
@@ -44,6 +47,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 10,
       transportHelicopter: 10,
       antiAirTank: 55,
+      recon: 80,
       battleship: 15,
       escortShip: 25,
       transportShip: 35,
@@ -56,6 +60,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 15,
       transportHelicopter: 15,
       antiAirTank: 60,
+      recon: 70,
       battleship: 25,
       escortShip: 40,
       transportShip: 50,
@@ -68,6 +73,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 55,
       transportHelicopter: 80,
       antiAirTank: 15,
+      recon: 75,
       battleship: 25,
       escortShip: 40,
       transportShip: 60,
@@ -80,6 +86,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      recon: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -92,9 +99,28 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 85,
       transportHelicopter: 90,
       antiAirTank: 50,
+      recon: 65,
       battleship: 5,
       escortShip: 15,
       transportShip: 25,
+      submarine: 0,
+    },
+    recon: {
+      // 対歩兵は 6〜7 割。機関銃で歩兵を蹴散らす偵察車の主な攻撃対象。
+      infantry: 65,
+      // 戦車系(戦車・自走砲・対空戦車)には不利。装甲を抜けず 1〜2 割しか通らない。
+      tank: 15,
+      artillery: 20,
+      antiAirTank: 15,
+      // ヘリ系は 1〜2 割。特に戦闘ヘリには不利。
+      attackHelicopter: 10,
+      transportHelicopter: 20,
+      // 同じ偵察車同士は装甲が薄いぶん撃ち合いになる。
+      recon: 45,
+      // 近接攻撃のみで対艦装備も持たないため、海上ユニットには攻撃できない。
+      battleship: 0,
+      escortShip: 0,
+      transportShip: 0,
       submarine: 0,
     },
     battleship: {
@@ -103,6 +129,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       tank: 80,
       artillery: 75,
       antiAirTank: 75,
+      recon: 80,
       // 対空砲を備えており、飛行ユニットには 8〜9 割。
       // 今後追加する飛行ユニット(戦闘機・爆撃機など)もこの水準に合わせる。
       attackHelicopter: 85,
@@ -123,6 +150,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 75,
       transportHelicopter: 80,
       antiAirTank: 0,
+      recon: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -135,6 +163,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      recon: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -148,6 +177,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      recon: 0,
       battleship: 90,
       // 対潜装備を持つ護衛艦にはほとんど通らない(2〜3 割)。
       escortShip: 25,

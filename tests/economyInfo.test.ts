@@ -55,6 +55,7 @@ describe('economyInfo', () => {
     const items = listProductionItems('factory');
     expect(items).toEqual([
       { unitType: 'infantry', unitName: '歩兵', cost: 1000 },
+      { unitType: 'recon', unitName: '偵察車', cost: 3500 },
       { unitType: 'tank', unitName: '戦車', cost: 7000 },
       { unitType: 'artillery', unitName: '自走砲', cost: 6000 },
       { unitType: 'antiAirTank', unitName: '対空戦車', cost: 8000 },
