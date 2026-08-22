@@ -81,11 +81,19 @@ export class EconomyManager {
   }
 
   /**
+   * 指定した軍が現在の所有拠点から、次のターン開始時に得られる収入を返す。
+   * 収入 = 所有拠点数 × 拠点あたり収入。資金は加算しないので、情報パネルの表示にも使う。
+   */
+  getIncome(army: EconomyArmy, map: MapManager): number {
+    return this.countBases(army, map) * this.incomePerBase;
+  }
+
+  /**
    * ターン開始時の収入を計算して加算し、加算した金額を返す。
    * 収入 = 所有拠点数 × 拠点あたり収入。
    */
   collectIncome(army: EconomyArmy, map: MapManager): number {
-    const income = this.countBases(army, map) * this.incomePerBase;
+    const income = this.getIncome(army, map);
     this.funds[army] += income;
     return income;
   }

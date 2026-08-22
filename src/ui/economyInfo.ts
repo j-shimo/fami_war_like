@@ -15,6 +15,14 @@ export function formatFunds(army: EconomyArmy, amount: number): string {
   return `資金(${armyLabel(army)}): ${amount}`;
 }
 
+/**
+ * ターン開始時に得られる収入を「収入: 5000 (拠点5)」の形式に整形する。
+ * 資金行のすぐ下に置く想定で、どの軍かは資金行が示すため軍名は付けない。
+ */
+export function formatIncome(income: number, bases: number): string {
+  return `収入: ${income} (拠点${bases})`;
+}
+
 /** 生産メニューのボタン表示名を「歩兵 (1000)」の形式に整形する */
 export function formatProductionLabel(unitType: UnitType): string {
   const data = getUnitData(unitType);

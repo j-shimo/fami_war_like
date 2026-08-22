@@ -228,3 +228,77 @@ describe('findUnloadPositions(降車先の探索)', () => {
     expect(positions).toHaveLength(2);
   });
 });
+
+describe('輸送艦に 2 体乗せたときの連続降車', () => {
+  /**
+   * 港に停泊した輸送艦へ、指定位置の歩兵 2 体を乗せた状態を作る。
+   * 歩兵はいったん盤面へ置いてから搭乗させる(実際の手順と同じ)。
+   */
+  function setup(
+    terrain: readonly string[],
+    port: { col: number; row: number },
+    infantry: readonly { col: number; row: number }[],
+  ) {
+    const map = MapManager.fromDefinition({ name: 'port', terrain });
+    const units = UnitManager.fromPlacements(
+      [
+        { col: port.col, row: port.row, unitType: 'transportShip', army: 'player' },
+        ...infantry.map((pos) => ({
+          col: pos.col,
+          row: pos.row,
+          unitType: 'infantry' as const,
+          army: 'player' as const,
+        })),
+      ],
+      map,
+    );
+    const transport = units.getUnitAt(gridPosition(port.col, port.row))!;
+    const first = units.getUnitAt(gridPosition(infantry[0].col, infantry[0].row))!;
+    const second = units.getUnitAt(gridPosition(infantry[1].col, infantry[1].row))!;
+    units.carryUnit(transport, first);
+    units.carryUnit(transport, second);
+    return { map, units, transport, first, second };
+  }
+
+  it('1 体降ろしたあとも、空きマスが残っていれば残りの 1 体を降ろせる', () => {
+    // 港(1,1)の左右(0,1)(2,1)が陸。2 体とも降ろせる
+    const { map, units, transport, first, second } = setup(
+      ['~~~~', '.P.~', '~~~~'],
+      { col: 1, row: 1 },
+      [
+        { col: 0, row: 1 },
+        { col: 2, row: 1 },
+      ],
+    );
+    expect(transport.carried).toEqual([first, second]);
+
+    units.dropUnit(transport, gridPosition(0, 1), first);
+
+    // 残り 1 体の降車先は、いま埋めた (0,1) を除いた (2,1) だけ
+    const positions = findUnloadPositions(transport, map, units, second);
+    expect(positions).toEqual([gridPosition(2, 1)]);
+
+    units.dropUnit(transport, gridPosition(2, 1), second);
+    expect(transport.carried).toEqual([]);
+    expect(units.getUnitAt(gridPosition(0, 1))).toBe(first);
+    expect(units.getUnitAt(gridPosition(2, 1))).toBe(second);
+  });
+
+  it('降ろせる場所が無くなったら、残りの 1 体は降ろせない(そのまま待機になる)', () => {
+    // 港(2,1)に隣接する陸は (1,1) の 1 マスだけ。1 体降ろすと降車先が無くなる
+    const { map, units, transport, first, second } = setup(
+      ['~~~~', '..P~', '~~~~'],
+      { col: 2, row: 1 },
+      [
+        { col: 0, row: 1 },
+        { col: 1, row: 1 },
+      ],
+    );
+
+    units.dropUnit(transport, gridPosition(1, 1), first);
+
+    // 唯一の陸マスが埋まったため、2 体目の降車先は無い
+    expect(findUnloadPositions(transport, map, units, second)).toHaveLength(0);
+    expect(transport.carried).toEqual([second]);
+  });
+});

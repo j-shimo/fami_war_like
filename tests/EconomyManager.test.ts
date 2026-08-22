@@ -37,6 +37,20 @@ describe('EconomyManager', () => {
     expect(() => economy.spend('player', 200)).toThrow();
   });
 
+  it('getIncome は資金を加算せずに収入額だけを返す', () => {
+    const map = MapManager.fromDefinition(ECONOMY_MAP);
+    const economy = new EconomyManager({ initialFunds: 0, incomePerBase: 1000 });
+    // 自軍は 3 拠点、敵軍は 1 拠点
+    expect(economy.getIncome('player', map)).toBe(3000);
+    expect(economy.getIncome('enemy', map)).toBe(1000);
+    // 表示用の計算なので資金は変わらない
+    expect(economy.getFunds('player')).toBe(0);
+    expect(economy.getFunds('enemy')).toBe(0);
+    // 実際の計上は collectIncome が行い、同じ額を加算する
+    expect(economy.collectIncome('player', map)).toBe(3000);
+    expect(economy.getFunds('player')).toBe(3000);
+  });
+
   it('所有拠点数を軍ごとに数える', () => {
     const map = MapManager.fromDefinition(ECONOMY_MAP);
     const economy = new EconomyManager();
