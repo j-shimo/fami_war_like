@@ -39,7 +39,7 @@ export const MAP_LIST: readonly MapEntry[] = [
     id: 'island',
     definition: ISLAND_MAP,
     description:
-      '海で本土が完全に分断された 20x24 の南北マップ。輸送艦で小島と敵本土へ渡る。後手の敵軍は都市が 2 個多い。',
+      '海で本土が完全に分断された 20x24 の南北マップ。資金 0 から都市を集めて艦隊を整え、輸送艦で小島と敵本土へ渡る。後手の敵軍は都市が 2 個多い。',
   },
 ];
 
