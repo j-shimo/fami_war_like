@@ -18,11 +18,11 @@ describe('SEA_MAP(沿岸対角マップ)', () => {
     expect(manager.getUnitsByArmy('enemy')).toHaveLength(0);
   });
 
-  it('自軍・敵軍は本拠地 1・工場 2・空港 1・港 1 の計 5 拠点を所有して開始する', () => {
+  it('自軍・敵軍は本拠地 1・工場 2・空港 1 の計 4 拠点を所有して開始する', () => {
     const map = MapManager.fromDefinition(SEA_MAP);
     const owned = {
-      player: { total: 0, factory: 0, headquarters: 0, airport: 0, port: 0 },
-      enemy: { total: 0, factory: 0, headquarters: 0, airport: 0, port: 0 },
+      player: { total: 0, factory: 0, headquarters: 0, airport: 0 },
+      enemy: { total: 0, factory: 0, headquarters: 0, airport: 0 },
     };
     map.forEachTile((tile) => {
       if (tile.owner !== 'player' && tile.owner !== 'enemy') return;
@@ -31,14 +31,12 @@ describe('SEA_MAP(沿岸対角マップ)', () => {
       if (tile.terrainType === 'factory') side.factory += 1;
       if (tile.terrainType === 'headquarters') side.headquarters += 1;
       if (tile.terrainType === 'airport') side.airport += 1;
-      if (tile.terrainType === 'port') side.port += 1;
     });
     for (const side of [owned.player, owned.enemy]) {
-      expect(side.total).toBe(5);
+      expect(side.total).toBe(4);
       expect(side.factory).toBe(2);
       expect(side.headquarters).toBe(1);
       expect(side.airport).toBe(1);
-      expect(side.port).toBe(1);
     }
   });
 
@@ -103,89 +101,6 @@ describe('SEA_MAP(沿岸対角マップ)', () => {
       expect(partnerLand).toHaveLength(1);
       expect(partnerLand[0]).toEqual({ col, row });
     });
-  });
-
-  it('すべての港は海に隣接し、陸からも歩兵で到達できる(艦隊の出港と占領ができる)', () => {
-    const map = MapManager.fromDefinition(SEA_MAP);
-    const neighbors = (col: number, row: number) => [
-      { col, row: row - 1 },
-      { col, row: row + 1 },
-      { col: col - 1, row },
-      { col: col + 1, row },
-    ];
-
-    let ports = 0;
-    map.forEachTile((tile) => {
-      if (tile.terrainType !== 'port') return;
-      ports += 1;
-      const { col, row } = tile.position;
-      const around = neighbors(col, row)
-        .map((p) => map.getTile(p))
-        .filter((t) => t !== undefined);
-      // 海上ユニットが出港できるよう、必ず海のマスに面している
-      expect(around.some((t) => t.terrainType === 'sea')).toBe(true);
-      // 歩兵が占領しに来られるよう、陸(歩兵が進入できる地形)にも面している
-      expect(
-        around.some((t) => getTerrainData(t.terrainType).moveCost.infantry !== null),
-      ).toBe(true);
-    });
-    // 自軍 1・敵軍 1・中立 2 の計 4 つ
-    expect(ports).toBe(4);
-  });
-
-  it('海は中央の地峡で 2 つの水域に分かれ、どちらの水域にも港がある', () => {
-    const map = MapManager.fromDefinition(SEA_MAP);
-    // 海マスを 4 近傍で連結成分に分ける
-    const key = (col: number, row: number) => `${col},${row}`;
-    const seaKeys = new Set<string>();
-    map.forEachTile((tile) => {
-      if (tile.terrainType === 'sea')
-        seaKeys.add(key(tile.position.col, tile.position.row));
-    });
-
-    const visited = new Set<string>();
-    const components: Set<string>[] = [];
-    for (const start of seaKeys) {
-      if (visited.has(start)) continue;
-      const component = new Set<string>();
-      const stack = [start];
-      visited.add(start);
-      while (stack.length > 0) {
-        const current = stack.pop()!;
-        component.add(current);
-        const [col, row] = current.split(',').map(Number);
-        for (const next of [
-          key(col, row - 1),
-          key(col, row + 1),
-          key(col - 1, row),
-          key(col + 1, row),
-        ]) {
-          if (seaKeys.has(next) && !visited.has(next)) {
-            visited.add(next);
-            stack.push(next);
-          }
-        }
-      }
-      components.push(component);
-    }
-    expect(components).toHaveLength(2);
-
-    // 各水域に、そこから出港できる港が 2 つずつ面している
-    for (const component of components) {
-      let portsOnSea = 0;
-      map.forEachTile((tile) => {
-        if (tile.terrainType !== 'port') return;
-        const { col, row } = tile.position;
-        const touches = [
-          key(col, row - 1),
-          key(col, row + 1),
-          key(col - 1, row),
-          key(col + 1, row),
-        ].some((k) => component.has(k));
-        if (touches) portsOnSea += 1;
-      });
-      expect(portsOnSea).toBe(2);
-    }
   });
 
   it('中立で占領可能な拠点が存在する', () => {

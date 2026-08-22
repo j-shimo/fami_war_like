@@ -32,7 +32,7 @@ export const MAP_LIST: readonly MapEntry[] = [
     id: 'sea',
     definition: SEA_MAP,
     description:
-      '海が盤面を分断する 20x20 の対角マップ。地上は細い地峡に渋滞し、飛行ユニットと港から出す艦隊が主導権を握る。',
+      '海が盤面を分断する 20x20 の対角マップ。地上は細い地峡に渋滞し、海を越える飛行ユニットと島の中立空港が主導権を握る。',
   },
 ];
 
