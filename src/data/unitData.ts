@@ -177,7 +177,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     unitType: 'transportShip',
     unitName: '輸送艦',
     maxHp: 10,
-    movement: 6,
+    movement: 5,
     movementType: 'sea',
     // 攻撃できないユニット。射程 0 で「攻撃不可」を表す。
     minAttackRange: 0,

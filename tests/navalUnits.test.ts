@@ -53,11 +53,11 @@ describe('海上ユニットの移動', () => {
     expect(range.canReach(gridPosition(0, 0))).toBe(false);
   });
 
-  it('潜水艦は移動力4、護衛艦・輸送艦は6、戦艦は5', () => {
+  it('潜水艦は移動力4、戦艦・輸送艦は5、護衛艦は6', () => {
     expect(getUnitData('submarine').movement).toBe(4);
-    expect(getUnitData('escortShip').movement).toBe(6);
-    expect(getUnitData('transportShip').movement).toBe(6);
     expect(getUnitData('battleship').movement).toBe(5);
+    expect(getUnitData('transportShip').movement).toBe(5);
+    expect(getUnitData('escortShip').movement).toBe(6);
   });
 
   it('地上ユニットは港には入れるが海には入れない', () => {
