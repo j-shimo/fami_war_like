@@ -97,9 +97,9 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canProduce: false,
     canRepair: false,
     // 陸と海が接する唯一の非拠点地形。海上ユニットは港と同じくコスト 1 で進入・停泊でき、
-    // 歩兵は砂に足を取られながらコスト 2 で乗り降りできる。車両は砂浜にはまるため進入不可。
-    // これにより「港が無くても歩兵だけは上陸・乗船できる」浜辺として機能する。
-    moveCost: { infantry: 2, vehicle: IMPASSABLE, air: 1, sea: 1 },
+    // 地上ユニット(歩兵・車両)は砂に足を取られながらコスト 2 で乗り降りできる。
+    // これにより「港が無くても上陸・乗船できる」浜辺として機能する。
+    moveCost: { infantry: 2, vehicle: 2, air: 1, sea: 1 },
     color: 0xd8c07c,
   },
   city: {

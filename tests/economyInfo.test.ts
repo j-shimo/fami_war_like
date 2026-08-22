@@ -8,6 +8,7 @@ import { Unit } from '@/core/units/Unit';
 import {
   formatCaptureLog,
   formatFunds,
+  formatIncome,
   formatProductionLabel,
   formatProductionLog,
   formatRepairLog,
@@ -37,6 +38,12 @@ describe('economyInfo', () => {
   it('資金を軍名つきで整形する', () => {
     expect(formatFunds('player', 12000)).toBe('資金(自軍): 12000');
     expect(formatFunds('enemy', 0)).toBe('資金(敵軍): 0');
+  });
+
+  it('収入を拠点数つきで整形する', () => {
+    expect(formatIncome(5000, 5)).toBe('収入: 5000 (拠点5)');
+    // 拠点を 1 つも持っていなければ収入 0
+    expect(formatIncome(0, 0)).toBe('収入: 0 (拠点0)');
   });
 
   it('生産ボタンのラベルは名前とコストを表示する', () => {

@@ -43,6 +43,7 @@ import { getTerrainData } from '@/data/terrainData';
 import {
   formatCaptureLog,
   formatFunds,
+  formatIncome,
   formatProductionLog,
   formatRepairLog,
   listProductionItems,
@@ -183,6 +184,7 @@ export class MainScene extends Phaser.Scene {
   private highlight!: Phaser.GameObjects.Graphics;
   private turnText!: Phaser.GameObjects.Text;
   private fundsText!: Phaser.GameObjects.Text;
+  private incomeText!: Phaser.GameObjects.Text;
   private infoText!: Phaser.GameObjects.Text;
   /** ダメージ予測ポップアップ(背景+テキストをまとめたコンテナ。初期は非表示) */
   private forecastPopup!: Phaser.GameObjects.Container;
@@ -213,6 +215,13 @@ export class MainScene extends Phaser.Scene {
   private commandTile: TileData | null = null;
   /** commandUnit の移動前の位置(メニュー外クリックで移動を取り消して戻すのに使う。いなければ null) */
   private commandOrigin: GridPosition | null = null;
+  /**
+   * 移動後コマンドの最中に、取り消せない行動(降車)を実行済みかどうか。
+   * 輸送艦は 2 体を続けて降ろせるようにコマンドメニューへ戻るが、1 体でも降ろした時点で
+   * その移動は確定しているため、以降はメニュー外クリックや情報メニューで移動を巻き戻さず、
+   * 待機として行動を終える。
+   */
+  private commandCommitted = false;
   /** 移動後、コマンドメニューの「攻撃」を押すと攻撃対象にできる敵(メニュー表示中に保持) */
   private pendingAttackTargets: Unit[] = [];
   /** コマンドメニューで「攻撃」を選び、攻撃対象のクリック待ちになっているか */
@@ -344,7 +353,7 @@ export class MainScene extends Phaser.Scene {
     // 中断データからの再開はターンの途中からなので、開始時の経済処理はやり直さない。
     const repairs = restored ? [] : this.runTurnStartEconomy();
     this.updateTurnText();
-    this.updateFundsText();
+    this.updateEconomyText();
     if (repairs.length > 0) {
       this.drawUnits();
       this.infoText.setText(formatRepairLog(repairs));
@@ -605,7 +614,7 @@ export class MainScene extends Phaser.Scene {
 
     // 現在のターン数と手番の軍勢を示す見出し
     this.turnText = this.add
-      .text(this.viewWidth + 12, 12, '', {
+      .text(this.viewWidth + 12, 10, '', {
         fontFamily: 'sans-serif',
         fontSize: '16px',
         color: '#8ad0ff',
@@ -615,15 +624,25 @@ export class MainScene extends Phaser.Scene {
 
     // 現在手番の軍勢の資金
     this.fundsText = this.add
-      .text(this.viewWidth + 12, 36, '', {
+      .text(this.viewWidth + 12, 34, '', {
         fontFamily: 'sans-serif',
         fontSize: '14px',
         color: '#ffe08a',
       })
       .setScrollFactor(0);
 
+    // 資金の下に、次のターン開始時に得られる収入(所有拠点数ぶん)を示す。
+    // 拠点を占領して収入が伸びていく手応えが分かるようにする。
+    this.incomeText = this.add
+      .text(this.viewWidth + 12, 54, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        color: '#c8b98a',
+      })
+      .setScrollFactor(0);
+
     this.add
-      .text(this.viewWidth + 12, 64, 'マス情報', {
+      .text(this.viewWidth + 12, 82, 'マス情報', {
         fontFamily: 'sans-serif',
         fontSize: '16px',
         color: '#ffd479',
@@ -631,7 +650,7 @@ export class MainScene extends Phaser.Scene {
       .setScrollFactor(0);
 
     this.infoText = this.add
-      .text(this.viewWidth + 12, 92, 'マスを選択してください', {
+      .text(this.viewWidth + 12, 106, 'マスを選択してください', {
         fontFamily: 'sans-serif',
         fontSize: '14px',
         color: '#eaeaea',
@@ -649,7 +668,7 @@ export class MainScene extends Phaser.Scene {
     const width = 64;
     const height = 22;
     const x = this.viewWidth + INFO_PANEL_WIDTH - width - 8;
-    const y = 60;
+    const y = 78;
 
     const button = this.add
       .rectangle(x, y, width, height, 0x2a2a3a)
@@ -898,10 +917,19 @@ export class MainScene extends Phaser.Scene {
     this.turnText.setText(formatTurnBanner(this.turn.state));
   }
 
-  /** 現在手番の軍勢の資金表示を更新する */
-  private updateFundsText(): void {
+  /**
+   * 現在手番の軍勢の資金と収入の表示を更新する。
+   * 収入は所有拠点数で決まるため、占領で拠点が増減したときにも呼ぶ。
+   */
+  private updateEconomyText(): void {
     const army = this.turn.currentArmy;
     this.fundsText.setText(formatFunds(army, this.economy.getFunds(army)));
+    this.incomeText.setText(
+      formatIncome(
+        this.economy.getIncome(army, this.map),
+        this.economy.countBases(army, this.map),
+      ),
+    );
   }
 
   /**
@@ -931,7 +959,7 @@ export class MainScene extends Phaser.Scene {
     this.turn.endTurn();
     const repairs = this.runTurnStartEconomy();
     this.updateTurnText();
-    this.updateFundsText();
+    this.updateEconomyText();
     // 占領による所有者変更・修理での HP 変化・行動済みリセットを反映して再描画する
     this.drawTerrain();
     this.drawUnits();
@@ -953,7 +981,7 @@ export class MainScene extends Phaser.Scene {
     // 占領で所有者が、移動・撃破でユニット配置が変わるため再描画する
     this.drawTerrain();
     this.drawUnits();
-    this.updateFundsText();
+    this.updateEconomyText();
     this.infoText.setText(formatEnemyTurnSummary(actions));
     // 敵軍の占領・撃破で勝敗が決していないか判定する
     this.checkGameEnd();
@@ -1184,6 +1212,11 @@ export class MainScene extends Phaser.Scene {
       // メニュー表示中(攻撃未選択)にメニュー外のマスを押したら、移動を取り消して
       // ユニットを移動前の位置へ戻す。誤操作で待機が確定してしまうのを避けるため、
       // 行動の確定(待機・攻撃・占領)はメニューのボタンからのみ行う。
+      // ただし降車を済ませていて移動を取り消せない場合は、待機として行動を終える。
+      if (this.commandCommitted) {
+        this.commitWait();
+        return;
+      }
       this.cancelMove();
       return;
     }
@@ -1550,6 +1583,10 @@ export class MainScene extends Phaser.Scene {
   /**
    * 選択中の降車先マスへ、輸送ユニットが運んでいるユニットを降ろす。
    * 降ろしたユニットとその輸送ユニットはどちらもそのターンは行動済みになる。
+   *
+   * 輸送艦のように 2 体を乗せている場合は、降ろしたあとに残りの搭乗ユニットを
+   * 降ろせる場所が残っていればコマンドメニューへ戻り、続けて降ろせるようにする。
+   * 降ろせる場所がもう無ければ(周囲が埋まった・進入できない地形しかない)そこで行動を終える。
    */
   private executeUnload(dest: GridPosition): void {
     const unit = this.commandUnit;
@@ -1559,10 +1596,29 @@ export class MainScene extends Phaser.Scene {
     }
     const dropped = this.units.dropUnit(unit, dest, passenger);
     this.audio.playSfx('move');
+    this.awaitingUnloadTarget = false;
+    this.unloadPassenger = null;
+    this.unloadPositions = [];
+    // 1 体でも降ろしたらその移動は確定。以降は取り消せない
+    this.commandCommitted = true;
+    this.drawUnits();
+
+    // まだ降ろせる搭乗ユニットが残っていれば、続けて降ろすためメニューへ戻る
+    if (this.hasUnloadablePassenger(unit)) {
+      this.showPostMoveMenu([`${dropped.unitName}を配置`]);
+      return;
+    }
     this.commandUnit = null;
     this.resetSelection();
-    this.drawUnits();
     this.infoText.setText(['降ろす', `${dropped.unitName}を配置`]);
+  }
+
+  /** transport が運んでいるユニットのうち、いま降ろせる場所があるものがいるか */
+  private hasUnloadablePassenger(transport: Unit): boolean {
+    return transport.carried.some(
+      (passenger) =>
+        findUnloadPositions(transport, this.map, this.units, passenger).length > 0,
+    );
   }
 
   /**
@@ -1588,6 +1644,7 @@ export class MainScene extends Phaser.Scene {
     this.commandUnit = unit;
     this.commandTile = tile;
     this.commandOrigin = origin;
+    this.commandCommitted = false;
     this.pendingAttackTargets = targets;
     this.showPostMoveMenu();
   }
@@ -1598,8 +1655,12 @@ export class MainScene extends Phaser.Scene {
    * 「待機」は常に出し、攻撃も占領もできない移動先でも待機を選べるようにする。
    * メニュー外のマスを押すと移動が取り消され、ユニットは移動前の位置へ戻る。
    * この段階では攻撃対象のクリックは受け付けず、「攻撃」を押して初めて対象選択に移る。
+   *
+   * 降車を済ませて続けて降ろす場合(commandCommitted)は、その移動はもう取り消せないため
+   * 攻撃・占領は出さず、残りの「降ろす」と「待機」だけを並べる。
+   * notice には直前の行動結果など、情報パネルの先頭に添える行を渡す。
    */
-  private showPostMoveMenu(): void {
+  private showPostMoveMenu(notice: readonly string[] = []): void {
     const unit = this.commandUnit;
     const tile = this.commandTile;
     if (!unit || !tile) {
@@ -1620,12 +1681,12 @@ export class MainScene extends Phaser.Scene {
 
     // 表示するボタンを先に決め、その数からメニューの表示位置(マスの近く)を求める
     const buttons: Array<{ label: string; onClick: () => void }> = [];
-    const info: string[] = ['コマンド選択', unit.unitName];
-    if (this.pendingAttackTargets.length > 0) {
+    const info: string[] = [...notice, 'コマンド選択', unit.unitName];
+    if (!this.commandCommitted && this.pendingAttackTargets.length > 0) {
       info.push('攻撃: 射程内に敵');
       buttons.push({ label: '攻撃', onClick: () => this.enterAttackSelection() });
     }
-    if (this.canOfferCapture(unit, tile)) {
+    if (!this.commandCommitted && this.canOfferCapture(unit, tile)) {
       // 別の軍が占領を進めていた拠点は初期値へ戻してから占領するため、
       // この軍が実際に減らし始める耐久値(実効値)を表示する
       info.push(`占領耐久: ${this.capture.effectiveCaptureHp(unit, tile)}`);
@@ -1696,6 +1757,13 @@ export class MainScene extends Phaser.Scene {
     const unit = this.commandUnit;
     const origin = this.commandOrigin;
     if (!unit || !origin) {
+      return;
+    }
+    // 降車を済ませていて移動を取り消せない場合は、巻き戻さずそのまま行動を終える
+    if (this.commandCommitted) {
+      unit.hasActed = true;
+      this.clearSelection();
+      this.drawUnits();
       return;
     }
     // 「その場で待機」相当(元居たマスを選んだ)で実際には動いていない場合は巻き戻し不要
@@ -1813,9 +1881,10 @@ export class MainScene extends Phaser.Scene {
     this.audio.playSfx('capture');
     this.commandUnit = null;
     this.resetSelection();
-    // 所有者が変わった場合に備えて地形の枠を描き直す
+    // 所有者が変わった場合に備えて地形の枠を描き直し、収入表示も更新する
     this.drawTerrain();
     this.drawUnits();
+    this.updateEconomyText();
     this.infoText.setText(formatCaptureLog(result));
     // 本拠地の占領により勝敗が決していないか判定する
     this.checkGameEnd();
@@ -1979,7 +2048,7 @@ export class MainScene extends Phaser.Scene {
     const result = this.production.produce(army, tile, unitType);
     this.audio.playSfx('produce');
     this.resetSelection();
-    this.updateFundsText();
+    this.updateEconomyText();
     this.drawUnits();
     this.infoText.setText(formatProductionLog(result));
   }
@@ -2166,6 +2235,7 @@ export class MainScene extends Phaser.Scene {
     this.commandUnit = null;
     this.commandTile = null;
     this.commandOrigin = null;
+    this.commandCommitted = false;
     this.pendingAttackTargets = [];
     this.awaitingAttackTarget = false;
     this.awaitingUnloadTarget = false;
