@@ -2,6 +2,7 @@
 // 新しいマップを追加したら、この一覧に登録すれば選択画面に並ぶ。
 
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
+import { ISLAND_MAP } from '@/data/maps/islandMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { SEA_MAP } from '@/data/maps/seaMap';
 import { TEST_MAP } from '@/data/maps/testMap';
@@ -33,6 +34,12 @@ export const MAP_LIST: readonly MapEntry[] = [
     definition: SEA_MAP,
     description:
       '海が盤面を分断する 20x20 の対角マップ。地上は細い地峡に渋滞し、海を越える飛行ユニットと島の中立空港が主導権を握る。',
+  },
+  {
+    id: 'island',
+    definition: ISLAND_MAP,
+    description:
+      '海で本土が完全に分断された 20x24 の南北マップ。資金 0 から都市を集めて艦隊を整え、輸送艦で小島と敵本土へ渡る。',
   },
 ];
 

@@ -148,6 +148,36 @@ function drawSea(ctx: TerrainDecorationContext): void {
   }
 }
 
+/**
+ * 海岸: 砂の粒と、打ち寄せる波の白い泡を描いて渚を表現する。
+ * 海(青)と平地(緑)のどちらとも見分けがつくよう、下地の砂色に
+ * 濃淡の粒を散らしたうえで、マス下辺に沿って波打ち際の泡を重ねる。
+ */
+function drawBeach(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, col, row } = ctx;
+  const grainLight = 0xefe0ae;
+  const grainDark = 0xbfa462;
+  // 砂粒。位置は grid ハッシュで決めるため、再描画でも動かない
+  const grains = 14;
+  for (let i = 0; i < grains; i++) {
+    const px = x + size * (0.08 + 0.84 * hash01(col, row, i * 2 + 11));
+    const py = y + size * (0.08 + 0.84 * hash01(col, row, i * 2 + 12));
+    const color = hash01(col, row, i + 40) < 0.5 ? grainLight : grainDark;
+    g.fillStyle(color, 0.85);
+    g.fillRect(px, py, 2, 2);
+  }
+  // 波打ち際。マスの下辺沿いに白い泡の弧を 3 本並べる
+  const foam = 0xf2f8fb;
+  for (let i = 0; i < 3; i++) {
+    const bx = x + size * (0.1 + 0.3 * i);
+    const by = y + size * (0.78 + 0.1 * hash01(col, row, i + 60));
+    const len = size * 0.26;
+    g.lineStyle(1.5, foam, 0.75);
+    g.lineBetween(bx, by, bx + len * 0.5, by - 2);
+    g.lineBetween(bx + len * 0.5, by - 2, bx + len, by);
+  }
+}
+
 /** 指定した方向へ短い破線(道路の中央線)を引く */
 function dashLine(
   g: Phaser.GameObjects.Graphics,
@@ -493,7 +523,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・海)に加え、拠点(都市・工場・空港・港・本拠地)も
+ * 自然地形(平地・森・山・道路・海・海岸)に加え、拠点(都市・工場・空港・港・本拠地)も
  * 建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -515,6 +545,9 @@ export function drawTerrainDecoration(
       break;
     case 'sea':
       drawSea(ctx);
+      break;
+    case 'beach':
+      drawBeach(ctx);
       break;
     case 'city':
       drawCity(ctx);

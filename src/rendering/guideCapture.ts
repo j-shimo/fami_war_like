@@ -60,6 +60,7 @@ const TERRAIN_CODE: Readonly<Record<string, TerrainType>> = {
   m: 'mountain',
   '=': 'road',
   '~': 'sea',
+  b: 'beach',
   c: 'city',
   t: 'factory',
   a: 'airport',
