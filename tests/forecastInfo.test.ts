@@ -3,7 +3,7 @@ import type { BattleForecast } from '@/core/battle/BattleForecast';
 import { gridPosition } from '@/core/map/GridPosition';
 import { Unit } from '@/core/units/Unit';
 import type { UnitType } from '@/core/units/UnitType';
-import { formatBattleForecast } from '@/ui/forecastInfo';
+import { buildBattleForecastView } from '@/ui/forecastInfo';
 
 /** テスト用にユニットを 1 体生成する */
 function makeUnit(unitType: UnitType): Unit {
@@ -15,11 +15,11 @@ function makeUnit(unitType: UnitType): Unit {
   });
 }
 
-describe('formatBattleForecast', () => {
+describe('buildBattleForecastView', () => {
   const tank = makeUnit('tank');
   const infantry = makeUnit('infantry');
 
-  it('与ダメージと反撃を HP 変化つきで表示する', () => {
+  it('与ダメージと反撃を自軍・敵軍が分かる形で表示する', () => {
     const forecast: BattleForecast = {
       damageDealt: 7,
       defenderHpBefore: 10,
@@ -32,15 +32,17 @@ describe('formatBattleForecast', () => {
       attackerDefeated: false,
     };
 
-    const lines = formatBattleForecast(forecast, tank, infantry);
+    const view = buildBattleForecastView(forecast, tank, infantry);
 
-    expect(lines[0]).toBe('戦闘予測');
-    expect(lines[1]).toBe('戦車 → 歩兵');
-    expect(lines[2]).toBe('与ダメージ: 7 (HP 10→3)');
-    expect(lines[3]).toBe('反撃: 1 (HP 10→9)');
+    expect(view.lines[0]).toBe('戦闘予測');
+    expect(view.lines[1]).toBe('戦車 → 歩兵');
+    expect(view.lines[2]).toBe('こちらの攻撃: 7  敵HP 10→3');
+    expect(view.lines[3]).toBe('敵の反撃: 1  自HP 10→9');
+    expect(view.alert).toBe('none');
+    expect(view.alertText).toBeNull();
   });
 
-  it('撃破できる場合は撃破を明示し、反撃なしとする', () => {
+  it('撃破できる場合は撃破を強調し、反撃なしとする', () => {
     const forecast: BattleForecast = {
       damageDealt: 8,
       defenderHpBefore: 2,
@@ -53,13 +55,15 @@ describe('formatBattleForecast', () => {
       attackerDefeated: false,
     };
 
-    const lines = formatBattleForecast(forecast, tank, infantry);
+    const view = buildBattleForecastView(forecast, tank, infantry);
 
-    expect(lines[2]).toBe('与ダメージ: 8 (HP 2→0) 撃破!');
-    expect(lines[3]).toBe('反撃: なし');
+    expect(view.lines[2]).toBe('こちらの攻撃: 8  敵HP 2→0');
+    expect(view.lines[3]).toBe('敵の反撃: なし');
+    expect(view.alert).toBe('kill');
+    expect(view.alertText).toBe('撃破できる！');
   });
 
-  it('反撃で撃破される場合は被撃破を明示する', () => {
+  it('反撃で撃破される場合は「やられる」と警告する', () => {
     const forecast: BattleForecast = {
       damageDealt: 1,
       defenderHpBefore: 10,
@@ -72,8 +76,10 @@ describe('formatBattleForecast', () => {
       attackerDefeated: true,
     };
 
-    const lines = formatBattleForecast(forecast, infantry, tank);
+    const view = buildBattleForecastView(forecast, infantry, tank);
 
-    expect(lines[3]).toBe('反撃: 5 (HP 1→0) 被撃破!');
+    expect(view.lines[3]).toBe('敵の反撃: 5  自HP 1→0');
+    expect(view.alert).toBe('danger');
+    expect(view.alertText).toBe('やられる！ 反撃で撃破される');
   });
 });

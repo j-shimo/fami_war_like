@@ -51,6 +51,7 @@ export type SfxName =
   | 'repair'
   | 'button'
   | 'denied'
+  | 'warning'
   | 'turnPlayer'
   | 'turnEnemy'
   | 'victory'
@@ -122,6 +123,14 @@ export const SOUND_EFFECTS: Record<SfxName, SoundEffect> = {
     steps: [
       tone('square', 'A3', 0.08, { volume: 0.25 }),
       tone('square', 'E3', 0.14, { volume: 0.25 }),
+    ],
+  },
+  // 危険警告(反撃で撃破される予測): 下降するブザーを 2 連で鳴らす
+  warning: {
+    steps: [
+      tone('square', 'A4', 0.06, { volume: 0.3, slideTo: 'D4' }),
+      { kind: 'rest', duration: 0.04 },
+      tone('square', 'A4', 0.1, { volume: 0.3, slideTo: 'D4' }),
     ],
   },
   // 自軍ターン開始: 明るい上昇ファンファーレ
