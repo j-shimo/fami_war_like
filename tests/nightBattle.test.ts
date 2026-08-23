@@ -40,22 +40,28 @@ describe('夜戦の移動範囲', () => {
     // 夜戦では見えない敵をすり抜けた先まで移動範囲に入る
     const nightRange = calculateMovementRange(tank, map, units, nightOptions(map, units));
     expect(nightRange.canReach(gridPosition(5, 0))).toBe(true);
-    // 敵が占有しているマス自体は移動先に選べない
-    expect(nightRange.canReach(gridPosition(4, 0))).toBe(false);
+    // 敵が占有しているマスも、プレイヤーには空きマスに見えるため移動先として選べる
+    // (実際に進むと 1 つ手前で強制待機になる)
+    expect(nightRange.canReach(gridPosition(4, 0))).toBe(true);
   });
 
-  it('見えている敵のマスは夜戦でも通過できない', () => {
+  it('見えない敵のマスを移動先に選ぶと、その 1 つ手前で強制待機になる', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
-    // 距離 2 の敵は戦車の視界(2)に入るので見えている
     const units = UnitManager.fromPlacements([
       { col: 0, row: 0, unitType: 'tank', army: 'player' },
-      { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+      { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
+    const options = nightOptions(map, units);
 
-    const range = calculateMovementRange(tank, map, units, nightOptions(map, units));
-    expect(range.canReach(gridPosition(1, 0))).toBe(true);
-    expect(range.canReach(gridPosition(3, 0))).toBe(false);
+    // 敵のいるマス自体を移動先に指定できる(暗いので空きマスに見える)
+    expect(
+      calculateMovementRange(tank, map, units, options).canReach(gridPosition(4, 0)),
+    ).toBe(true);
+
+    const resolved = resolveMovePath(tank, map, units, gridPosition(4, 0), options);
+    expect(equals(resolved.destination, gridPosition(3, 0))).toBe(true);
+    expect(resolved.blockedBy).toBe(units.getUnitAt(gridPosition(4, 0)));
   });
 });
 

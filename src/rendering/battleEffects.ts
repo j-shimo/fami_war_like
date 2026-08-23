@@ -1,6 +1,7 @@
-// 戦闘の「手応え」を作る演出(踏み込み・画面の揺れ・ダメージ数字・撃破の爆散)を描く。
+// 盤面の「手応え」を作る演出(移動のルート追従・踏み込み・画面の揺れ・ダメージ数字・
+// 撃破の爆散・夜戦の遭遇)を描く。
 // 外部画像は持たず、Phaser の図形プリミティブとコード描画のシルエットだけで組み立てる。
-// タイムライン(どれを何ミリ秒後に出すか)は attackSequence が持ち、
+// タイムライン(どれを何ミリ秒後に出すか)は attackSequence / moveSequence が持ち、
 // このクラスは「1 つの演出を再生する」ことだけを担う。
 
 import Phaser from 'phaser';
@@ -10,6 +11,7 @@ import type { GridPosition } from '@/core/map/GridPosition';
 import type { UnitType } from '@/core/units/UnitType';
 import { drawUnitIcon } from '@/rendering/unitIcon';
 import { HIT_STOP_MS, LUNGE_BACK_MS, LUNGE_OUT_MS } from '@/rendering/attackSequence';
+import { ENCOUNTER_MARK_DELAY_MS, MOVE_STEP_MS } from '@/rendering/moveSequence';
 
 /** 踏み込みで対象へ近づくピクセル数 */
 const LUNGE_DISTANCE = 14;
@@ -17,13 +19,17 @@ const LUNGE_DISTANCE = 14;
 /** 撃破時に飛び散る破片の数 */
 const DEBRIS_COUNT = 12;
 
+/** 夜戦の遭遇演出で使う色(注意を引く黄色と、敵の位置を示す赤) */
+const ENCOUNTER_MARK_COLOR = '#ffe066';
+const ENCOUNTER_ENEMY_COLOR = 0xff5a5a;
+
 /** ダメージ数字の色(与ダメージは白、被ダメージは赤系) */
 export const DAMAGE_COLOR = {
   dealt: '#ffffff',
   taken: '#ff8a8a',
 } as const;
 
-/** 攻撃演出の描画を担うクラス。演出用オブジェクトは専用レイヤーにまとめる */
+/** 移動・攻撃・遭遇の演出描画を担うクラス。演出用オブジェクトは専用レイヤーにまとめる */
 export class BattleEffects {
   private readonly layer: Phaser.GameObjects.Container;
 
@@ -57,6 +63,127 @@ export class BattleEffects {
     const token = this.scene.add.container(x, y, [graphics]);
     this.layer.add(token);
     return token;
+  }
+
+  /**
+   * トークンを移動ルートに沿って 1 マスずつ走らせる(瞬間移動させない)。
+   * 経路の先頭は開始マスなので、2 マス目から順に MOVE_STEP_MS ずつかけて進める。
+   * 走り終えたら onComplete を呼ぶ(呼び出し側で盤面へ移動を反映する)。
+   */
+  moveTokenAlongPath(
+    token: Phaser.GameObjects.Container,
+    path: readonly GridPosition[],
+    onComplete: () => void,
+  ): void {
+    const steps = path.slice(1);
+    const runStep = (index: number): void => {
+      if (index >= steps.length) {
+        onComplete();
+        return;
+      }
+      const { x, y } = gridToWorldCenter(steps[index], this.tileSize);
+      this.scene.tweens.add({
+        targets: token,
+        x,
+        y,
+        duration: MOVE_STEP_MS,
+        // 一定の速さで走らせたいので、マスごとの加減速はつけない
+        ease: 'Linear',
+        onComplete: () => runStep(index + 1),
+      });
+    };
+    runStep(0);
+  }
+
+  /**
+   * 夜戦で見えていなかった敵に出くわしたことを見せる演出。
+   * 止まったユニットの上に「！」を弾ませ、少し遅れて敵のマスに「そうぐう！」と
+   * 赤いリングを出して、どこで誰に阻まれたのかを伝える。
+   */
+  playEncounter(unitPos: GridPosition, enemyPos: GridPosition): void {
+    const unitAt = gridToWorldCenter(unitPos, this.tileSize);
+    const mark = this.scene.add
+      .text(unitAt.x, unitAt.y - this.tileSize * 0.34, '！', {
+        fontFamily: 'sans-serif',
+        fontSize: '30px',
+        fontStyle: 'bold',
+        color: ENCOUNTER_MARK_COLOR,
+        stroke: '#12121e',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setScale(0.4);
+    this.layer.add(mark);
+    // 勢いよく飛び出してから、遭遇の表示に合わせて消す
+    this.scene.tweens.add({
+      targets: mark,
+      scale: 1.2,
+      duration: 180,
+      ease: 'Back.easeOut',
+    });
+    this.scene.tweens.add({
+      targets: mark,
+      alpha: 0,
+      delay: 420,
+      duration: 220,
+      onComplete: () => mark.destroy(),
+    });
+
+    const enemyAt = gridToWorldCenter(enemyPos, this.tileSize);
+    // 出くわした敵のマスを赤いリングで指し示す
+    const ring = this.scene.add.circle(enemyAt.x, enemyAt.y, this.tileSize * 0.3);
+    ring.setStrokeStyle(3, ENCOUNTER_ENEMY_COLOR, 1);
+    ring.setScale(0.6).setAlpha(0);
+    this.layer.add(ring);
+    this.scene.tweens.add({
+      targets: ring,
+      scale: 1.25,
+      alpha: 1,
+      delay: ENCOUNTER_MARK_DELAY_MS,
+      duration: 220,
+      ease: 'Quad.easeOut',
+    });
+    this.scene.tweens.add({
+      targets: ring,
+      alpha: 0,
+      delay: ENCOUNTER_MARK_DELAY_MS + 340,
+      duration: 200,
+      onComplete: () => ring.destroy(),
+    });
+
+    const label = this.scene.add
+      .text(enemyAt.x, enemyAt.y - this.tileSize * 0.55, 'そうぐう！', {
+        fontFamily: 'sans-serif',
+        fontSize: '20px',
+        fontStyle: 'bold',
+        color: ENCOUNTER_MARK_COLOR,
+        stroke: '#12121e',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setScale(0.5);
+    this.layer.add(label);
+    this.scene.tweens.add({
+      targets: label,
+      scale: 1,
+      delay: ENCOUNTER_MARK_DELAY_MS,
+      duration: 200,
+      ease: 'Back.easeOut',
+    });
+    this.scene.tweens.add({
+      targets: label,
+      y: enemyAt.y - this.tileSize * 0.75,
+      delay: ENCOUNTER_MARK_DELAY_MS,
+      duration: 380,
+      ease: 'Quad.easeOut',
+    });
+    this.scene.tweens.add({
+      targets: label,
+      alpha: 0,
+      delay: ENCOUNTER_MARK_DELAY_MS + 380,
+      duration: 190,
+      onComplete: () => label.destroy(),
+    });
   }
 
   /**

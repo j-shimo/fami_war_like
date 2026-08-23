@@ -17,7 +17,8 @@ export interface MovementOptions {
   /**
    * 夜戦で、その敵ユニットが自軍から見えていないかを判定する述語。
    * 見えていない敵のいるマスはプレイヤーには空きマスに見えるため、移動範囲の計算では
-   * 通過できるものとして扱う(実際にそこへ踏み込むと 1 つ手前で強制待機になる)。
+   * 通過でき、かつ移動先としても選べるものとして扱う
+   * (実際にそこへ踏み込むと 1 つ手前で強制待機になる)。
    * 省略した場合(昼戦)は、敵ユニットのいるマスは常に進入不可として扱う。
    */
   readonly isHiddenEnemy?: (unit: Unit) => boolean;
@@ -47,6 +48,23 @@ function toKey(pos: GridPosition): string {
 function fromKey(key: string): GridPosition {
   const [col, row] = key.split(',').map(Number);
   return gridPosition(col, row);
+}
+
+/**
+ * そのマスの占有ユニットが「夜戦で見えていない敵」かどうか。
+ * 見えていない敵のマスはプレイヤーには空きマスに見えるため、通過も停止(移動先の指定)も
+ * できる扱いにする(実際に進むと resolveMovePath が 1 つ手前で止める)。
+ */
+function isHiddenEnemy(
+  unit: Unit,
+  occupant: Unit | undefined,
+  options: MovementOptions,
+): occupant is Unit {
+  return (
+    occupant !== undefined &&
+    occupant.armyType !== unit.armyType &&
+    (options.isHiddenEnemy?.(occupant) ?? false)
+  );
 }
 
 /**
@@ -151,7 +169,7 @@ function computeReachableCosts(
       if (
         occupant &&
         occupant.armyType !== unit.armyType &&
-        !(options.isHiddenEnemy?.(occupant) ?? false)
+        !isHiddenEnemy(unit, occupant, options)
       ) {
         continue;
       }
@@ -180,6 +198,8 @@ function computeReachableCosts(
  * - 進入不可地形(移動コスト null)には入れない。
  * - 敵ユニットがいるマスは通過も停止もできない(進入不可として扱う)。
  * - 味方ユニットがいるマスは通過できるが、そこで停止(移動先に選択)はできない。
+ * - 夜戦で見えていない敵(options.isHiddenEnemy)のマスは空きマスと同じ扱いにし、
+ *   通過も停止(移動先の指定)もできる。実際に進むと 1 つ手前で強制待機になる。
  * - 開始マス(その場で待機)は常に移動先候補に含む。
  */
 export function calculateMovementRange(
@@ -192,11 +212,13 @@ export function calculateMovementRange(
 
   // 到達マスから、他ユニットが占有しているマス(停止不可)を除外して結果を作る。
   // 開始マスは自ユニットが占有しているが、その場で待機できるため含める。
+  // 夜戦で見えていない敵のマスは、プレイヤーには空きマスに見えるため移動先として選べる
+  // (実際に進むとその 1 つ手前で止まり、強制待機になる)。
   const result: ReachableTile[] = [];
   for (const [key, cost] of dist) {
     const pos = fromKey(key);
     const occupant = units.getUnitAt(pos);
-    if (occupant && occupant !== unit) {
+    if (occupant && occupant !== unit && !isHiddenEnemy(unit, occupant, options)) {
       continue;
     }
     result.push({ position: pos, cost });
@@ -345,11 +367,7 @@ export function resolveMovePath(
   // 経路上で最初に出くわす「見えていなかった敵」を探す
   for (let i = 1; i < path.length; i++) {
     const occupant = units.getUnitAt(path[i]);
-    if (
-      !occupant ||
-      occupant.armyType === unit.armyType ||
-      !(options.isHiddenEnemy?.(occupant) ?? false)
-    ) {
+    if (!isHiddenEnemy(unit, occupant, options)) {
       continue;
     }
     // 1 つ手前のマスへ止まる。埋まっていればさらに手前へ下がる(開始マスは必ず空き)

@@ -20,6 +20,7 @@ const EXPECTED_SFX: SfxName[] = [
   'button',
   'denied',
   'warning',
+  'encounter',
   'turnPlayer',
   'turnEnemy',
   'victory',
