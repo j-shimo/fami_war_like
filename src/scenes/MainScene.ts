@@ -55,7 +55,7 @@ import {
   listProductionItems,
 } from '@/ui/economyInfo';
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
-import { formatBattleForecast } from '@/ui/forecastInfo';
+import { buildBattleForecastView, type ForecastAlert } from '@/ui/forecastInfo';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
@@ -117,6 +117,24 @@ const NIGHT_FOG_ALPHA = 0.62;
 
 /** ダメージ予測ポップアップの描画深度(ユニットより手前) */
 const FORECAST_POPUP_DEPTH = 100;
+
+/**
+ * ダメージ予測ポップアップの危険度別の配色。
+ * 反撃で撃破される予測(danger)は、枠・背景・強調行のすべてを赤に振って
+ * 「やられる」ことがひと目で分かるようにする。
+ */
+const FORECAST_STYLE: Record<
+  ForecastAlert,
+  { bg: number; border: number; borderWidth: number; alertColor: string }
+> = {
+  danger: { bg: 0x3a0d14, border: 0xff2d2d, borderWidth: 4, alertColor: '#ff5555' },
+  kill: { bg: 0x12121e, border: 0xffd479, borderWidth: 2, alertColor: '#ffd479' },
+  none: { bg: 0x12121e, border: 0xff5a5a, borderWidth: 2, alertColor: '#ffffff' },
+};
+
+/** ダメージ予測ポップアップの余白 */
+const FORECAST_PAD_X = 8;
+const FORECAST_PAD_Y = 6;
 /** ターン開始演出バナーの描画深度(最前面) */
 const TURN_BANNER_DEPTH = 200;
 
@@ -202,6 +220,10 @@ export class MainScene extends Phaser.Scene {
   private forecastPopup!: Phaser.GameObjects.Container;
   private forecastBg!: Phaser.GameObjects.Graphics;
   private forecastText!: Phaser.GameObjects.Text;
+  /** 撃破・被撃破を大きく伝える強調行(該当しないときは非表示) */
+  private forecastAlertText!: Phaser.GameObjects.Text;
+  /** 被撃破予測のときに強調行を点滅させる Tween(点滅していなければ null) */
+  private forecastBlink: Phaser.Tweens.Tween | null = null;
   /** 予測ポップアップを現在表示している攻撃対象(重複更新を避ける) */
   private forecastTarget: Unit | null = null;
   private selected: GridPosition | null = null;
@@ -841,17 +863,26 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  /** ダメージ予測ポップアップ(背景+テキスト)を用意する(初期は非表示) */
+  /** ダメージ予測ポップアップ(背景+本文+強調行)を用意する(初期は非表示) */
   private createForecastPopup(): void {
     this.forecastBg = this.add.graphics();
-    this.forecastText = this.add.text(8, 6, '', {
+    this.forecastText = this.add.text(FORECAST_PAD_X, FORECAST_PAD_Y, '', {
       fontFamily: 'sans-serif',
       fontSize: '13px',
       color: '#ffffff',
       lineSpacing: 3,
     });
+    // 撃破・被撃破は本文より一回り大きい太字で、本文の下に別行として出す
+    this.forecastAlertText = this.add
+      .text(FORECAST_PAD_X, FORECAST_PAD_Y, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      })
+      .setVisible(false);
     this.forecastPopup = this.add
-      .container(0, 0, [this.forecastBg, this.forecastText])
+      .container(0, 0, [this.forecastBg, this.forecastText, this.forecastAlertText])
       .setDepth(FORECAST_POPUP_DEPTH)
       .setVisible(false);
   }
@@ -894,17 +925,47 @@ export class MainScene extends Phaser.Scene {
   /** 攻撃側→対象の戦闘予測を計算し、対象マス付近にポップアップ表示する */
   private showForecastPopup(attacker: Unit, target: Unit): void {
     const forecast = forecastBattle(attacker, target, this.map);
-    this.forecastText.setText(formatBattleForecast(forecast, attacker, target));
+    const view = buildBattleForecastView(forecast, attacker, target);
+    const style = FORECAST_STYLE[view.alert];
+    this.forecastText.setText([...view.lines]);
+
+    // 強調行(撃破/被撃破)は本文の下に置き、危険度に応じて色を変える
+    const hasAlert = view.alertText !== null;
+    this.forecastAlertText
+      .setText(view.alertText ?? '')
+      .setColor(style.alertColor)
+      .setPosition(FORECAST_PAD_X, FORECAST_PAD_Y + this.forecastText.height + 4)
+      .setAlpha(1)
+      .setVisible(hasAlert);
+    // 被撃破の予測だけは強調行を点滅させ、見落とさないようにする
+    this.stopForecastBlink();
+    if (view.alert === 'danger') {
+      this.forecastBlink = this.tweens.add({
+        targets: this.forecastAlertText,
+        alpha: 0.25,
+        duration: 320,
+        yoyo: true,
+        repeat: -1,
+      });
+      // 対象を変えた最初の 1 回だけ警告音を鳴らす(表示更新時のみ呼ばれる)
+      this.audio.playSfx('warning');
+    }
 
     // テキストサイズに合わせて背景を描き直す
-    const padX = 8;
-    const padY = 6;
-    const width = this.forecastText.width + padX * 2;
-    const height = this.forecastText.height + padY * 2;
+    const padX = FORECAST_PAD_X;
+    const padY = FORECAST_PAD_Y;
+    const contentWidth = Math.max(
+      this.forecastText.width,
+      hasAlert ? this.forecastAlertText.width : 0,
+    );
+    const contentHeight =
+      this.forecastText.height + (hasAlert ? this.forecastAlertText.height + 4 : 0);
+    const width = contentWidth + padX * 2;
+    const height = contentHeight + padY * 2;
     this.forecastBg.clear();
-    this.forecastBg.fillStyle(0x12121e, 0.92);
+    this.forecastBg.fillStyle(style.bg, 0.92);
     this.forecastBg.fillRect(0, 0, width, height);
-    this.forecastBg.lineStyle(2, 0xff5a5a, 0.95);
+    this.forecastBg.lineStyle(style.borderWidth, style.border, 0.95);
     this.forecastBg.strokeRect(0, 0, width, height);
 
     // 対象マスの右上に出す。表示中のビューポート右端をはみ出す場合は反対側へ寄せる。
@@ -927,8 +988,18 @@ export class MainScene extends Phaser.Scene {
   private hideForecastPopup(): void {
     if (this.forecastTarget !== null) {
       this.forecastTarget = null;
+      this.stopForecastBlink();
       this.forecastPopup.setVisible(false);
     }
+  }
+
+  /** 強調行の点滅を止め、不透明度を元に戻す */
+  private stopForecastBlink(): void {
+    if (this.forecastBlink) {
+      this.forecastBlink.remove();
+      this.forecastBlink = null;
+    }
+    this.forecastAlertText.setAlpha(1);
   }
 
   /**
