@@ -52,6 +52,7 @@ export type SfxName =
   | 'button'
   | 'denied'
   | 'warning'
+  | 'encounter'
   | 'turnPlayer'
   | 'turnEnemy'
   | 'victory'
@@ -131,6 +132,15 @@ export const SOUND_EFFECTS: Record<SfxName, SoundEffect> = {
       tone('square', 'A4', 0.06, { volume: 0.3, slideTo: 'D4' }),
       { kind: 'rest', duration: 0.04 },
       tone('square', 'A4', 0.1, { volume: 0.3, slideTo: 'D4' }),
+    ],
+  },
+  // 夜戦の遭遇(見えない敵に出くわして強制待機): 鋭い 2 連の警報とノイズ
+  encounter: {
+    steps: [
+      tone('square', 'E5', 0.05, { volume: 0.3, slideTo: 'B5' }),
+      { kind: 'rest', duration: 0.03 },
+      tone('square', 'E5', 0.07, { volume: 0.3, slideTo: 'B5' }),
+      noise(0.08, 0.18),
     ],
   },
   // 自軍ターン開始: 明るい上昇ファンファーレ

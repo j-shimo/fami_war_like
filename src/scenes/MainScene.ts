@@ -24,6 +24,7 @@ import {
   resolveMovePath,
   type MovementOptions,
   type MovementRange,
+  type MovePathResult,
 } from '@/core/movement/MovementRange';
 import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
 import {
@@ -57,6 +58,7 @@ import {
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
 import { buildBattleForecastView, type ForecastAlert } from '@/ui/forecastInfo';
 import { buildAttackSequence } from '@/rendering/attackSequence';
+import { buildMoveSequence, type MoveSequence } from '@/rendering/moveSequence';
 import { BattleEffects, DAMAGE_COLOR } from '@/rendering/battleEffects';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
@@ -241,6 +243,11 @@ export class MainScene extends Phaser.Scene {
   /** 攻撃演出の再生中か。再生中はマップ操作とターン終了を受け付けない */
   private attackAnimating = false;
   /**
+   * 移動演出(ルートに沿って走る動きと、夜戦の遭遇演出)の再生中か。
+   * 再生中はマップ操作とターン終了を受け付けない。
+   */
+  private moveAnimating = false;
+  /**
    * 攻撃で撃破されたが、爆散の演出が終わるまで盤面に残して見せるユニット。
    * ゲームロジック上はすでに盤面から取り除かれている。
    */
@@ -421,6 +428,7 @@ export class MainScene extends Phaser.Scene {
     // 演出レイヤーはコンテナのため、シーン再入場のたびに作り直す
     this.effects = new BattleEffects(this, TILE_SIZE, BATTLE_EFFECT_DEPTH);
     this.attackAnimating = false;
+    this.moveAnimating = false;
     this.animatingUnit = null;
     this.pendingDefeated = [];
 
@@ -1019,10 +1027,10 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 操作を受け付けない状態か。
-   * 勝敗が決したあとと、攻撃演出の再生中は盤面の操作・ターン終了を止める。
+   * 勝敗が決したあとと、攻撃・移動の演出の再生中は盤面の操作・ターン終了を止める。
    */
   private isInputLocked(): boolean {
-    return this.gameOver || this.attackAnimating;
+    return this.gameOver || this.attackAnimating || this.moveAnimating;
   }
 
   /** ダメージ予測ポップアップを隠す */
@@ -1729,10 +1737,11 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 選択中ユニットを指定マスへ移動する。
+   * ユニットは瞬間移動せず、移動ルートに沿って 1 マスずつ走る演出を挟んでから停止する。
    * 行動済みにせずに移動し、移動後の攻撃/占領/待機を選ばせる状態に入る。
    *
    * 夜戦では移動経路上に「見えていなかった敵」がいることがある。その場合は
-   * 1 つ手前のマスで止まり、そのまま強制待機(行動済み)となってコマンドは選べない。
+   * 1 つ手前のマスで止まり、遭遇演出のあと強制待機(行動済み)となってコマンドは選べない。
    */
   private moveSelectedUnit(pos: GridPosition, tile: TileData): void {
     const unit = this.movingUnit;
@@ -1749,30 +1758,92 @@ export class MainScene extends Phaser.Scene {
       pos,
       this.movementOptions(),
     );
-    this.units.moveUnit(unit, resolved.destination, { markActed: false });
+    const sequence = buildMoveSequence(resolved.path, resolved.blockedBy !== null);
     this.audio.playSfx('move');
 
-    if (resolved.blockedBy) {
-      // 進路上で敵に出くわしたのでその手前で停止し、この手番の行動は終わる
-      unit.hasActed = true;
-      this.audio.playSfx('denied');
-      this.resetSelection();
-      this.drawUnits();
-      this.infoText.setText([
-        '強制待機',
-        `${resolved.blockedBy.unitName}を発見`,
-        '進路上に敵がいたため',
-        '手前のマスで停止した',
-      ]);
+    // 1 マスも動かない(その場で待機・目の前の敵に阻まれた)ときは走る演出を挟まない
+    if (sequence.steps === 0) {
+      this.settleMove(unit, resolved, tile, origin, sequence);
       return;
     }
 
+    // 走っている間は移動範囲・選択枠を消し、操作も受け付けない
+    this.moveAnimating = true;
+    this.rangeGraphics.clear();
+    this.highlight.setVisible(false);
+    this.hideForecastPopup();
+    this.clearActionButtons();
+
+    // ユニット本体は分身トークンで走らせるため、盤面側の描画からは外す
+    this.animatingUnit = unit;
     this.drawUnits();
-    this.enterPostMoveCommand(
-      unit,
-      this.map.getTile(resolved.destination) ?? tile,
+    const token = this.effects.createUnitToken(
+      unit.unitType,
       origin,
+      UNIT_BODY_COLOR[unit.armyType],
     );
+    this.effects.moveTokenAlongPath(token, resolved.path, () => {
+      token.destroy();
+      this.animatingUnit = null;
+      this.settleMove(unit, resolved, tile, origin, sequence);
+    });
+  }
+
+  /**
+   * 走る演出を終えたユニットを盤面へ着地させ、移動の結果へ進む。
+   * 移動をここで初めて盤面へ反映するため、夜戦で出くわした敵はこの時点で見えるようになる。
+   *
+   * 進路を阻まれていなければ移動後のコマンド選択へ入り、
+   * 阻まれていれば遭遇演出(「！」「そうぐう！」)を見せてから強制待機を確定する。
+   */
+  private settleMove(
+    unit: Unit,
+    resolved: MovePathResult,
+    tile: TileData,
+    origin: GridPosition,
+    sequence: MoveSequence,
+  ): void {
+    this.units.moveUnit(unit, resolved.destination, { markActed: false });
+    this.drawUnits();
+
+    const blocker = resolved.blockedBy;
+    if (!blocker) {
+      this.moveAnimating = false;
+      this.enterPostMoveCommand(
+        unit,
+        this.map.getTile(resolved.destination) ?? tile,
+        origin,
+      );
+      return;
+    }
+
+    // 進路上で敵に出くわしたので、その手前で停止したことを演出で見せる。
+    // 演出の間も操作は受け付けず、見せ終えてから強制待機を確定する。
+    this.moveAnimating = true;
+    this.resetSelection();
+    this.audio.playSfx('encounter');
+    this.effects.playEncounter(unit.position, blocker.position);
+    this.infoText.setText(['そうぐう！', `${blocker.unitName}を発見`]);
+    this.time.delayedCall(sequence.encounterHoldMs, () => {
+      this.moveAnimating = false;
+      this.applyForcedWait(unit, blocker);
+    });
+  }
+
+  /**
+   * 夜戦で見えない敵に出くわしたユニットを強制待機にする。
+   * 遭遇演出を見せ終えたあとに呼び、その手番の行動を終わらせる。
+   */
+  private applyForcedWait(unit: Unit, blocker: Unit): void {
+    unit.hasActed = true;
+    this.audio.playSfx('denied');
+    this.drawUnits();
+    this.infoText.setText([
+      '強制待機',
+      `${blocker.unitName}を発見`,
+      '進路上に敵がいたため',
+      '手前のマスで停止した',
+    ]);
   }
 
   /**
