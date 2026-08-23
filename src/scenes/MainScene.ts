@@ -56,6 +56,8 @@ import {
 } from '@/ui/economyInfo';
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
 import { buildBattleForecastView, type ForecastAlert } from '@/ui/forecastInfo';
+import { buildAttackSequence } from '@/rendering/attackSequence';
+import { BattleEffects, DAMAGE_COLOR } from '@/rendering/battleEffects';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { formatTurnBanner } from '@/ui/turnInfo';
@@ -115,7 +117,10 @@ const UNLOAD_TILE_COLOR = 0x5ad469;
 const NIGHT_FOG_COLOR = 0x05050f;
 const NIGHT_FOG_ALPHA = 0.62;
 
-/** ダメージ予測ポップアップの描画深度(ユニットより手前) */
+/** 攻撃演出(踏み込み・ダメージ数字・爆散)の描画深度(ユニットより手前) */
+const BATTLE_EFFECT_DEPTH = 90;
+
+/** ダメージ予測ポップアップの描画深度(攻撃演出より手前) */
 const FORECAST_POPUP_DEPTH = 100;
 
 /**
@@ -226,6 +231,20 @@ export class MainScene extends Phaser.Scene {
   private forecastBlink: Phaser.Tweens.Tween | null = null;
   /** 予測ポップアップを現在表示している攻撃対象(重複更新を避ける) */
   private forecastTarget: Unit | null = null;
+  /** 攻撃演出(踏み込み・ダメージ数字・爆散)の描画 */
+  private effects!: BattleEffects;
+  /**
+   * 攻撃演出で分身トークンを動かしているユニット。
+   * 演出中は盤面側の描画から外し、二重に見えないようにする。
+   */
+  private animatingUnit: Unit | null = null;
+  /** 攻撃演出の再生中か。再生中はマップ操作とターン終了を受け付けない */
+  private attackAnimating = false;
+  /**
+   * 攻撃で撃破されたが、爆散の演出が終わるまで盤面に残して見せるユニット。
+   * ゲームロジック上はすでに盤面から取り除かれている。
+   */
+  private pendingDefeated: Unit[] = [];
   private selected: GridPosition | null = null;
   /** 移動対象として選択中の自軍ユニット(未選択なら null) */
   private movingUnit: Unit | null = null;
@@ -399,6 +418,11 @@ export class MainScene extends Phaser.Scene {
     this.createMuteButton();
     this.createEndTurnButton();
     this.createForecastPopup();
+    // 演出レイヤーはコンテナのため、シーン再入場のたびに作り直す
+    this.effects = new BattleEffects(this, TILE_SIZE, BATTLE_EFFECT_DEPTH);
+    this.attackAnimating = false;
+    this.animatingUnit = null;
+    this.pendingDefeated = [];
 
     // 開始時(自軍第1ターン)の収入計上と拠点上ユニットの修理を行う。
     // 中断データからの再開はターンの途中からなので、開始時の経済処理はやり直さない。
@@ -627,9 +651,18 @@ export class MainScene extends Phaser.Scene {
     this.unitLayer.add(graphics);
 
     const radius = TILE_SIZE * 0.32;
-    for (const unit of this.units.getAllUnits()) {
+    // 撃破されたユニットは、爆散の演出が終わるまで盤面に残したまま見せる
+    const drawTargets =
+      this.pendingDefeated.length > 0
+        ? [...this.units.getAllUnits(), ...this.pendingDefeated]
+        : this.units.getAllUnits();
+    for (const unit of drawTargets) {
       // 夜戦で見つけていない敵ユニットは描かない(暗いマスの敵は存在が分からない)
       if (!this.visibility.isUnitVisible(unit)) {
+        continue;
+      }
+      // 攻撃演出で分身トークンが動いているユニットは、ここでは描かない
+      if (unit === this.animatingUnit) {
         continue;
       }
       const { x, y } = gridToWorldCenter(unit.position, TILE_SIZE);
@@ -896,7 +929,7 @@ export class MainScene extends Phaser.Scene {
     const attacker = this.movingUnit ?? this.commandUnit;
     // 攻撃元がいない・攻撃対象がない・ビューポート外なら隠す
     if (
-      this.gameOver ||
+      this.isInputLocked() ||
       !attacker ||
       this.attackTargets.length === 0 ||
       pointer.x >= this.viewWidth ||
@@ -982,6 +1015,14 @@ export class MainScene extends Phaser.Scene {
     px = Phaser.Math.Clamp(px, viewLeft + 2, viewLeft + this.viewWidth - width - 2);
     const py = Phaser.Math.Clamp(y, viewTop + 2, viewTop + this.viewHeight - height - 2);
     this.forecastPopup.setPosition(px, py).setVisible(true);
+  }
+
+  /**
+   * 操作を受け付けない状態か。
+   * 勝敗が決したあとと、攻撃演出の再生中は盤面の操作・ターン終了を止める。
+   */
+  private isInputLocked(): boolean {
+    return this.gameOver || this.attackAnimating;
   }
 
   /** ダメージ予測ポップアップを隠す */
@@ -1112,8 +1153,8 @@ export class MainScene extends Phaser.Scene {
    * 手番が移るたびに、その軍の収入計上と拠点上ユニットの修理を行う。
    */
   private handleEndTurn(): void {
-    // 勝敗が決した後はターン終了も受け付けない
-    if (this.gameOver) {
+    // 勝敗が決した後と攻撃演出の再生中はターン終了も受け付けない
+    if (this.isInputLocked()) {
       return;
     }
     this.clearSelection();
@@ -1198,8 +1239,8 @@ export class MainScene extends Phaser.Scene {
       if (this.isAnyWindowOpen()) {
         return;
       }
-      // 勝敗が決した後はマップ操作を受け付けない
-      if (this.gameOver) {
+      // 勝敗が決した後と攻撃演出の再生中はマップ操作を受け付けない
+      if (this.isInputLocked()) {
         return;
       }
       // 直前にコマンドボタン(マップ上に浮かせた移動後メニュー等)が押されていたら、
@@ -1273,7 +1314,7 @@ export class MainScene extends Phaser.Scene {
       this.longPressFired = false;
       // 押下中に走らせていた長押しタイマーを止める(まだ発火していなければ取り消し)
       this.cancelLongPressTimer();
-      if (this.gameOver || !wasActive) {
+      if (this.isInputLocked() || !wasActive) {
         return;
       }
       // 長押しで情報メニューを開いていたら、指を離したときのマス選択は行わない
@@ -2084,17 +2125,92 @@ export class MainScene extends Phaser.Scene {
     if (!attacker) {
       return;
     }
+    // 演出は攻撃前の配置で見せるため、位置を先に控えておく
+    const attackerPos = { ...attacker.position };
+    const targetPos = { ...target.position };
     const result = this.battle.attack(attacker, target);
-    this.audio.playSfx('attack');
-    // 撃破があれば、打撃音に少し続けて撃破音を鳴らす
-    if (result.defenderDefeated || result.attackerDefeated) {
-      this.time.delayedCall(160, () => this.audio.playSfx('defeat'));
-    }
     this.resetSelection();
-    this.drawUnits();
     this.infoText.setText(this.buildBattleLog(result));
-    // 撃破により全滅が発生していないか判定する
-    this.checkGameEnd();
+    // 盤面の反映と勝敗判定は演出の終わりまで待つ
+    this.playAttackEffects(result, attackerPos, targetPos);
+  }
+
+  /**
+   * 攻撃の演出(踏み込み・画面の揺れ・ダメージ数字・撃破の爆散)を再生し、
+   * 終わってから盤面を描き直して勝敗を判定する。
+   * 演出の間は結果を盤面へ反映せず、撃破されたユニットも爆散まで残して見せる。
+   * 再生中はマップ操作とターン終了を受け付けない。
+   */
+  private playAttackEffects(
+    result: AttackResult,
+    attackerPos: GridPosition,
+    targetPos: GridPosition,
+  ): void {
+    const sequence = buildAttackSequence(result);
+    const { attacker, defender } = result;
+    const attackerColor = UNIT_BODY_COLOR[attacker.armyType];
+
+    this.attackAnimating = true;
+    // 攻撃側は分身トークンで動かすため、盤面側の描画からは外す
+    this.animatingUnit = attacker;
+    this.pendingDefeated = [
+      ...(result.defenderDefeated ? [defender] : []),
+      ...(result.attackerDefeated ? [attacker] : []),
+    ];
+    this.drawUnits();
+
+    const token = this.effects.createUnitToken(
+      attacker.unitType,
+      attackerPos,
+      attackerColor,
+    );
+    this.effects.playLunge(token, attackerPos, targetPos);
+
+    // 着弾: 打撃音・画面の揺れ・与ダメージの数字
+    this.time.delayedCall(sequence.impactAt, () => {
+      this.audio.playSfx('attack');
+      this.effects.shake(result.defenderDefeated);
+      this.effects.popDamage(targetPos, result.damageDealt, DAMAGE_COLOR.dealt);
+    });
+
+    // 防御側の撃破: 爆散と同時に盤面からも消す
+    if (sequence.defenderBurstAt !== null) {
+      this.time.delayedCall(sequence.defenderBurstAt, () => {
+        this.audio.playSfx('defeat');
+        this.effects.playDefeatBurst(targetPos, UNIT_BODY_COLOR[defender.armyType]);
+        this.pendingDefeated = this.pendingDefeated.filter((unit) => unit !== defender);
+        this.drawUnits();
+      });
+    }
+
+    // 反撃: 被ダメージの数字を攻撃側に出す
+    if (sequence.counterAt !== null) {
+      this.time.delayedCall(sequence.counterAt, () => {
+        this.audio.playSfx('attack');
+        this.effects.shake(result.attackerDefeated);
+        this.effects.popDamage(attackerPos, result.counterDamage, DAMAGE_COLOR.taken);
+      });
+    }
+
+    // 反撃で攻撃側が撃破された場合は、分身トークンを消して爆散させる
+    if (sequence.attackerBurstAt !== null) {
+      this.time.delayedCall(sequence.attackerBurstAt, () => {
+        this.audio.playSfx('defeat');
+        token.setVisible(false);
+        this.effects.playDefeatBurst(attackerPos, attackerColor);
+      });
+    }
+
+    // 演出の終わり: 結果を反映した盤面へ描き直し、操作を再開する
+    this.time.delayedCall(sequence.endAt, () => {
+      token.destroy();
+      this.animatingUnit = null;
+      this.pendingDefeated = [];
+      this.attackAnimating = false;
+      this.drawUnits();
+      // 撃破により全滅が発生していないか判定する
+      this.checkGameEnd();
+    });
   }
 
   /** 指定ユニットで拠点を占領し、結果を表示する */
