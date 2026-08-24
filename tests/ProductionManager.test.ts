@@ -29,7 +29,7 @@ describe('ProductionManager', () => {
     const { map, production } = setup();
     const tile = map.getTile(gridPosition(0, 0))!;
     expect(production.canProduceAt('player', tile)).toBe(true);
-    expect(production.canProduce('player', tile, 'tank')).toBe(true);
+    expect(production.canProduce('player', tile, 'lightTank')).toBe(true);
   });
 
   it('他軍所有の工場では生産できない', () => {
@@ -47,8 +47,8 @@ describe('ProductionManager', () => {
   it('資金が不足すると生産できない', () => {
     const { map, production } = setup(500);
     const tile = map.getTile(gridPosition(0, 0))!;
-    // 戦車のコストは 500 を上回る
-    expect(production.canProduce('player', tile, 'tank')).toBe(false);
+    // 軽戦車のコストは 500 を上回る
+    expect(production.canProduce('player', tile, 'lightTank')).toBe(false);
   });
 
   it('生産するとユニットが配置され資金が減る', () => {
@@ -69,7 +69,7 @@ describe('ProductionManager', () => {
     production.produce('player', tile, 'infantry');
     // 生産直後は工場が埋まっているので再生産不可
     expect(production.canProduceAt('player', tile)).toBe(false);
-    expect(() => production.produce('player', tile, 'tank')).toThrow();
+    expect(() => production.produce('player', tile, 'mediumTank')).toThrow();
   });
 
   it('資金不足での生産は例外を投げる', () => {

@@ -51,7 +51,7 @@ describe('EnemyAi.run', () => {
       name: 't',
       terrain: ['...'],
       units: [
-        { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
         { col: 1, row: 0, unitType: 'infantry', army: 'player' },
       ],
     });
@@ -76,7 +76,7 @@ describe('EnemyAi.run', () => {
       name: 't',
       terrain: ['.....'],
       units: [
-        { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
         { col: 3, row: 0, unitType: 'infantry', army: 'player' },
       ],
     });
@@ -88,7 +88,7 @@ describe('EnemyAi.run', () => {
     expect(attacks).toHaveLength(1);
     expect(attacks[0].movedTo).toEqual(gridPosition(2, 0));
     // 攻撃側の戦車は移動先の col2 にいる
-    expect(units.getUnitAt(gridPosition(2, 0))?.unitType).toBe('tank');
+    expect(units.getUnitAt(gridPosition(2, 0))?.unitType).toBe('mediumTank');
     expect(infantry.currentHp).toBeLessThan(infantry.maxHp);
   });
 
@@ -146,7 +146,7 @@ describe('EnemyAi.run', () => {
       name: 't',
       terrain: ['...'],
       units: [
-        { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
         { col: 1, row: 0, unitType: 'infantry', army: 'player' },
       ],
     });
@@ -188,7 +188,7 @@ describe('EnemyAi.run', () => {
       name: 't',
       terrain: ['.........'],
       units: [
-        { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
         { col: 8, row: 0, unitType: 'infantry', army: 'player' },
       ],
     });
@@ -198,14 +198,14 @@ describe('EnemyAi.run', () => {
 
     expect(moves).toHaveLength(1);
     expect(moves[0].to).toEqual(gridPosition(5, 0));
-    expect(units.getUnitAt(gridPosition(5, 0))?.unitType).toBe('tank');
+    expect(units.getUnitAt(gridPosition(5, 0))?.unitType).toBe('mediumTank');
   });
 
   it('攻撃対象がいなければ待機する', () => {
     const { units, ai } = setup({
       name: 't',
       terrain: ['...'],
-      units: [{ col: 0, row: 0, unitType: 'tank', army: 'enemy' }],
+      units: [{ col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' }],
     });
     const tank = units.getUnitAt(gridPosition(0, 0))!;
 
@@ -258,7 +258,7 @@ describe('EnemyAi.run', () => {
       name: 't',
       terrain: ['.........'],
       units: [
-        { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
         { col: 1, row: 0, unitType: 'artillery', army: 'enemy' },
         { col: 8, row: 0, unitType: 'infantry', army: 'player' },
       ],
@@ -301,7 +301,7 @@ describe('EnemyAi.run(夜戦)', () => {
         name: 'night-halt',
         terrain: ['rrrrrrrc'],
         units: [
-          { col: 0, row: 0, unitType: 'tank', army: 'enemy' },
+          { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
           { col: 4, row: 0, unitType: 'infantry', army: 'player' },
         ],
       },
@@ -324,7 +324,7 @@ describe('EnemyAi.run(夜戦)', () => {
       {
         name: 'night-scout',
         terrain: ['rrrrrrrc'],
-        units: [{ col: 0, row: 0, unitType: 'tank', army: 'enemy' }],
+        units: [{ col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' }],
       },
       { nightBattle: true },
     );

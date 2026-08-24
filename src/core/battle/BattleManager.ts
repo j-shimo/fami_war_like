@@ -6,7 +6,11 @@ import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
-import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
+import {
+  canAttackUnit,
+  canCounterattack,
+  isWithinAttackRange,
+} from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 
 /** 攻撃 1 回ぶんの結果 */
@@ -42,6 +46,8 @@ export class BattleManager {
    * 2. 防御側が生存し、かつ直接攻撃(距離1)を受け、防御側が攻撃側を射程に
    *    捉え、種別としても攻撃できる場合のみ反撃する。
    *    間接攻撃(距離2以上)には反撃しない。
+   *    重戦車 → 対空戦車のように、種別の組み合わせで反撃を封じられる場合もある
+   *    (判定は AttackRange の canCounterattack がまとめて担う)。
    * 3. 攻撃側を行動済みにする。
    *
    * 射程外・味方への攻撃、および種別として攻撃できない相手(戦艦 → 潜水艦など)への
@@ -74,10 +80,7 @@ export class BattleManager {
     let counterDamage = 0;
     let attackerDefeated = false;
     const canCounter =
-      !defenderDefeated &&
-      distance === 1 &&
-      canAttackUnit(defender, attacker) &&
-      isWithinAttackRange(defender, attacker.position);
+      !defenderDefeated && canCounterattack(defender, attacker, distance);
     if (canCounter) {
       counterDamage = this.applyDamage(defender, attacker, lostPassengers);
       attackerDefeated = !attacker.isAlive;

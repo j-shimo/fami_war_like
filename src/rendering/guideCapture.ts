@@ -225,8 +225,8 @@ const SCENES: Readonly<Record<GuideCaptureKind, MiniScene>> = {
       { at: [4, 3], army: 'enemy' },
     ],
     units: [
-      { at: [1, 1], type: 'tank', army: 'player' },
-      { at: [3, 2], type: 'tank', army: 'enemy' },
+      { at: [1, 1], type: 'mediumTank', army: 'player' },
+      { at: [3, 2], type: 'mediumTank', army: 'enemy' },
     ],
     attackTarget: [4, 3],
   },
@@ -242,7 +242,7 @@ const SCENES: Readonly<Record<GuideCaptureKind, MiniScene>> = {
   },
   move: {
     layout: ['..f..', '.....', '..m..', 'f...c'],
-    units: [{ at: [1, 1], type: 'tank', army: 'player' }],
+    units: [{ at: [1, 1], type: 'mediumTank', army: 'player' }],
     moveTiles: [
       [1, 0],
       [0, 1],
@@ -256,8 +256,8 @@ const SCENES: Readonly<Record<GuideCaptureKind, MiniScene>> = {
   attack: {
     layout: ['.....', '..f..', '.....', 'f...c'],
     units: [
-      { at: [1, 2], type: 'tank', army: 'player' },
-      { at: [2, 2], type: 'tank', army: 'enemy' },
+      { at: [1, 2], type: 'mediumTank', army: 'player' },
+      { at: [2, 2], type: 'mediumTank', army: 'enemy' },
     ],
     selected: [1, 2],
     attackTarget: [2, 2],
@@ -276,7 +276,7 @@ const SCENES: Readonly<Record<GuideCaptureKind, MiniScene>> = {
     ],
     units: [
       { at: [1, 1], type: 'infantry', army: 'player' },
-      { at: [3, 2], type: 'tank', army: 'enemy' },
+      { at: [3, 2], type: 'mediumTank', army: 'enemy' },
     ],
   },
 };

@@ -3,6 +3,7 @@
 // Graphics プリミティブだけで歩兵・戦車・自走砲・ヘリ・艦艇の姿を描き分ける。
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
+// 戦車 3 種(軽・中・重)は共通の車体シルエットを大きさで描き分ける。
 
 import Phaser from 'phaser';
 
@@ -44,18 +45,78 @@ function drawInfantry(ctx: UnitIconContext): void {
   g.lineBetween(cx - r * 0.1, cy + r * 0.06, cx + r * 0.5, cy - r * 0.34);
 }
 
-/** 戦車: 車体・砲塔・右向きの砲身のシルエット(側面図) */
-function drawTank(ctx: UnitIconContext): void {
+/**
+ * 戦車共通のシルエット(履帯つき車体・砲塔・右向きの砲身)を描く。
+ * 軽・中・重の 3 種は、車体と砲塔・砲身の太さを scale で変えて描き分ける。
+ *
+ * @param bodyScale 車体・砲塔の大きさの倍率(重いほど大きく)
+ * @param barrelThickness 砲身の太さの倍率(重いほど太く)
+ */
+function drawTankBody(
+  ctx: UnitIconContext,
+  bodyScale: number,
+  barrelThickness: number,
+): void {
   const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  const s = r * bodyScale;
   g.fillStyle(color, alpha);
   // 履帯を含む車体下部
-  g.fillRoundedRect(cx - r * 0.6, cy + r * 0.06, r * 1.2, r * 0.4, r * 0.14);
+  g.fillRoundedRect(cx - s * 0.6, cy + r * 0.06, s * 1.2, s * 0.4, s * 0.14);
   // 車体上部
-  g.fillRoundedRect(cx - r * 0.46, cy - r * 0.16, r * 0.92, r * 0.3, r * 0.08);
+  g.fillRoundedRect(cx - s * 0.46, cy - r * 0.16, s * 0.92, s * 0.3, s * 0.08);
   // 砲塔
-  g.fillRoundedRect(cx - r * 0.2, cy - r * 0.42, r * 0.42, r * 0.3, r * 0.07);
-  // 砲身(右向き)
-  g.fillRect(cx + r * 0.18, cy - r * 0.34, r * 0.52, r * 0.12);
+  g.fillRoundedRect(cx - s * 0.2, cy - r * 0.42, s * 0.42, s * 0.3, s * 0.07);
+  // 砲身(右向き)。重い戦車ほど太く長い
+  g.fillRect(cx + s * 0.18, cy - r * 0.34, s * 0.52, r * barrelThickness);
+}
+
+/** 軽戦車: 細い車体と細い砲身。3 種でもっとも小柄なシルエット */
+function drawLightTank(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTankBody(ctx, 0.86, 0.09);
+  // 車体後方に立てた無線アンテナ(足の速い軽戦車の目印)
+  g.lineStyle(Math.max(1.5, r * 0.07), color, alpha);
+  g.lineBetween(cx - r * 0.44, cy - r * 0.14, cx - r * 0.56, cy - r * 0.6);
+}
+
+/** 中戦車: 標準的な車体と砲身。戦車系シルエットの基準になる形 */
+function drawMediumTank(ctx: UnitIconContext): void {
+  drawTankBody(ctx, 1, 0.12);
+}
+
+/** 重戦車: 太い車体と太い砲身に、車体前面の増加装甲を重ねたシルエット */
+function drawHeavyTank(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTankBody(ctx, 1.12, 0.16);
+  // 車体前面の増加装甲(厚い装甲を表す傾斜板)
+  g.fillStyle(color, alpha);
+  g.fillPoints(
+    [
+      { x: cx + r * 0.42, y: cy - r * 0.18 },
+      { x: cx + r * 0.76, y: cy + r * 0.06 },
+      { x: cx + r * 0.76, y: cy + r * 0.3 },
+      { x: cx + r * 0.42, y: cy + r * 0.3 },
+    ],
+    true,
+  );
+}
+
+/** ロケット砲: 装輪車体の上に、斜め上を向いた多連装ロケット発射機を載せたシルエット */
+function drawRocketArtillery(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 低く平たい車体(装甲が薄いことを表す)
+  g.fillRoundedRect(cx - r * 0.66, cy - r * 0.02, r * 1.24, r * 0.3, r * 0.1);
+  // 車輪(装輪車両であることを示すタイヤ 2 つ)
+  g.fillCircle(cx - r * 0.4, cy + r * 0.36, r * 0.18);
+  g.fillCircle(cx + r * 0.36, cy + r * 0.36, r * 0.18);
+  // 発射機の基部
+  g.fillRoundedRect(cx - r * 0.26, cy - r * 0.24, r * 0.34, r * 0.26, r * 0.06);
+  // 斜め上へ向く多連装の発射レール(3 本並べて自走砲の単装砲身と見分ける)
+  g.lineStyle(Math.max(1.5, r * 0.09), color, alpha);
+  g.lineBetween(cx - r * 0.18, cy - r * 0.1, cx + r * 0.5, cy - r * 0.5);
+  g.lineBetween(cx - r * 0.18, cy - r * 0.26, cx + r * 0.5, cy - r * 0.66);
+  g.lineBetween(cx - r * 0.18, cy - r * 0.42, cx + r * 0.5, cy - r * 0.82);
 }
 
 /** 自走砲: 車体と斜め上に伸びる長い砲身のシルエット */
@@ -242,11 +303,20 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
     case 'infantry':
       drawInfantry(ctx);
       break;
-    case 'tank':
-      drawTank(ctx);
+    case 'lightTank':
+      drawLightTank(ctx);
+      break;
+    case 'mediumTank':
+      drawMediumTank(ctx);
+      break;
+    case 'heavyTank':
+      drawHeavyTank(ctx);
       break;
     case 'artillery':
       drawArtillery(ctx);
+      break;
+    case 'rocketArtillery':
+      drawRocketArtillery(ctx);
       break;
     case 'attackHelicopter':
       drawAttackHelicopter(ctx);

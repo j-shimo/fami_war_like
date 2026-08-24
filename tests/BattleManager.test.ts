@@ -21,7 +21,7 @@ function setup(placements: Parameters<typeof UnitManager.fromPlacements>[0]): {
 describe('BattleManager.attack', () => {
   it('直接攻撃でダメージを与え、生存した防御側が反撃する', () => {
     const { units, battle } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -61,7 +61,7 @@ describe('BattleManager.attack', () => {
 
   it('HP が 0 になった防御側は撃破され、盤面から除去される', () => {
     const { units, battle } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     // 初期配置では HP を指定できないため、生成後に瀕死状態へ設定する
@@ -82,7 +82,7 @@ describe('BattleManager.attack', () => {
   it('反撃で攻撃側が撃破されることがある', () => {
     const { units, battle } = setup([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 1, row: 0, unitType: 'tank', army: 'enemy' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
     ]);
     const infantry = units.getUnitAt(gridPosition(0, 0))!;
     infantry.currentHp = 1;
@@ -98,9 +98,9 @@ describe('BattleManager.attack', () => {
 
   it('味方への攻撃・射程外の攻撃は例外を投げる', () => {
     const { units, battle } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
-      { col: 1, row: 0, unitType: 'tank', army: 'player' },
-      { col: 2, row: 2, unitType: 'tank', army: 'enemy' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
+      { col: 2, row: 2, unitType: 'mediumTank', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
     const ally = units.getUnitAt(gridPosition(1, 0))!;

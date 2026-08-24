@@ -44,15 +44,15 @@ const WIN_HEIGHT = TITLE_HEIGHT + BODY_HEIGHT;
 /** 左側のユニット一覧の幅 */
 const LIST_WIDTH = 148;
 /** 一覧の 1 行の高さ(全ユニット種別ぶんが BODY_HEIGHT に収まる高さにする) */
-const LIST_ROW_HEIGHT = 36;
+const LIST_ROW_HEIGHT = 28;
 /** 一覧のアイコン(軍色トークン)の半径 */
-const LIST_ICON_RADIUS = 13;
+const LIST_ICON_RADIUS = 11;
 /** 右側の詳細ペインの内側余白 */
 const DETAIL_PADDING = 16;
 /** 相性表の 1 行の高さ(全ユニット種別ぶんの行が BODY_HEIGHT に収まる高さにする) */
-const MATCHUP_ROW_HEIGHT = 21;
+const MATCHUP_ROW_HEIGHT = 16;
 /** 相性表のアイコン(軍色トークン)の半径 */
-const MATCHUP_ICON_RADIUS = 9;
+const MATCHUP_ICON_RADIUS = 7;
 /** ウィンドウの描画深度(生産・音量ウィンドウと同じく最前面帯) */
 const WINDOW_DEPTH = 300;
 
@@ -246,7 +246,7 @@ export class UnitGuideWindow {
       }
 
       // アイコン: 軍色トークンの上に種別シルエットを重ねる
-      const cx = this.winX + 14 + LIST_ICON_RADIUS;
+      const cx = this.winX + 10 + LIST_ICON_RADIUS;
       g.fillStyle(this.config?.tokenColor ?? 0xffffff, 1);
       g.fillCircle(cx, cy, LIST_ICON_RADIUS);
       g.lineStyle(2, COLOR.icon, 0.9);
@@ -262,9 +262,9 @@ export class UnitGuideWindow {
 
       // ユニット名
       const name = this.scene.add
-        .text(cx + LIST_ICON_RADIUS + 10, cy, getUnitData(unitType).unitName, {
+        .text(cx + LIST_ICON_RADIUS + 8, cy, getUnitData(unitType).unitName, {
           fontFamily: 'sans-serif',
-          fontSize: '15px',
+          fontSize: '13px',
           fontStyle: selected ? 'bold' : 'normal',
           color: selected ? COLOR.nameSelected : COLOR.name,
         })
@@ -399,12 +399,12 @@ export class UnitGuideWindow {
 
       // 相手名
       this.addText(
-        cx + MATCHUP_ICON_RADIUS + 8,
+        cx + MATCHUP_ICON_RADIUS + 6,
         cy,
         getUnitData(matchup.opponent).unitName,
         {
           fontFamily: 'sans-serif',
-          fontSize: '12px',
+          fontSize: '11px',
           color: COLOR.desc,
         },
       ).setOrigin(0, 0.5);
@@ -412,7 +412,7 @@ export class UnitGuideWindow {
       // 与ダメージ(このユニット → 相手)
       this.addText(dealtX, cy, matchup.dealtSymbol, {
         fontFamily: 'sans-serif',
-        fontSize: '13px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: TIER_COLOR[matchup.dealtTier],
       }).setOrigin(1, 0.5);
@@ -420,7 +420,7 @@ export class UnitGuideWindow {
       // 被ダメージ(相手 → このユニット)
       this.addText(takenX, cy, matchup.takenSymbol, {
         fontFamily: 'sans-serif',
-        fontSize: '13px',
+        fontSize: '12px',
         fontStyle: 'bold',
         color: TIER_COLOR[matchup.takenTier],
       }).setOrigin(1, 0.5);

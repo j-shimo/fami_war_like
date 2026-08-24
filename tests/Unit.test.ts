@@ -56,7 +56,7 @@ describe('Unit', () => {
     });
     const tank = new Unit({
       id: 't1',
-      unitType: 'tank',
+      unitType: 'mediumTank',
       armyType: 'player',
       position: gridPosition(2, 0),
     });
@@ -68,7 +68,7 @@ describe('Unit', () => {
   it('現在HPが0以下なら生存していない', () => {
     const unit = new Unit({
       id: 'u4',
-      unitType: 'tank',
+      unitType: 'mediumTank',
       armyType: 'player',
       position: gridPosition(0, 0),
       currentHp: 0,
@@ -80,7 +80,7 @@ describe('Unit', () => {
     const pos = gridPosition(4, 5);
     const unit = new Unit({
       id: 'u5',
-      unitType: 'tank',
+      unitType: 'mediumTank',
       armyType: 'player',
       position: pos,
     });

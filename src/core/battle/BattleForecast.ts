@@ -5,9 +5,10 @@
 // 予測手順(BattleManager と同じ):
 //   1. 攻撃側 → 防御側のダメージを求め、被弾後の防御側 HP を算出する。
 //   2. 防御側が生存し、直接攻撃(距離1)で互いに射程内、かつ防御側が攻撃側の種別を
-//      攻撃できるなら反撃が発生する。反撃火力は被弾後の防御側 HP を基準に計算する。
+//      攻撃でき、反撃を封じられていない(重戦車 → 対空戦車など)なら反撃が発生する。
+//      反撃火力は被弾後の防御側 HP を基準に計算する。
 
-import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
+import { canCounterattack } from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
@@ -63,11 +64,7 @@ export function forecastBattle(
 
   // 2. 反撃(直接攻撃・防御側生存・互いに射程内・種別として攻撃できるときのみ)
   const distance = manhattanDistance(attacker.position, defender.position);
-  const willCounter =
-    !defenderDefeated &&
-    distance === 1 &&
-    canAttackUnit(defender, attacker) &&
-    isWithinAttackRange(defender, attacker.position);
+  const willCounter = !defenderDefeated && canCounterattack(defender, attacker, distance);
 
   // 反撃火力は被弾後の防御側 HP で計算する(BattleManager と同じ挙動)
   const counterDamage = willCounter

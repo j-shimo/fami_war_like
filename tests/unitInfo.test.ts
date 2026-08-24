@@ -52,7 +52,7 @@ describe('formatUnitInfo', () => {
   it('HP と行動済みフラグを反映する', () => {
     const unit = new Unit({
       id: 'u3',
-      unitType: 'tank',
+      unitType: 'mediumTank',
       armyType: 'player',
       position: gridPosition(0, 0),
       currentHp: 4,

@@ -51,19 +51,19 @@ describe('compatibilityTier', () => {
 
 describe('getUnitMatchups', () => {
   it('全ユニットとの相性を UNIT_TYPES と同じ並びで返す', () => {
-    const matchups = getUnitMatchups('tank');
+    const matchups = getUnitMatchups('mediumTank');
     expect(matchups.map((m) => m.opponent)).toEqual([...UNIT_TYPES]);
   });
 
   it('与ダメージ(dealt)は攻撃側=自分の基礎ダメージ、被ダメージ(taken)は攻撃側=相手の基礎ダメージ', () => {
-    const matchups = getUnitMatchups('tank');
+    const matchups = getUnitMatchups('mediumTank');
     const vsInfantry = matchups.find((m) => m.opponent === 'infantry')!;
-    // 戦車 → 歩兵 の与ダメージ
-    expect(vsInfantry.dealt).toBe(BASE_DAMAGE.tank.infantry);
-    expect(vsInfantry.dealtSymbol).toBe(String(BASE_DAMAGE.tank.infantry));
-    // 歩兵 → 戦車 の被ダメージ
-    expect(vsInfantry.taken).toBe(BASE_DAMAGE.infantry.tank);
-    expect(vsInfantry.takenSymbol).toBe(String(BASE_DAMAGE.infantry.tank));
+    // 中戦車 → 歩兵 の与ダメージ
+    expect(vsInfantry.dealt).toBe(BASE_DAMAGE.mediumTank.infantry);
+    expect(vsInfantry.dealtSymbol).toBe(String(BASE_DAMAGE.mediumTank.infantry));
+    // 歩兵 → 中戦車 の被ダメージ
+    expect(vsInfantry.taken).toBe(BASE_DAMAGE.infantry.mediumTank);
+    expect(vsInfantry.takenSymbol).toBe(String(BASE_DAMAGE.infantry.mediumTank));
   });
 
   it('輸送ヘリは攻撃できないため、全相手への与ダメージが「×」になる', () => {

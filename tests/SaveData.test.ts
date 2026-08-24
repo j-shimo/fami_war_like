@@ -35,7 +35,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     const restored = restoreGameState(save, map);
 
     const restoredTank = restored.units.getUnitAt(gridPosition(6, 7));
-    expect(restoredTank?.unitType).toBe('tank');
+    expect(restoredTank?.unitType).toBe('mediumTank');
     expect(restoredTank?.currentHp).toBe(4);
     expect(restoredTank?.hasActed).toBe(true);
     expect(restored.units.getAllUnits()).toHaveLength(game.units.getAllUnits().length);

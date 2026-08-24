@@ -49,7 +49,7 @@ export interface UnitData {
   readonly nightStealth: boolean;
 }
 
-/** 視界(vision)の既定値。歩兵・戦車・対空戦車・輸送ヘリがこの値を持つ */
+/** 視界(vision)の既定値。歩兵・中戦車・対空戦車・輸送ヘリがこの値を持つ */
 export const DEFAULT_VISION = 2;
 
 /** 歩兵が山の上にいるときの視界ボーナス(マス数)。高所から遠くまで見渡せる */
@@ -74,19 +74,53 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     mountainVisionBonus: INFANTRY_MOUNTAIN_VISION_BONUS,
     nightStealth: false,
   },
-  tank: {
-    unitType: 'tank',
-    unitName: '戦車',
+  lightTank: {
+    unitType: 'lightTank',
+    unitName: '軽戦車',
+    maxHp: 10,
+    movement: 6,
+    movementType: 'vehicle',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 6000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 装甲を削って車高を抑えたぶん見晴らしがよく、戦車 3 種では最も広い視界(3)を持つ
+    vision: 3,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  mediumTank: {
+    unitType: 'mediumTank',
+    unitName: '中戦車',
     maxHp: 10,
     movement: 5,
     movementType: 'vehicle',
     minAttackRange: 1,
     maxAttackRange: 1,
-    cost: 7000,
+    cost: 12000,
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
     vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  heavyTank: {
+    unitType: 'heavyTank',
+    unitName: '重戦車',
+    maxHp: 10,
+    movement: 4,
+    movementType: 'vehicle',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 18000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 厚い装甲に閉じこもるぶん外が見えにくく、夜戦では手元しか見えない(視界 1)
+    vision: 1,
     mountainVisionBonus: 0,
     nightStealth: false,
   },
@@ -103,6 +137,26 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 0,
     carriableTypes: [],
     // 車内から周囲を見張る余裕がなく、夜戦では手元しか見えない(視界 1)
+    vision: 1,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  rocketArtillery: {
+    unitType: 'rocketArtillery',
+    unitName: 'ロケット砲',
+    maxHp: 10,
+    movement: 4,
+    // 大型のロケット発射機を積んだ装輪車両。偵察車と同じ移動コストで、
+    // 道路・拠点は速いが平地では減速し、森・山・海には進入できない。
+    movementType: 'wheeled',
+    // 自走砲(2〜3)より遠く、戦艦(3〜6)に迫る射程 3〜5 の間接攻撃ユニット。
+    minAttackRange: 3,
+    maxAttackRange: 5,
+    cost: 15000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 自走砲と同じく、射程より視界が狭い(単独では最大射程まで撃てない)
     vision: 1,
     mountainVisionBonus: 0,
     nightStealth: false,
@@ -163,8 +217,8 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     unitName: '偵察車',
     maxHp: 10,
     movement: 8,
-    // 道路・拠点を走り抜ける偵察車専用の移動タイプ。森・山・海には進入できない。
-    movementType: 'recon',
+    // 道路・拠点を走り抜ける装輪車両の移動タイプ(ロケット砲と共通)。森・山・海には進入できない。
+    movementType: 'wheeled',
     minAttackRange: 1,
     maxAttackRange: 1,
     cost: 3500,
@@ -264,8 +318,26 @@ export function getUnitData(unitType: UnitType): UnitData {
 export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   Partial<Record<TerrainType, readonly UnitType[]>>
 > = {
-  headquarters: ['infantry', 'recon', 'tank', 'artillery', 'antiAirTank'],
-  factory: ['infantry', 'recon', 'tank', 'artillery', 'antiAirTank'],
+  headquarters: [
+    'infantry',
+    'recon',
+    'lightTank',
+    'mediumTank',
+    'heavyTank',
+    'artillery',
+    'rocketArtillery',
+    'antiAirTank',
+  ],
+  factory: [
+    'infantry',
+    'recon',
+    'lightTank',
+    'mediumTank',
+    'heavyTank',
+    'artillery',
+    'rocketArtillery',
+    'antiAirTank',
+  ],
   airport: ['attackHelicopter', 'transportHelicopter'],
   port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
 };

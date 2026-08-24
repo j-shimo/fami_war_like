@@ -48,7 +48,7 @@ describe('economyInfo', () => {
 
   it('生産ボタンのラベルは名前とコストを表示する', () => {
     expect(formatProductionLabel('infantry')).toBe('歩兵 (1000)');
-    expect(formatProductionLabel('tank')).toBe('戦車 (7000)');
+    expect(formatProductionLabel('mediumTank')).toBe('中戦車 (12000)');
   });
 
   it('工場の生産一覧は地上ユニットを表示順で返す', () => {
@@ -56,8 +56,11 @@ describe('economyInfo', () => {
     expect(items).toEqual([
       { unitType: 'infantry', unitName: '歩兵', cost: 1000 },
       { unitType: 'recon', unitName: '偵察車', cost: 3500 },
-      { unitType: 'tank', unitName: '戦車', cost: 7000 },
+      { unitType: 'lightTank', unitName: '軽戦車', cost: 6000 },
+      { unitType: 'mediumTank', unitName: '中戦車', cost: 12000 },
+      { unitType: 'heavyTank', unitName: '重戦車', cost: 18000 },
       { unitType: 'artillery', unitName: '自走砲', cost: 6000 },
+      { unitType: 'rocketArtillery', unitName: 'ロケット砲', cost: 15000 },
       { unitType: 'antiAirTank', unitName: '対空戦車', cost: 8000 },
     ]);
   });
