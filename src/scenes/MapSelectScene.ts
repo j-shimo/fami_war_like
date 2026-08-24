@@ -10,8 +10,14 @@ import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
 /** 選択画面のカードの寸法・間隔 */
 const CARD_MARGIN_X = 40;
 const CARD_TOP = 112;
-// カードの高さ。説明文が 2 行に折り返しても収まる高さにしてある
-const CARD_HEIGHT = 96;
+/** カードの最低の高さ。説明文が短くてもこの高さは確保する */
+const CARD_MIN_HEIGHT = 96;
+/** カード上端から説明文の描画開始位置までの距離 */
+const CARD_DESC_TOP = 58;
+/** 説明文の下に空けるカード内の余白 */
+const CARD_DESC_BOTTOM = 14;
+/** カードの左右の内側余白(説明文の折り返し幅の計算にも使う) */
+const CARD_PADDING_X = 16;
 const CARD_GAP = 16;
 /** カード一覧の表示領域の下端に空ける余白 */
 const LIST_BOTTOM_MARGIN = 12;
@@ -27,11 +33,34 @@ const MODE_BUTTON_HEIGHT = 26;
 const MODE_BUTTON_GAP = 8;
 const MODE_ROW_CENTER_Y = 88;
 
+/**
+ * 見出し・戦闘モード・ゲーム説明といったヘッダー側 UI の表示深度。
+ * カード一覧はスクロールするとヘッダーの位置まで重なってくるため、
+ * ヘッダーを手前に置いて入力(クリック)を先に受け取らせる。
+ */
+const HEADER_DEPTH = 10;
+
+/** 説明文のフォント設定。カードの高さを測るときと描画するときで共有する */
+const DESC_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'sans-serif',
+  fontSize: '12px',
+  color: '#c8c8d8',
+};
+
 /** 戦闘モードごとの、見出し下に出す説明文 */
 const MODE_HINT: Readonly<Record<'normal' | 'night', string>> = {
   normal: '遊ぶマップを選んでください',
   night: '夜戦: 視界の外は暗く、敵ユニットが見えません',
 };
+
+/** カード 1 枚ぶんの配置情報(縦位置と高さは説明文の行数によってマップごとに変わる) */
+interface CardLayout {
+  readonly entry: MapEntry;
+  /** カード上端の Y 座標(スクロール量 0 のとき) */
+  readonly y: number;
+  /** カードの高さ */
+  readonly height: number;
+}
 
 /**
  * インゲームの前段階に表示するマップ選択画面。
@@ -134,8 +163,10 @@ export class MapSelectScene extends Phaser.Scene {
     // カード一覧はマップが増えると画面に収まらなくなるため、
     // コンテナへまとめてドラッグ(スワイプ)・ホイールでスクロールできるようにする。
     this.viewportHeight = DEFAULT_DIMENSIONS.gameHeight - CARD_TOP - LIST_BOTTOM_MARGIN;
-    this.contentHeight =
-      MAP_LIST.length * (CARD_HEIGHT + CARD_GAP) - (MAP_LIST.length > 0 ? CARD_GAP : 0);
+    // カードの高さは説明文の折り返し行数によって変わるため、先に実測してから縦位置を決める
+    const layouts = this.layoutCards(width - CARD_MARGIN_X * 2);
+    const last = layouts[layouts.length - 1];
+    this.contentHeight = last ? last.y + last.height - CARD_TOP : 0;
     this.scrollOffset = 0;
     this.dragActive = false;
     this.isPanning = false;
@@ -148,13 +179,43 @@ export class MapSelectScene extends Phaser.Scene {
     maskShape.fillRect(0, CARD_TOP, width, this.viewportHeight);
     this.cardLayer.setMask(maskShape.createGeometryMask());
 
-    MAP_LIST.forEach((entry, index) => {
-      this.createMapCard(entry, index, width);
-    });
+    for (const layout of layouts) {
+      this.createMapCard(layout, width);
+    }
 
     this.scrollbar = this.add.graphics();
     this.drawScrollbar(width);
     this.setupScrollInput(width);
+  }
+
+  /**
+   * 各カードの縦位置と高さを決める。
+   * 説明文はカード幅で折り返すため、マップによって 1〜3 行と行数が変わる。
+   * 画面に出さないテキストで実際の高さを測り、折り返したぶんだけカードを高くすることで
+   * 説明文がカードの下へはみ出して読めなくなるのを防ぐ。
+   */
+  private layoutCards(cardWidth: number): CardLayout[] {
+    const probe = this.add
+      .text(0, 0, '', {
+        ...DESC_TEXT_STYLE,
+        wordWrap: { width: cardWidth - CARD_PADDING_X * 2 },
+      })
+      .setVisible(false);
+
+    let y = CARD_TOP;
+    const layouts = MAP_LIST.map((entry) => {
+      probe.setText(entry.description);
+      const height = Math.max(
+        CARD_MIN_HEIGHT,
+        CARD_DESC_TOP + Math.ceil(probe.height) + CARD_DESC_BOTTOM,
+      );
+      const layout: CardLayout = { entry, y, height };
+      y += height + CARD_GAP;
+      return layout;
+    });
+
+    probe.destroy();
+    return layouts;
   }
 
   /**
@@ -226,7 +287,8 @@ export class MapSelectScene extends Phaser.Scene {
         fontSize: '13px',
         color: '#c8c8d8',
       })
-      .setOrigin(1, 0.5);
+      .setOrigin(1, 0.5)
+      .setDepth(HEADER_DEPTH);
 
     ([false, true] as const).forEach((night, index) => {
       const x = left + index * (MODE_BUTTON_WIDTH + MODE_BUTTON_GAP);
@@ -241,6 +303,8 @@ export class MapSelectScene extends Phaser.Scene {
         )
         .setOrigin(0, 0)
         .setStrokeStyle(2, 0x3a4a6a)
+        // スクロールしたカードがボタンの上へ重なってもクリックを奪われないよう手前に置く
+        .setDepth(HEADER_DEPTH)
         .setInteractive({ useHandCursor: true });
       const label = this.add
         .text(cx, MODE_ROW_CENTER_Y, night ? '🌙 夜戦' : '☀ 通常戦', {
@@ -249,7 +313,8 @@ export class MapSelectScene extends Phaser.Scene {
           fontStyle: 'bold',
           color: '#c8c8d8',
         })
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setDepth(HEADER_DEPTH);
       rect.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectMode(night));
       this.modeButtons.push({ night, rect, label });
     });
@@ -328,6 +393,8 @@ export class MapSelectScene extends Phaser.Scene {
     const button = this.add
       .rectangle(cx, cy, w, h, 0x1f2740)
       .setStrokeStyle(2, 0x3a4a6a)
+      // 戦闘モードのボタンと同じく、重なってきたカードにクリックを奪われないようにする
+      .setDepth(HEADER_DEPTH)
       .setInteractive({ useHandCursor: true });
     this.add
       .text(cx, cy, '❔ ゲーム説明', {
@@ -336,7 +403,8 @@ export class MapSelectScene extends Phaser.Scene {
         fontStyle: 'bold',
         color: '#8ad0ff',
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(HEADER_DEPTH);
 
     button.on(Phaser.Input.Events.POINTER_OVER, () => {
       button.setStrokeStyle(2, 0x8ad0ff);
@@ -356,24 +424,28 @@ export class MapSelectScene extends Phaser.Scene {
    * カードの確定は指を離したときに行い、しきい値を超えて動かした場合(スクロール操作)は
    * 選択しない。押し始めたカードと離したカードが違う場合も選択しない。
    */
-  private createMapCard(entry: MapEntry, index: number, width: number): void {
+  private createMapCard(layout: CardLayout, width: number): void {
+    const { entry, y, height } = layout;
     const x = CARD_MARGIN_X;
-    const y = CARD_TOP + index * (CARD_HEIGHT + CARD_GAP);
     const cardWidth = width - CARD_MARGIN_X * 2;
 
     const rows = entry.definition.terrain.length;
     const cols = entry.definition.terrain[0]?.length ?? 0;
 
     const card = this.add
-      .rectangle(x, y, cardWidth, CARD_HEIGHT, 0x1f2740)
+      .rectangle(x, y, cardWidth, height, 0x1f2740)
       .setOrigin(0, 0)
       .setStrokeStyle(2, 0x3a4a6a)
-      .setInteractive({ useHandCursor: true });
+      .setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(0, 0, cardWidth, height),
+        hitAreaCallback: this.cardHitTest,
+        useHandCursor: true,
+      });
     this.cardLayer.add(card);
 
     // マップ名
     this.cardLayer.add(
-      this.add.text(x + 16, y + 12, entry.definition.name, {
+      this.add.text(x + CARD_PADDING_X, y + 12, entry.definition.name, {
         fontFamily: 'sans-serif',
         fontSize: '18px',
         fontStyle: 'bold',
@@ -383,7 +455,7 @@ export class MapSelectScene extends Phaser.Scene {
 
     // サイズ表記(横×縦)
     this.cardLayer.add(
-      this.add.text(x + 16, y + 38, `サイズ: 横${cols} × 縦${rows}`, {
+      this.add.text(x + CARD_PADDING_X, y + 38, `サイズ: 横${cols} × 縦${rows}`, {
         fontFamily: 'sans-serif',
         fontSize: '13px',
         color: '#ffe08a',
@@ -396,7 +468,7 @@ export class MapSelectScene extends Phaser.Scene {
     this.cardLayer.add(
       this.add
         .text(
-          x + cardWidth - 16,
+          x + cardWidth - CARD_PADDING_X,
           y + 38,
           `初期軍資金: ${initialFunds.toLocaleString()}`,
           {
@@ -410,11 +482,9 @@ export class MapSelectScene extends Phaser.Scene {
 
     // 1 行説明
     this.cardLayer.add(
-      this.add.text(x + 16, y + 58, entry.description, {
-        fontFamily: 'sans-serif',
-        fontSize: '12px',
-        color: '#c8c8d8',
-        wordWrap: { width: cardWidth - 32 },
+      this.add.text(x + CARD_PADDING_X, y + CARD_DESC_TOP, entry.description, {
+        ...DESC_TEXT_STYLE,
+        wordWrap: { width: cardWidth - CARD_PADDING_X * 2 },
       }),
     );
 
@@ -447,7 +517,7 @@ export class MapSelectScene extends Phaser.Scene {
       this.cardLayer.add(
         this.add
           .text(
-            x + cardWidth - 16,
+            x + cardWidth - CARD_PADDING_X,
             y + 12,
             save.nightBattle ? '中断データあり(夜戦)' : '中断データあり',
             {
@@ -461,6 +531,26 @@ export class MapSelectScene extends Phaser.Scene {
       );
     }
   }
+
+  /**
+   * カードの当たり判定。カードの矩形内であっても、一覧の表示領域(マスクで切り抜いた範囲)から
+   * はみ出した部分は反応させない。スクロールでヘッダーの位置まで上がってきたカードが
+   * 戦闘モードやゲーム説明のボタンのクリックを横取りするのを防ぐ。
+   * Phaser から呼ばれるため、this を固定できるようアロー関数のプロパティとして持つ。
+   */
+  private readonly cardHitTest = (
+    hitArea: Phaser.Geom.Rectangle,
+    localX: number,
+    localY: number,
+    card: Phaser.GameObjects.GameObject,
+  ): boolean => {
+    if (!Phaser.Geom.Rectangle.Contains(hitArea, localX, localY)) {
+      return false;
+    }
+    // localY はカード上端からの距離。コンテナのスクロール量を足すと画面上の Y になる
+    const screenY = this.cardLayer.y + (card as Phaser.GameObjects.Rectangle).y + localY;
+    return screenY >= CARD_TOP && screenY <= CARD_TOP + this.viewportHeight;
+  };
 
   /** 指定マップで再開できる中断データがあれば返す。なければ null */
   private savedDataFor(entry: MapEntry): SaveData | null {

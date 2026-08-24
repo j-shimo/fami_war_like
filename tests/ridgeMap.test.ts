@@ -12,10 +12,10 @@ import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { getTerrainData } from '@/data/terrainData';
 
 /**
- * 中立都市の区分けに使う列。自軍まわりの中立都市は col 5 以西、
+ * 中立都市の区分けに使う列。自軍まわりの中立都市は col 4 以西、
  * 取り合いの対象になる中央の中立都市は col 9〜10 に置いてある。
  */
-const PLAYER_SIDE_MAX_COL = 5;
+const PLAYER_SIDE_MAX_COL = 4;
 
 /** 生産拠点(工場・本拠地)の座標を軍ごとに集める。歩兵を出せる場所からの距離を測るために使う */
 function productionBasesOf(map: MapManager, army: 'player' | 'enemy'): GridPosition[] {
@@ -190,11 +190,21 @@ describe('RIDGE_MAP(逆転稜線マップ)', () => {
     );
     for (const base of homeNeutrals) {
       const pos = gridPosition(base.col, base.row);
-      // 自軍の工場・本拠地から 7 マス以内(歩兵で数ターン)
-      expect(distanceToNearest(pos, playerBases)).toBeLessThanOrEqual(7);
-      // 敵軍の工場・本拠地からは 14 マス以上離れている
-      expect(distanceToNearest(pos, enemyBases)).toBeGreaterThanOrEqual(14);
+      // 自軍の工場・本拠地から 4 マス以内(生産した歩兵が 1〜2 ターンで着ける足元の距離)
+      expect(distanceToNearest(pos, playerBases)).toBeLessThanOrEqual(4);
+      // 敵軍の工場・本拠地からは 15 マス以上離れている
+      expect(distanceToNearest(pos, enemyBases)).toBeGreaterThanOrEqual(15);
     }
+  });
+
+  it('自軍まわりの中立都市は本拠地を挟んで北 4 個・南 4 個に分かれている', () => {
+    const map = MapManager.fromDefinition(RIDGE_MAP);
+    const homeNeutrals = basesOf(map, 'neutral').filter(
+      (b) => b.col <= PLAYER_SIDE_MAX_COL,
+    );
+    // 本拠地は (1,8)。北の工場 (1,5) と南の工場 (1,11) がそれぞれ 4 個ずつを担当する
+    expect(homeNeutrals.filter((b) => b.row < 8)).toHaveLength(4);
+    expect(homeNeutrals.filter((b) => b.row > 8)).toHaveLength(4);
   });
 
   it('敵軍にとって最寄りの中立都市は中央にあり、自軍の最寄りよりずっと遠い', () => {
