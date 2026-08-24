@@ -3,7 +3,7 @@
 
 /**
  * ユニットの種別。
- * 地上系(歩兵・軽戦車・中戦車・重戦車・自走砲・ロケット砲・対空戦車・偵察車)、
+ * 地上系(歩兵・軽戦車・中戦車・重戦車・自走砲・ロケット砲・対空戦車・偵察車・輸送車)、
  * 飛行系(戦闘ヘリ・輸送ヘリ)に加え、海上系(戦艦・護衛艦・輸送艦・潜水艦)を扱う。
  *
  * 戦車は装甲と機動力のバランスで 3 段階に分かれる。
@@ -20,6 +20,7 @@ export type UnitType =
   | 'transportHelicopter'
   | 'antiAirTank'
   | 'recon'
+  | 'transportVehicle'
   | 'battleship'
   | 'escortShip'
   | 'transportShip'
@@ -37,6 +38,7 @@ export const UNIT_TYPES: readonly UnitType[] = [
   'transportHelicopter',
   'antiAirTank',
   'recon',
+  'transportVehicle',
   'battleship',
   'escortShip',
   'transportShip',
@@ -58,7 +60,7 @@ export const NAVAL_UNIT_TYPES: readonly UnitType[] = [
   'submarine',
 ];
 
-/** 地上ユニット(工場・本拠地で生産する 8 種)の一覧。輸送艦で運べる種別でもある */
+/** 地上ユニット(工場・本拠地で生産する 9 種)の一覧。輸送艦で運べる種別でもある */
 export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'infantry',
   'lightTank',
@@ -68,4 +70,5 @@ export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'rocketArtillery',
   'antiAirTank',
   'recon',
+  'transportVehicle',
 ];
