@@ -6,7 +6,7 @@ import { TEST_MAP } from '@/data/maps/testMap';
 
 const PLACEMENTS: readonly UnitPlacement[] = [
   { col: 1, row: 1, unitType: 'infantry', army: 'player' },
-  { col: 2, row: 1, unitType: 'tank', army: 'enemy' },
+  { col: 2, row: 1, unitType: 'mediumTank', army: 'enemy' },
 ];
 
 describe('UnitManager', () => {
@@ -32,7 +32,7 @@ describe('UnitManager', () => {
   it('同一マスへの重複配置は例外を投げる', () => {
     const dup: UnitPlacement[] = [
       { col: 3, row: 3, unitType: 'infantry', army: 'player' },
-      { col: 3, row: 3, unitType: 'tank', army: 'player' },
+      { col: 3, row: 3, unitType: 'mediumTank', army: 'player' },
     ];
     expect(() => UnitManager.fromPlacements(dup)).toThrow();
   });
@@ -48,7 +48,7 @@ describe('UnitManager', () => {
   it('進入不可地形への配置は例外を投げる', () => {
     // TEST_MAP の (4,3) は山。車両(戦車)は進入不可
     const onMountain: UnitPlacement[] = [
-      { col: 4, row: 3, unitType: 'tank', army: 'player' },
+      { col: 4, row: 3, unitType: 'mediumTank', army: 'player' },
     ];
     const map = MapManager.fromDefinition(TEST_MAP);
     expect(() => UnitManager.fromPlacements(onMountain, map)).toThrow();
@@ -99,7 +99,7 @@ describe('UnitManager', () => {
   it('spawnUnit は新規ユニットを配置し既定で行動済みにする', () => {
     const manager = UnitManager.fromPlacements(PLACEMENTS);
     const spawned = manager.spawnUnit({
-      unitType: 'tank',
+      unitType: 'mediumTank',
       army: 'player',
       position: gridPosition(4, 4),
     });
@@ -112,7 +112,7 @@ describe('UnitManager', () => {
     const manager = UnitManager.fromPlacements(PLACEMENTS);
     expect(() =>
       manager.spawnUnit({
-        unitType: 'tank',
+        unitType: 'mediumTank',
         army: 'player',
         position: gridPosition(1, 1),
       }),
@@ -172,7 +172,7 @@ describe('UnitManager', () => {
   it('mergeUnit は合流できない組み合わせで例外を投げる', () => {
     const manager = UnitManager.fromPlacements([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 1, row: 0, unitType: 'tank', army: 'player' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
     ]);
     const source = manager.getUnitAt(gridPosition(0, 0))!;
     const target = manager.getUnitAt(gridPosition(1, 0))!;

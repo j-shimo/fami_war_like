@@ -170,7 +170,7 @@ describe('海上ユニットの攻撃対象', () => {
     expect(canHit('submarine')).toBe(true);
     for (const unitType of [
       'infantry',
-      'tank',
+      'mediumTank',
       'artillery',
       'attackHelicopter',
       'antiAirTank',
@@ -228,8 +228,8 @@ describe('海上ユニットの射程と相性', () => {
     const battleship = makeUnit('battleship');
     const vsInfantry = calculateDamage(battleship, makeUnit('infantry', 'enemy'), 0);
     // 戦車・自走砲・対空戦車はいずれも「戦車系」として 7〜8 割
-    const vsTankFamily = (['tank', 'artillery', 'antiAirTank'] as const).map((type) =>
-      calculateDamage(battleship, makeUnit(type, 'enemy'), 0),
+    const vsTankFamily = (['mediumTank', 'artillery', 'antiAirTank'] as const).map(
+      (type) => calculateDamage(battleship, makeUnit(type, 'enemy'), 0),
     );
     // 基礎ダメージ: 歩兵60 → 6
     expect(vsInfantry).toBe(6);
@@ -337,7 +337,7 @@ describe('輸送艦による地上ユニットの輸送', () => {
     const units = UnitManager.fromPlacements(
       [
         { col: 0, row: 0, unitType: 'transportShip', army: 'player' },
-        { col: 1, row: 0, unitType: 'tank', army: 'player' },
+        { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
         { col: 2, row: 0, unitType: 'infantry', army: 'player' },
         { col: 1, row: 1, unitType: 'artillery', army: 'player' },
       ],

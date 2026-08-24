@@ -34,7 +34,7 @@ describe('canMerge', () => {
 
   it('種別が異なると合流できない', () => {
     const a = makeUnit('a', 'infantry', 'player', 4);
-    const b = makeUnit('b', 'tank', 'player', 5);
+    const b = makeUnit('b', 'mediumTank', 'player', 5);
     expect(canMerge(a, b)).toBe(false);
   });
 

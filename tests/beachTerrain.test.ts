@@ -77,7 +77,7 @@ describe('海岸の移動', () => {
   it('車両(戦車)も海岸へ入れるが、コスト 2 ぶん移動力を余分に使う', () => {
     const map = MapManager.fromDefinition(def);
     const units = UnitManager.fromPlacements(
-      [{ col: 0, row: 0, unitType: 'tank', army: 'player' }],
+      [{ col: 0, row: 0, unitType: 'mediumTank', army: 'player' }],
       map,
     );
     const tank = units.getUnitAt(gridPosition(0, 0));
@@ -166,7 +166,7 @@ describe('海岸での乗船・上陸', () => {
     const units = UnitManager.fromPlacements(
       [
         { col: 1, row: 0, unitType: 'transportShip', army: 'player' },
-        { col: 0, row: 0, unitType: 'tank', army: 'player' },
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       ],
       map,
     );
@@ -186,7 +186,7 @@ describe('海岸での乗船・上陸', () => {
     const units = UnitManager.fromPlacements(
       [
         { col: 1, row: 1, unitType: 'transportShip', army: 'player' },
-        { col: 2, row: 1, unitType: 'tank', army: 'player' },
+        { col: 2, row: 1, unitType: 'mediumTank', army: 'player' },
       ],
       map,
     );

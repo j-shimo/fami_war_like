@@ -16,7 +16,7 @@ function makeUnit(unitType: UnitType): Unit {
 }
 
 describe('buildBattleForecastView', () => {
-  const tank = makeUnit('tank');
+  const tank = makeUnit('mediumTank');
   const infantry = makeUnit('infantry');
 
   it('与ダメージと反撃を自軍・敵軍が分かる形で表示する', () => {
@@ -35,7 +35,7 @@ describe('buildBattleForecastView', () => {
     const view = buildBattleForecastView(forecast, tank, infantry);
 
     expect(view.lines[0]).toBe('戦闘予測');
-    expect(view.lines[1]).toBe('戦車 → 歩兵');
+    expect(view.lines[1]).toBe('中戦車 → 歩兵');
     expect(view.lines[2]).toBe('こちらの攻撃: 7  敵HP 10→3');
     expect(view.lines[3]).toBe('敵の反撃: 1  自HP 10→9');
     expect(view.alert).toBe('none');

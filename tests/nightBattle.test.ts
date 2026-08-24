@@ -27,7 +27,7 @@ describe('夜戦の移動範囲', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     // 戦車(移動力5・視界2)。距離 4 の敵歩兵は視界の外なので見えていない
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -48,7 +48,7 @@ describe('夜戦の移動範囲', () => {
   it('見えない敵のマスを移動先に選ぶと、その 1 つ手前で強制待機になる', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -69,7 +69,7 @@ describe('夜戦の強制待機(resolveMovePath)', () => {
   it('経路上の見えない敵の 1 つ手前で止まる', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -90,7 +90,7 @@ describe('夜戦の強制待機(resolveMovePath)', () => {
   it('味方が隣接して見張っている敵は発見済みなので、すり抜けも強制待機も起きない', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       // (3,0) の味方歩兵(視界2)が隣の敵を照らすため、敵は見えている
       { col: 3, row: 0, unitType: 'infantry', army: 'player' },
       { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
@@ -111,7 +111,7 @@ describe('夜戦の強制待機(resolveMovePath)', () => {
   it('敵に出くわさなければ指定した移動先まで進む', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
 
@@ -130,7 +130,7 @@ describe('夜戦の強制待機(resolveMovePath)', () => {
   it('到達できない移動先を指定すると開始マスに留まる', () => {
     const map = MapManager.fromDefinition(ROAD_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
 

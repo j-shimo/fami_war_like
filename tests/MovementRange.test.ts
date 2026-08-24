@@ -48,7 +48,9 @@ describe('calculateMovementRange', () => {
     const map = MapManager.fromDefinition(def);
 
     // 車両(戦車・移動力5)を (0,0) に置く。森コストは車両で 2
-    const vehicles = makeUnits([{ col: 0, row: 0, unitType: 'tank', army: 'player' }]);
+    const vehicles = makeUnits([
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
+    ]);
     const tank = vehicles.getUnitAt(gridPosition(0, 0))!;
     const tankRange = calculateMovementRange(tank, map, vehicles);
     // (0,0)=0, 森(1,0)=2, 森(2,0)=4, 平地(3,0)=5, 平地(4,0)=6>5 で不可
@@ -70,7 +72,7 @@ describe('calculateMovementRange', () => {
     // 中央に山。車両はまわり込む必要がある
     const def: MapDefinition = { name: 'mountain', terrain: ['...', '.m.', '...'] };
     const map = MapManager.fromDefinition(def);
-    const units = makeUnits([{ col: 1, row: 0, unitType: 'tank', army: 'player' }]);
+    const units = makeUnits([{ col: 1, row: 0, unitType: 'mediumTank', army: 'player' }]);
     const tank = units.getUnitAt(gridPosition(1, 0))!;
 
     const range = calculateMovementRange(tank, map, units);
@@ -82,7 +84,7 @@ describe('calculateMovementRange', () => {
     const def: MapDefinition = { name: 'block', terrain: ['.....'] };
     const map = MapManager.fromDefinition(def);
     const units = makeUnits([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -98,7 +100,7 @@ describe('calculateMovementRange', () => {
     const def: MapDefinition = { name: 'ally', terrain: ['.....'] };
     const map = MapManager.fromDefinition(def);
     const units = makeUnits([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'player' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -162,7 +164,7 @@ describe('findMergeTargets', () => {
     const units = makeUnits([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
       // 種別違い(戦車)
-      { col: 1, row: 0, unitType: 'tank', army: 'player' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
       // 満タンの歩兵
       { col: 0, row: 1, unitType: 'infantry', army: 'player' },
     ]);
@@ -214,7 +216,7 @@ describe('UnitManager.moveUnit', () => {
   it('他ユニットが占有するマスへは移動できない', () => {
     const units = makeUnits([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 1, row: 0, unitType: 'tank', army: 'player' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
     ]);
     const mover = units.getUnitAt(gridPosition(0, 0))!;
 

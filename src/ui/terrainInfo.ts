@@ -60,8 +60,9 @@ export function formatTerrainInfo(
   if (!options.compact) {
     lines.push(`移動コスト 歩兵: ${moveCostLabel(data.moveCost.infantry)}`);
     lines.push(`移動コスト 車両: ${moveCostLabel(data.moveCost.vehicle)}`);
-    // 偵察車は車両と移動コストが大きく異なる(道路・拠点は 1、平地 2、海岸 4、森・山は進入不可)
-    lines.push(`移動コスト 偵察: ${moveCostLabel(data.moveCost.recon)}`);
+    // 装輪車両(偵察車・ロケット砲)は装軌車両と移動コストが大きく異なる
+    // (道路・拠点は 1、平地 2、海岸 4、森・山は進入不可)
+    lines.push(`移動コスト 装輪: ${moveCostLabel(data.moveCost.wheeled)}`);
     // 海上ユニットが進入できる地形(海・港)だけ、海上の移動コストも併記する。
     // 進入できない地形では自明に「×」なので、行数を増やさないために省略する。
     if (data.moveCost.sea !== null) {

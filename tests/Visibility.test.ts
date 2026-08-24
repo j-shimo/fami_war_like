@@ -27,7 +27,7 @@ describe('Visibility(昼戦)', () => {
     const map = MapManager.fromDefinition(PLAIN_DEF);
     const units = UnitManager.fromPlacements([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 8, row: 8, unitType: 'tank', army: 'enemy' },
+      { col: 8, row: 8, unitType: 'mediumTank', army: 'enemy' },
     ]);
 
     const vision = computeVisibility(map, units, 'player', false);
@@ -70,12 +70,12 @@ describe('Visibility(夜戦)', () => {
     const map = MapManager.fromDefinition(PLAIN_DEF);
     // 戦車の視界は 2
     const units = UnitManager.fromPlacements([
-      { col: 4, row: 4, unitType: 'tank', army: 'player' },
+      { col: 4, row: 4, unitType: 'mediumTank', army: 'player' },
     ]);
 
     const vision = computeVisibility(map, units, 'player', true);
 
-    expect(getUnitData('tank').vision).toBe(2);
+    expect(getUnitData('mediumTank').vision).toBe(2);
     expect(vision.isLit(gridPosition(4, 4))).toBe(true);
     expect(vision.isLit(gridPosition(4, 6))).toBe(true);
     expect(vision.isLit(gridPosition(5, 5))).toBe(true);
@@ -109,7 +109,7 @@ describe('Visibility(夜戦)', () => {
   it('明るいマスにいる敵は見え、暗いマスにいる敵は見えない', () => {
     const map = MapManager.fromDefinition(PLAIN_DEF);
     const units = UnitManager.fromPlacements([
-      { col: 4, row: 4, unitType: 'tank', army: 'player' },
+      { col: 4, row: 4, unitType: 'mediumTank', army: 'player' },
       { col: 4, row: 6, unitType: 'infantry', army: 'enemy' },
       { col: 8, row: 8, unitType: 'infantry', army: 'enemy' },
     ]);
@@ -165,7 +165,7 @@ describe('Visibility(夜戦)', () => {
     const map = MapManager.fromDefinition(PLAIN_DEF);
     const units = UnitManager.fromPlacements([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 8, row: 8, unitType: 'tank', army: 'enemy' },
+      { col: 8, row: 8, unitType: 'mediumTank', army: 'enemy' },
     ]);
 
     const enemyVision = computeVisibility(map, units, 'enemy', true);
@@ -182,7 +182,7 @@ describe('ユニットごとの視界', () => {
     const vision = (type: Parameters<typeof getUnitData>[0]): number =>
       getUnitData(type).vision;
     expect(vision('infantry')).toBe(2);
-    expect(vision('tank')).toBe(2);
+    expect(vision('mediumTank')).toBe(2);
     expect(vision('artillery')).toBe(1);
     expect(vision('antiAirTank')).toBe(2);
     expect(vision('transportHelicopter')).toBe(2);
@@ -197,7 +197,7 @@ describe('ユニットごとの視界', () => {
 
   it('山の視界ボーナスを持つのは歩兵だけ', () => {
     expect(getUnitData('infantry').mountainVisionBonus).toBe(3);
-    expect(getUnitData('tank').mountainVisionBonus).toBe(0);
+    expect(getUnitData('mediumTank').mountainVisionBonus).toBe(0);
     expect(getUnitData('recon').mountainVisionBonus).toBe(0);
   });
 

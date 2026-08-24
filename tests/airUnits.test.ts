@@ -83,7 +83,7 @@ describe('新ユニットの戦闘相性', () => {
   it('対空戦車は飛行ユニットに強く、戦車には弱い', () => {
     const antiAir = makeUnit('antiAirTank');
     const heli = makeUnit('attackHelicopter');
-    const tank = makeUnit('tank');
+    const tank = makeUnit('mediumTank');
     const vsHeli = calculateDamage(antiAir, heli, 0);
     const vsTank = calculateDamage(antiAir, tank, 0);
     // 対戦闘ヘリ(基礎85)は高ダメージ、対戦車(基礎15)は低ダメージ
@@ -95,7 +95,7 @@ describe('新ユニットの戦闘相性', () => {
     const th = makeUnit('transportHelicopter');
     expect(th.canAttack).toBe(false);
     expect(calculateDamage(th, makeUnit('infantry'), 0)).toBe(0);
-    expect(calculateDamage(th, makeUnit('tank'), 0)).toBe(0);
+    expect(calculateDamage(th, makeUnit('mediumTank'), 0)).toBe(0);
   });
 });
 
@@ -123,7 +123,7 @@ describe('生産拠点ごとの生産可否', () => {
     const airport = map.getTile(gridPosition(0, 0))!;
     expect(production.canProduce('player', airport, 'attackHelicopter')).toBe(true);
     expect(production.canProduce('player', airport, 'transportHelicopter')).toBe(true);
-    expect(production.canProduce('player', airport, 'tank')).toBe(false);
+    expect(production.canProduce('player', airport, 'mediumTank')).toBe(false);
     expect(production.canProduce('player', airport, 'infantry')).toBe(false);
   });
 
@@ -131,13 +131,13 @@ describe('生産拠点ごとの生産可否', () => {
     const { map, production } = setup();
     const factory = map.getTile(gridPosition(1, 0))!;
     expect(production.canProduce('player', factory, 'antiAirTank')).toBe(true);
-    expect(production.canProduce('player', factory, 'tank')).toBe(true);
+    expect(production.canProduce('player', factory, 'mediumTank')).toBe(true);
     expect(production.canProduce('player', factory, 'attackHelicopter')).toBe(false);
   });
 
   it('生産拠点に合わない種別を produce すると例外を投げる', () => {
     const { map, production } = setup();
     const airport = map.getTile(gridPosition(0, 0))!;
-    expect(() => production.produce('player', airport, 'tank')).toThrow();
+    expect(() => production.produce('player', airport, 'mediumTank')).toThrow();
   });
 });

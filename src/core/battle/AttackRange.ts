@@ -7,6 +7,9 @@
 // 射程に加えて「相手の種別を攻撃できるか」も判定する。戦艦は潜水艦を、護衛艦は
 // ヘリ系・潜水艦以外を攻撃できないなど、相性表の基礎ダメージが 0 の組み合わせは
 // 射程内にいても攻撃対象にならない(canAttackUnit)。
+//
+// 反撃できるかどうかの判定(canCounterattack)もここに集約し、
+// BattleManager(実行)と BattleForecast(予測)の双方から使う。
 
 import {
   gridPosition,
@@ -15,7 +18,7 @@ import {
 } from '@/core/map/GridPosition';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
-import { canDamage } from '@/data/damageTable';
+import { canDamage, suppressesCounterattack } from '@/data/damageTable';
 
 /**
  * 攻撃側が防御側を攻撃対象にできるかを、種別の相性だけで判定する(射程は見ない)。
@@ -96,4 +99,30 @@ export function findAttackableTargets(
         isWithinAttackRange(attacker, target.position, from) &&
         (options.isVisible?.(target) ?? true),
     );
+}
+
+/**
+ * 攻撃を受けた防御側が、攻撃側へ反撃できるかを判定する。
+ * BattleManager(実行)と BattleForecast(予測)の双方がこの判定を使う。
+ *
+ * 反撃できるのは次をすべて満たす場合:
+ * - 直接攻撃(距離 1)を受けた
+ * - 防御側が攻撃側の種別を攻撃でき(相性表が 0 でない)、射程にも捉えている
+ * - 攻撃側によって反撃を封じられていない(例: 重戦車 → 対空戦車)
+ *
+ * @param defender 反撃する側(攻撃を受けたユニット)
+ * @param attacker 反撃の相手(攻撃してきたユニット)
+ * @param distance 両者のマンハッタン距離
+ */
+export function canCounterattack(
+  defender: Unit,
+  attacker: Unit,
+  distance: number,
+): boolean {
+  return (
+    distance === 1 &&
+    canAttackUnit(defender, attacker) &&
+    isWithinAttackRange(defender, attacker.position) &&
+    !suppressesCounterattack(attacker.unitType, defender.unitType)
+  );
 }

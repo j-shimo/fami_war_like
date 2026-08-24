@@ -42,8 +42,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: false,
     canProduce: false,
     canRepair: false,
-    // 偵察車は舗装のない平地では速度を落とす(道路・拠点の 2 倍のコスト)
-    moveCost: { infantry: 1, vehicle: 1, recon: 2, air: 1, sea: IMPASSABLE },
+    // 装輪車両(偵察車・ロケット砲)は舗装のない平地では速度を落とす(道路・拠点の 2 倍のコスト)
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 2, air: 1, sea: IMPASSABLE },
     color: 0x6b8f3a,
   },
   forest: {
@@ -53,8 +53,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: false,
     canProduce: false,
     canRepair: false,
-    // 偵察車は下草と立木に阻まれて森へは進入できない
-    moveCost: { infantry: 1, vehicle: 2, recon: IMPASSABLE, air: 1, sea: IMPASSABLE },
+    // 装輪車両は下草と立木に阻まれて森へは進入できない
+    moveCost: { infantry: 1, vehicle: 2, wheeled: IMPASSABLE, air: 1, sea: IMPASSABLE },
     color: 0x2f5d34,
   },
   mountain: {
@@ -67,8 +67,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     moveCost: {
       infantry: 2,
       vehicle: IMPASSABLE,
-      // 偵察車は車両と同じく山へは進入できない
-      recon: IMPASSABLE,
+      // 装輪車両も装軌車両と同じく山へは進入できない
+      wheeled: IMPASSABLE,
       air: 1,
       sea: IMPASSABLE,
     },
@@ -81,8 +81,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: false,
     canProduce: false,
     canRepair: false,
-    // 偵察車が最も速く走れる地形(コスト 1)
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: IMPASSABLE },
+    // 装輪車両が最も速く走れる地形(コスト 1)
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0xb7a98a,
   },
   sea: {
@@ -98,7 +98,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     moveCost: {
       infantry: IMPASSABLE,
       vehicle: IMPASSABLE,
-      recon: IMPASSABLE,
+      wheeled: IMPASSABLE,
       air: 1,
       sea: 1,
     },
@@ -115,8 +115,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     // 陸と海が接する唯一の非拠点地形。海上ユニットは港と同じくコスト 1 で進入・停泊でき、
     // 地上ユニット(歩兵・車両)は砂に足を取られながらコスト 2 で乗り降りできる。
     // これにより「港が無くても上陸・乗船できる」浜辺として機能する。
-    // 偵察車は軽量な車輪走行のため砂に足を取られやすく、コスト 4 と大きく減速する
-    moveCost: { infantry: 2, vehicle: 2, recon: 4, air: 1, sea: 1 },
+    // 装輪車両は軽量な車輪走行のため砂に足を取られやすく、コスト 4 と大きく減速する
+    moveCost: { infantry: 2, vehicle: 2, wheeled: 4, air: 1, sea: 1 },
     color: 0xd8c07c,
   },
   city: {
@@ -126,7 +126,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: true,
     canProduce: false,
     canRepair: true,
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: IMPASSABLE },
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0x9a9aa8,
   },
   factory: {
@@ -136,7 +136,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: true,
     canProduce: true,
     canRepair: true,
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: IMPASSABLE },
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0x7a7a86,
   },
   airport: {
@@ -149,7 +149,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     // 工場・本拠地では地上ユニットのみを生産する(docs/UnitSpec.md「生産拠点と生産可能ユニット」参照)。
     canProduce: true,
     canRepair: true,
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: IMPASSABLE },
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0x6f7d8c,
   },
   port: {
@@ -162,7 +162,7 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     // すべての移動タイプが進入でき、地上ユニットが港に停泊した輸送艦へ乗り込める。
     canProduce: true,
     canRepair: true,
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: 1 },
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: 1 },
     color: 0x4a7f9e,
   },
   headquarters: {
@@ -172,23 +172,23 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canCapture: true,
     canProduce: true,
     canRepair: true,
-    moveCost: { infantry: 1, vehicle: 1, recon: 1, air: 1, sea: IMPASSABLE },
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0xc0603a,
   },
 };
 
 /**
  * 修理拠点(地形)ごとに、そこで修理できるユニットの移動タイプ。
- * 修理拠点はユニットの移動タイプで分かれており、地上ユニット(歩兵・車両・偵察車)は
+ * 修理拠点はユニットの移動タイプで分かれており、地上ユニット(歩兵・装軌車両・装輪車両)は
  * 都市・工場・本拠地、飛行ユニットは空港、海上ユニットは港でのみ修理できる。
  * 一覧に無い地形(平地など)では修理できない。詳細は docs/GameDesign.md「修理」を参照。
  */
 export const REPAIRABLE_MOVEMENT_TYPES_BY_TERRAIN: Readonly<
   Partial<Record<TerrainType, readonly MovementType[]>>
 > = {
-  city: ['infantry', 'vehicle', 'recon'],
-  factory: ['infantry', 'vehicle', 'recon'],
-  headquarters: ['infantry', 'vehicle', 'recon'],
+  city: ['infantry', 'vehicle', 'wheeled'],
+  factory: ['infantry', 'vehicle', 'wheeled'],
+  headquarters: ['infantry', 'vehicle', 'wheeled'],
   airport: ['air'],
   port: ['sea'],
 };

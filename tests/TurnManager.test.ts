@@ -4,7 +4,7 @@ import { UnitManager, type UnitPlacement } from '@/core/units/UnitManager';
 
 const PLACEMENTS: readonly UnitPlacement[] = [
   { col: 1, row: 1, unitType: 'infantry', army: 'player' },
-  { col: 2, row: 1, unitType: 'tank', army: 'player' },
+  { col: 2, row: 1, unitType: 'mediumTank', army: 'player' },
   { col: 5, row: 5, unitType: 'artillery', army: 'enemy' },
 ];
 

@@ -52,7 +52,7 @@ describe('CaptureSystem', () => {
 
   it('占領能力のないユニットは占領できない', () => {
     const tile = makeTile('city', 'enemy');
-    const tank = makeUnit('tank', 'player');
+    const tank = makeUnit('mediumTank', 'player');
     expect(capture.canCapture(tank, tile)).toBe(false);
   });
 

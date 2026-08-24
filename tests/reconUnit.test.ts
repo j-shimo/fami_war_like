@@ -37,7 +37,7 @@ describe('偵察車の基本パラメータ', () => {
     expect(data.unitName).toBe('偵察車');
     expect(data.cost).toBe(3500);
     expect(data.movement).toBe(8);
-    expect(data.movementType).toBe('recon');
+    expect(data.movementType).toBe('wheeled');
     expect(data.minAttackRange).toBe(1);
     expect(data.maxAttackRange).toBe(1);
     expect(data.canCapture).toBe(false);
@@ -58,11 +58,11 @@ describe('偵察車の基本パラメータ', () => {
   });
 
   it('地上ユニットなので都市・工場・本拠地で修理できる', () => {
-    expect(canRepairAt('city', 'recon')).toBe(true);
-    expect(canRepairAt('factory', 'recon')).toBe(true);
-    expect(canRepairAt('headquarters', 'recon')).toBe(true);
-    expect(canRepairAt('airport', 'recon')).toBe(false);
-    expect(canRepairAt('port', 'recon')).toBe(false);
+    expect(canRepairAt('city', 'wheeled')).toBe(true);
+    expect(canRepairAt('factory', 'wheeled')).toBe(true);
+    expect(canRepairAt('headquarters', 'wheeled')).toBe(true);
+    expect(canRepairAt('airport', 'wheeled')).toBe(false);
+    expect(canRepairAt('port', 'wheeled')).toBe(false);
   });
 
   it('輸送艦に積める地上ユニットに含まれる', () => {
@@ -78,7 +78,7 @@ describe('偵察車の基本パラメータ', () => {
 describe('偵察車の地形移動コスト', () => {
   it('道路・占領できる地形は1、平地は2、海岸は4、森・山・海は進入不可', () => {
     const cost = (terrain: Parameters<typeof getTerrainData>[0]): number | null =>
-      getTerrainData(terrain).moveCost.recon;
+      getTerrainData(terrain).moveCost.wheeled;
 
     expect(cost('road')).toBe(1);
     expect(cost('city')).toBe(1);
@@ -130,7 +130,7 @@ describe('偵察車の攻撃相性', () => {
     expect(getBaseDamage('recon', 'infantry')).toBeGreaterThanOrEqual(60);
     expect(getBaseDamage('recon', 'infantry')).toBeLessThanOrEqual(70);
     // 戦車系には不利(1〜2 割)
-    for (const target of ['tank', 'artillery', 'antiAirTank'] as const) {
+    for (const target of ['mediumTank', 'artillery', 'antiAirTank'] as const) {
       expect(getBaseDamage('recon', target)).toBeLessThanOrEqual(20);
       expect(getBaseDamage('recon', target)).toBeGreaterThan(0);
     }
@@ -161,8 +161,8 @@ describe('偵察車の攻撃相性', () => {
       expect(getBaseDamage(attacker, 'recon')).toBeGreaterThanOrEqual(0);
     }
     // 戦車は装甲の薄い偵察車に強い
-    expect(getBaseDamage('tank', 'recon')).toBeGreaterThan(
-      getBaseDamage('recon', 'tank'),
+    expect(getBaseDamage('mediumTank', 'recon')).toBeGreaterThan(
+      getBaseDamage('recon', 'mediumTank'),
     );
   });
 });

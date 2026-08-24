@@ -55,7 +55,7 @@ describe('canCarry(輸送の可否判定)', () => {
     });
     const tank = new Unit({
       id: 'tk',
-      unitType: 'tank',
+      unitType: 'mediumTank',
       armyType: 'player',
       position: gridPosition(1, 0),
     });
@@ -144,7 +144,7 @@ describe('UnitManager の搭乗・降車', () => {
     const units = UnitManager.fromPlacements([
       { col: 0, row: 0, unitType: 'transportHelicopter', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 0, row: 1, unitType: 'tank', army: 'player' },
+      { col: 0, row: 1, unitType: 'mediumTank', army: 'player' },
     ]);
     const transport = units.getUnitAt(gridPosition(0, 0))!;
     const infantry = units.getUnitAt(gridPosition(1, 0))!;
@@ -217,7 +217,7 @@ describe('findUnloadPositions(降車先の探索)', () => {
       { col: 1, row: 1, unitType: 'transportHelicopter', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'player' },
       // 右(2,1)には他ユニットを置いて降車先から外れることを確認する
-      { col: 2, row: 1, unitType: 'tank', army: 'player' },
+      { col: 2, row: 1, unitType: 'mediumTank', army: 'player' },
     ]);
     const transport = units.getUnitAt(gridPosition(1, 1))!;
     const infantry = units.getUnitAt(gridPosition(1, 0))!;

@@ -18,7 +18,7 @@ const MAP_DEF: MapDefinition = {
 // 双方が生存ユニットを持つ標準的な初期配置
 const PLACEMENTS: readonly UnitPlacement[] = [
   { col: 1, row: 2, unitType: 'infantry', army: 'player' },
-  { col: 2, row: 1, unitType: 'tank', army: 'enemy' },
+  { col: 2, row: 1, unitType: 'mediumTank', army: 'enemy' },
 ];
 
 function makeMap(): MapManager {
@@ -102,7 +102,7 @@ describe('VictoryConditionChecker', () => {
     const map = makeMap();
     // 敵ユニットのみ配置し、自軍はユニット 0 で開始する(生産で戦力を用意するマップを想定)
     const units = UnitManager.fromPlacements(
-      [{ col: 2, row: 1, unitType: 'tank', army: 'enemy' }],
+      [{ col: 2, row: 1, unitType: 'mediumTank', army: 'enemy' }],
       map,
     );
     const checker = new VictoryConditionChecker(map, units);
@@ -115,7 +115,7 @@ describe('VictoryConditionChecker', () => {
     const map = makeMap();
     // 自軍ユニットがいない状態でも、敵本拠地を占領していれば勝利を優先する
     const units = UnitManager.fromPlacements(
-      [{ col: 2, row: 1, unitType: 'tank', army: 'enemy' }],
+      [{ col: 2, row: 1, unitType: 'mediumTank', army: 'enemy' }],
       map,
     );
     const checker = new VictoryConditionChecker(map, units);
@@ -137,7 +137,7 @@ describe('VictoryConditionChecker', () => {
     const units = UnitManager.fromPlacements(
       [
         { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-        { col: 3, row: 1, unitType: 'tank', army: 'enemy' },
+        { col: 3, row: 1, unitType: 'mediumTank', army: 'enemy' },
       ],
       map,
     );

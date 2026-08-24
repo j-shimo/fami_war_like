@@ -18,7 +18,7 @@ function makeUnit(unitType: UnitType): Unit {
 /** 攻撃結果の雛形。テストごとに必要な項目だけ上書きする */
 function makeResult(overrides: Partial<AttackResult> = {}): AttackResult {
   return {
-    attacker: makeUnit('tank'),
+    attacker: makeUnit('mediumTank'),
     defender: makeUnit('infantry'),
     damageDealt: 5,
     counterDamage: 0,

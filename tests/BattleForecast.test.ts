@@ -22,7 +22,7 @@ function setup(placements: Parameters<typeof UnitManager.fromPlacements>[0]): {
 describe('forecastBattle', () => {
   it('与ダメージと被弾後HP・撃破可否を予測する', () => {
     const { map, units } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -44,7 +44,7 @@ describe('forecastBattle', () => {
 
   it('予測は盤面(HP)を一切変更しない', () => {
     const { map, units } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -59,7 +59,7 @@ describe('forecastBattle', () => {
 
   it('予測値は実際の戦闘結果と一致する', () => {
     const { map, units } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const tank = units.getUnitAt(gridPosition(0, 0))!;
@@ -79,7 +79,7 @@ describe('forecastBattle', () => {
 
   it('撃破できる場合は反撃が発生しない', () => {
     const { map, units } = setup([
-      { col: 0, row: 0, unitType: 'tank', army: 'player' },
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
     ]);
     const infantry = units.getUnitAt(gridPosition(1, 0))!;
@@ -114,7 +114,7 @@ describe('forecastBattle', () => {
   it('反撃で攻撃側が撃破される場合を予測する', () => {
     const { map, units } = setup([
       { col: 0, row: 0, unitType: 'infantry', army: 'player' },
-      { col: 1, row: 0, unitType: 'tank', army: 'enemy' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
     ]);
     const infantry = units.getUnitAt(gridPosition(0, 0))!;
     infantry.currentHp = 1;
