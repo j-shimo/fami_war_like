@@ -62,6 +62,11 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
     '道路と拠点は速いが森・山・海には入れず、',
     '夜戦では最も広い視界(5マス)で敵を照らし出す。',
   ],
+  transportVehicle: [
+    '歩兵を1体運ぶ地上の輸送ユニット。',
+    '戦車と同じ足回りで前線へ送り込めるが、',
+    '被弾すると乗せた歩兵も同じダメージを受ける。',
+  ],
   battleship: [
     '射程3〜6の艦砲で叩く海の主力。',
     '陸の戦車系・水上艦・飛行ユニットに強いが、',

@@ -1,6 +1,6 @@
 // ユニット種別ごとのシルエットアイコンをコードで描く。
 // 外部画像は使わず(グラフィックはすべてオリジナルとする方針)、Phaser の
-// Graphics プリミティブだけで歩兵・戦車・自走砲・ヘリ・艦艇の姿を描き分ける。
+// Graphics プリミティブだけで歩兵・戦車・自走砲・輸送車・ヘリ・艦艇の姿を描き分ける。
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
 // 戦車 3 種(軽・中・重)は共通の車体シルエットを大きさで描き分ける。
@@ -216,6 +216,33 @@ function drawRecon(ctx: UnitIconContext): void {
 }
 
 /**
+ * 輸送車: 履帯つきの車体に箱型の荷台(兵員室)を載せたシルエット。
+ * タイヤと索敵アンテナを持つ偵察車、砲塔と砲身を持つ戦車と見分けられるようにする。
+ */
+function drawTransportVehicle(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 履帯を含む車体下部(装軌車両であることを示す)
+  g.fillRoundedRect(cx - r * 0.64, cy + r * 0.16, r * 1.28, r * 0.32, r * 0.12);
+  // 箱型の荷台(兵員室)。背の高い四角形で「運ぶ車」を表す
+  g.fillRect(cx - r * 0.52, cy - r * 0.4, r * 0.92, r * 0.56);
+  // 前面の傾斜した装甲板(進行方向を示す)
+  g.fillPoints(
+    [
+      { x: cx + r * 0.4, y: cy - r * 0.12 },
+      { x: cx + r * 0.68, y: cy + r * 0.04 },
+      { x: cx + r * 0.68, y: cy + r * 0.16 },
+      { x: cx + r * 0.4, y: cy + r * 0.16 },
+    ],
+    true,
+  );
+  // 屋根の上の小さな機銃(自衛用の軽武装)
+  g.fillRect(cx - r * 0.12, cy - r * 0.56, r * 0.22, r * 0.18);
+  g.lineStyle(Math.max(1.5, r * 0.07), color, alpha);
+  g.lineBetween(cx + r * 0.06, cy - r * 0.48, cx + r * 0.46, cy - r * 0.48);
+}
+
+/**
  * 艦艇共通の船体(下すぼまりの台形)を描く。水上艦のアイコンで共用する。
  * 上部構造の描き分けで戦艦・護衛艦・輸送艦を区別する。
  */
@@ -329,6 +356,9 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'recon':
       drawRecon(ctx);
+      break;
+    case 'transportVehicle':
+      drawTransportVehicle(ctx);
       break;
     case 'battleship':
       drawBattleship(ctx);

@@ -38,13 +38,13 @@ const TITLE_HEIGHT = 34;
  * タイトルバー下の本体の高さ。
  * 左の一覧(全ユニット種別ぶんの行)と右の相性表(同じ行数)が収まる高さにする。
  */
-const BODY_HEIGHT = 400;
+const BODY_HEIGHT = 412;
 /** ウィンドウ全体の高さ */
 const WIN_HEIGHT = TITLE_HEIGHT + BODY_HEIGHT;
 /** 左側のユニット一覧の幅 */
 const LIST_WIDTH = 148;
 /** 一覧の 1 行の高さ(全ユニット種別ぶんが BODY_HEIGHT に収まる高さにする) */
-const LIST_ROW_HEIGHT = 28;
+const LIST_ROW_HEIGHT = 27;
 /** 一覧のアイコン(軍色トークン)の半径 */
 const LIST_ICON_RADIUS = 11;
 /** 右側の詳細ペインの内側余白 */

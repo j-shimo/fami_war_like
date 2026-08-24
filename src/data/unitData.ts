@@ -24,11 +24,11 @@ export interface UnitData {
   readonly cost: number;
   /** 拠点を占領できるかどうか */
   readonly canCapture: boolean;
-  /** 輸送できるユニット数(輸送ヘリは 1・輸送艦は 2。輸送しないユニットは 0) */
+  /** 輸送できるユニット数(輸送ヘリ・輸送車は 1・輸送艦は 2。輸送しないユニットは 0) */
   readonly capacity: number;
   /**
    * 輸送できるユニット種別(capacity が 0 のユニットでは空配列)。
-   * 輸送ヘリは歩兵のみ、輸送艦はすべての地上ユニット(GROUND_UNIT_TYPES)を運べる。
+   * 輸送ヘリ・輸送車は歩兵のみ、輸送艦はすべての地上ユニット(GROUND_UNIT_TYPES)を運べる。
    */
   readonly carriableTypes: readonly UnitType[];
   /**
@@ -169,7 +169,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     movementType: 'air',
     minAttackRange: 1,
     maxAttackRange: 1,
-    cost: 7000,
+    cost: 8500,
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
@@ -187,7 +187,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     // 攻撃できないユニット。射程 0 で「攻撃不可」を表す。
     minAttackRange: 0,
     maxAttackRange: 0,
-    cost: 4000,
+    cost: 5500,
     canCapture: false,
     // 歩兵を 1 体だけ輸送できる。
     capacity: 1,
@@ -228,6 +228,26 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     // 索敵を役割とするユニットなので、護衛艦と並ぶ最も広い視界(5)を持つ。
     // 地上ユニットの中では単独で最も広い。
     vision: 5,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  transportVehicle: {
+    unitType: 'transportVehicle',
+    unitName: '輸送車',
+    maxHp: 10,
+    movement: 6,
+    // 履帯の装甲車。戦車 3 種・自走砲・対空戦車と同じ移動コスト(森は通れるが山・海は不可)。
+    movementType: 'vehicle',
+    // 偵察車と同じ近接攻撃(射程 1)のみ。相性表も偵察車と同じ値を持つ。
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 5000,
+    canCapture: false,
+    // 輸送ヘリと同じく、歩兵を 1 体だけ運べる。
+    capacity: 1,
+    carriableTypes: ['infantry'],
+    // 荷台に人と物資を積むことが役目で見張りに人手を割けない。夜戦では周囲 1 マスしか見えない。
+    vision: 1,
     mountainVisionBonus: 0,
     nightStealth: false,
   },
@@ -321,6 +341,7 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   headquarters: [
     'infantry',
     'recon',
+    'transportVehicle',
     'lightTank',
     'mediumTank',
     'heavyTank',
@@ -331,6 +352,7 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   factory: [
     'infantry',
     'recon',
+    'transportVehicle',
     'lightTank',
     'mediumTank',
     'heavyTank',

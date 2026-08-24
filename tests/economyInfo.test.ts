@@ -56,6 +56,7 @@ describe('economyInfo', () => {
     expect(items).toEqual([
       { unitType: 'infantry', unitName: '歩兵', cost: 1000 },
       { unitType: 'recon', unitName: '偵察車', cost: 3500 },
+      { unitType: 'transportVehicle', unitName: '輸送車', cost: 5000 },
       { unitType: 'lightTank', unitName: '軽戦車', cost: 6000 },
       { unitType: 'mediumTank', unitName: '中戦車', cost: 12000 },
       { unitType: 'heavyTank', unitName: '重戦車', cost: 18000 },
@@ -68,8 +69,8 @@ describe('economyInfo', () => {
   it('空港の生産一覧は飛行ユニットを表示順で返す', () => {
     const items = listProductionItems('airport');
     expect(items).toEqual([
-      { unitType: 'attackHelicopter', unitName: '戦闘ヘリ', cost: 7000 },
-      { unitType: 'transportHelicopter', unitName: '輸送ヘリ', cost: 4000 },
+      { unitType: 'attackHelicopter', unitName: '戦闘ヘリ', cost: 8500 },
+      { unitType: 'transportHelicopter', unitName: '輸送ヘリ', cost: 5500 },
     ]);
   });
 
