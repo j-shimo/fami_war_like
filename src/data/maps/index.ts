@@ -4,6 +4,7 @@
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
 import { TEST_MAP } from '@/data/maps/testMap';
 
@@ -40,6 +41,12 @@ export const MAP_LIST: readonly MapEntry[] = [
     definition: ISLAND_MAP,
     description:
       '海で本土が完全に分断された 20x24 の南北マップ。資金 0 から都市を集めて艦隊を整え、輸送艦で小島と敵本土へ渡る。後手の敵軍は都市が 2 個多い。',
+  },
+  {
+    id: 'ridge',
+    definition: RIDGE_MAP,
+    description:
+      '収入 4000 の自軍と 10000 の敵軍で始まる 20x16 の地上戦マップ。中央の稜線が北の森ルート(装輪車両は通行不可)と南の道路ルートに戦場を分ける。拠点近くの中立都市 8 個を取り切れば収入で追いつける。',
   },
 ];
 
