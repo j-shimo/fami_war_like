@@ -69,11 +69,15 @@ export class BattleEffects {
    * トークンを移動ルートに沿って 1 マスずつ走らせる(瞬間移動させない)。
    * 経路の先頭は開始マスなので、2 マス目から順に MOVE_STEP_MS ずつかけて進める。
    * 走り終えたら onComplete を呼ぶ(呼び出し側で盤面へ移動を反映する)。
+   *
+   * onStep を渡すと、1 マス進むごとにその区間の始点・終点の添字(path 上の位置)で
+   * 呼ばれる。敵の移動演出で、夜戦の暗いマスを走るあいだだけトークンを隠すのに使う。
    */
   moveTokenAlongPath(
     token: Phaser.GameObjects.Container,
     path: readonly GridPosition[],
     onComplete: () => void,
+    onStep?: (fromIndex: number, toIndex: number) => void,
   ): void {
     const steps = path.slice(1);
     const runStep = (index: number): void => {
@@ -81,6 +85,7 @@ export class BattleEffects {
         onComplete();
         return;
       }
+      onStep?.(index, index + 1);
       const { x, y } = gridToWorldCenter(steps[index], this.tileSize);
       this.scene.tweens.add({
         targets: token,
@@ -220,6 +225,26 @@ export class BattleEffects {
           ease: 'Quad.easeIn',
         });
       },
+    });
+  }
+
+  /**
+   * 拠点でユニットが生産されたことを見せる演出。
+   * そのマスから軍色のリングを広げ、新しいユニットが現れたことを目立たせる。
+   */
+  playSpawn(pos: GridPosition, bodyColor: number): void {
+    const { x, y } = gridToWorldCenter(pos, this.tileSize);
+    const ring = this.scene.add.circle(x, y, this.tileSize * 0.3);
+    ring.setStrokeStyle(3, bodyColor, 1);
+    ring.setScale(0.4);
+    this.layer.add(ring);
+    this.scene.tweens.add({
+      targets: ring,
+      scale: 1.5,
+      alpha: 0,
+      duration: 420,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
     });
   }
 

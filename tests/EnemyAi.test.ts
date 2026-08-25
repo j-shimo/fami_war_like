@@ -581,4 +581,90 @@ describe('EnemyAi.run(思考パターン)', () => {
     const { ai } = setup({ name: 't', terrain: ['...'] });
     expect(ai.aiBehavior).toEqual(DEFAULT_AI_BEHAVIOR);
   });
+
+  it('移動を伴う行動には、描画に使う移動経路が付く', () => {
+    // 12 マス平地。敵戦車は西端、自軍歩兵は届かない東端にいるので東へ近づくだけ
+    const { ai } = setup({
+      name: 't',
+      terrain: ['............'],
+      units: [
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: 11, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    });
+
+    const moves = actionsOfKind(ai.run(), 'move');
+    expect(moves).toHaveLength(1);
+    const { path, from, to } = moves[0];
+    // 経路は移動前の位置から始まり、停止マスで終わる
+    expect(path[0]).toEqual(from);
+    expect(path[path.length - 1]).toEqual(to);
+    // 1 マスずつ通ったマスが抜けなく並んでいる
+    expect(path).toHaveLength(to.col - from.col + 1);
+    expect(path.map((pos) => pos.col)).toEqual(path.map((_, index) => from.col + index));
+  });
+});
+
+describe('EnemyAi.runSteps', () => {
+  /** 敵戦車・敵歩兵と自軍歩兵を置き、敵軍に生産資金を持たせたテスト用の盤面 */
+  const def: MapDefinition = {
+    name: 't',
+    terrain: ['F...........', '............'],
+    owners: [{ col: 0, row: 0, owner: 'enemy' }],
+    units: [
+      // 自軍歩兵は戦車の移動力では届かない距離に置き、この手番は接近(移動)だけさせる
+      { col: 1, row: 1, unitType: 'mediumTank', army: 'enemy' },
+      { col: 11, row: 1, unitType: 'infantry', army: 'player' },
+    ],
+  };
+
+  it('1 行動ずつ実行でき、まとめて実行した run() と同じログになる', () => {
+    const stepwise = [...setup(def, { funds: 5000 }).ai.runSteps()];
+    const batched = setup(def, { funds: 5000 }).ai.run();
+
+    expect(stepwise.map((action) => action.kind)).toEqual(
+      batched.map((action) => action.kind),
+    );
+    // 移動と生産の両方が含まれる手番であることを確かめておく
+    expect(stepwise.some((action) => action.kind === 'move')).toBe(true);
+    expect(stepwise.some((action) => action.kind === 'produce')).toBe(true);
+  });
+
+  it('next() を呼ぶまで次の行動は実行されない(盤面がまだ変わらない)', () => {
+    const { units, economy, ai } = setup(def, { funds: 5000 });
+    const steps = ai.runSteps();
+    const before = economy.getFunds('enemy');
+
+    // 1 手目(戦車の移動)だけを実行する
+    const first = steps.next();
+    expect(first.done).toBe(false);
+    expect(first.value?.kind).toBe('move');
+    // 生産はまだ実行していないので、資金もユニット数も変わっていない
+    expect(economy.getFunds('enemy')).toBe(before);
+    expect(units.getUnitsByArmy('enemy')).toHaveLength(1);
+
+    // 残りを進めると生産が行われる
+    const rest = [...steps];
+    expect(rest.some((action) => action.kind === 'produce')).toBe(true);
+    expect(economy.getFunds('enemy')).toBeLessThan(before);
+    expect(units.getUnitsByArmy('enemy').length).toBeGreaterThan(1);
+  });
+
+  it('途中で列挙をやめると、残りのユニットは行動しないまま止まる', () => {
+    const twoUnits: MapDefinition = {
+      name: 't',
+      terrain: ['............'],
+      units: [
+        { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: 11, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    };
+    const { units, ai } = setup(twoUnits);
+    const steps = ai.runSteps();
+    steps.next();
+
+    const acted = units.getUnitsByArmy('enemy').filter((unit) => unit.hasActed);
+    expect(acted).toHaveLength(1);
+  });
 });

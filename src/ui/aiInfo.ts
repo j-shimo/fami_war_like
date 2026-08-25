@@ -1,5 +1,8 @@
 // 敵軍AIの行動を情報パネル向けの文字列へ整形する。
 // 表示ロジックのみを担い、Phaser には依存しない純粋な関数。
+//
+// 手番ぶんをまとめた集計(formatEnemyTurnSummary)と、
+// 「敵の行動アニメ」で 1 行動ずつ見せるときの実況(formatEnemyActionLog)の 2 つを持つ。
 
 import type { AiAction } from '@/core/ai/EnemyAi';
 
@@ -74,6 +77,57 @@ export function formatEnemyTurnSummary(
   }
   if (lines.length === 1) {
     lines.push('待機');
+  }
+  return lines;
+}
+
+/**
+ * 敵軍の行動 1 件を、演出中の情報パネル用テキストへ整形する。
+ * 「敵の行動アニメ」で 1 行動ずつ見せるあいだ、いま何をしているのかを示すために使う。
+ *
+ * 見出しは手番の集計と同じく指揮官名(省略時は「敵軍の行動」)にそろえ、
+ * その下に行動の種別と対象を並べる。
+ */
+export function formatEnemyActionLog(
+  action: AiAction,
+  options: EnemyTurnSummaryOptions = {},
+): string[] {
+  const lines = [options.commander ? `${options.commander} の行動` : '敵軍の行動'];
+  switch (action.kind) {
+    case 'attack': {
+      const { attacker, defender, damageDealt } = action.result;
+      lines.push('攻撃', `${attacker.unitName} → ${defender.unitName}`);
+      lines.push(`ダメージ: ${damageDealt}`);
+      if (action.result.defenderDefeated) {
+        lines.push(`${defender.unitName} を撃破`);
+      }
+      if (action.result.counterDamage > 0) {
+        lines.push(`反撃: ${action.result.counterDamage}`);
+      }
+      if (action.result.attackerDefeated) {
+        lines.push(`${attacker.unitName} を撃破`);
+      }
+      break;
+    }
+    case 'capture':
+      lines.push('占領', `${action.result.unit.unitName} が占領`);
+      lines.push(
+        action.result.captured ? '占領完了' : `残り耐久: ${action.result.remainingHp}`,
+      );
+      break;
+    case 'move':
+      lines.push('移動', action.unit.unitName);
+      break;
+    case 'halt':
+      lines.push('そうぐう！', `${action.unit.unitName} が停止`);
+      break;
+    case 'produce':
+      lines.push('生産', `${action.result.unit.unitName} を生産`);
+      lines.push(`消費資金: ${action.result.cost}`);
+      break;
+    case 'wait':
+      lines.push('待機', action.unit.unitName);
+      break;
   }
   return lines;
 }

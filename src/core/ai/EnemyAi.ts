@@ -55,18 +55,24 @@ export type AiAction =
       readonly result: AttackResult;
       /** 攻撃前に移動した先。その場から攻撃した場合は null */
       readonly movedTo: GridPosition | null;
+      /** 攻撃位置までの移動経路(先頭は移動前の位置。動かなければ 1 マスのみ) */
+      readonly path: readonly GridPosition[];
     }
   | {
       readonly kind: 'capture';
       readonly result: CaptureResult;
       /** 占領前に移動した先。その場で占領した場合は null */
       readonly movedTo: GridPosition | null;
+      /** 占領マスまでの移動経路(先頭は移動前の位置。動かなければ 1 マスのみ) */
+      readonly path: readonly GridPosition[];
     }
   | {
       readonly kind: 'move';
       readonly unit: Unit;
       readonly from: GridPosition;
       readonly to: GridPosition;
+      /** 実際にたどった移動経路(先頭は from、末尾は to) */
+      readonly path: readonly GridPosition[];
     }
   | {
       /** 夜戦で、移動経路上の見えない敵に出くわして手前のマスで強制待機になった */
@@ -76,6 +82,8 @@ export type AiAction =
       readonly to: GridPosition;
       /** 行く手を阻んだ敵ユニット */
       readonly blockedBy: Unit;
+      /** 停止マスまでの移動経路(先頭は from、末尾は to) */
+      readonly path: readonly GridPosition[];
     }
   | { readonly kind: 'produce'; readonly result: ProductionResult }
   | { readonly kind: 'wait'; readonly unit: Unit };
@@ -155,9 +163,23 @@ export class EnemyAi {
   /**
    * この AI の手番を実行する。手番開始時点で行動可能なユニットを順に処理し、
    * 最後に生産拠点での生産を行う。実行した行動のログを返す。
+   *
+   * 手番をまとめて処理するため、演出を挟まない「超速」の描画モードで使う。
    */
   run(): AiAction[] {
-    const actions: AiAction[] = [];
+    return [...this.runSteps()];
+  }
+
+  /**
+   * この AI の手番を 1 行動ずつ実行する。
+   * next() を呼ぶたびに次の 1 行動だけを実行してそのログを返すため、
+   * 呼び出し側は 1 行動ごとに演出を挟みながら手番を進められる
+   * (「簡単」以上の描画モードで使う)。
+   *
+   * 盤面はその行動を返す時点ですでに更新済みで、途中で列挙をやめれば
+   * 残りのユニットは行動しないまま(行動可能なまま)手番が終わる。
+   */
+  *runSteps(): Generator<AiAction, void, undefined> {
     // 経路距離は地形からのみ決まるため手番中は使い回せる。手番をまたぐと目標もユニットの
     // 位置も変わるため、無駄に抱え込まないよう手番の頭で捨てる。
     this.pathFields.clear();
@@ -169,11 +191,10 @@ export class EnemyAi {
       if (!unit.isAlive || unit.hasActed) {
         continue;
       }
-      actions.push(this.actUnit(unit));
+      yield this.actUnit(unit);
     }
 
-    actions.push(...this.produceAll());
-    return actions;
+    yield* this.produceAll();
   }
 
   /** ユニット 1 体の行動を優先順位に従って決定・実行する */
@@ -205,7 +226,12 @@ export class EnemyAi {
     unit: Unit,
     dest: GridPosition,
     vision: Visibility,
-  ): { readonly destination: GridPosition; readonly blockedBy: Unit | null } {
+  ): {
+    readonly destination: GridPosition;
+    readonly blockedBy: Unit | null;
+    /** たどった経路(先頭は移動前の位置)。描画側が移動演出に使う */
+    readonly path: readonly GridPosition[];
+  } {
     const resolved = resolveMovePath(
       unit,
       this.map,
@@ -216,7 +242,11 @@ export class EnemyAi {
     if (!equals(resolved.destination, unit.position)) {
       this.units.moveUnit(unit, resolved.destination, { markActed: false });
     }
-    return { destination: resolved.destination, blockedBy: resolved.blockedBy };
+    return {
+      destination: resolved.destination,
+      blockedBy: resolved.blockedBy,
+      path: resolved.path,
+    };
   }
 
   /**
@@ -290,11 +320,12 @@ export class EnemyAi {
         from,
         to: moved.destination,
         blockedBy: moved.blockedBy,
+        path: moved.path,
       };
     }
     const movedTo = equals(moved.destination, from) ? null : moved.destination;
     const result = this.battle.attack(unit, bestTarget);
-    return { kind: 'attack', result, movedTo };
+    return { kind: 'attack', result, movedTo, path: moved.path };
   }
 
   /**
@@ -383,11 +414,12 @@ export class EnemyAi {
         from,
         to: moved.destination,
         blockedBy: moved.blockedBy,
+        path: moved.path,
       };
     }
     const movedTo = equals(moved.destination, from) ? null : moved.destination;
     const result = this.capture.capture(unit, bestTile);
-    return { kind: 'capture', result, movedTo };
+    return { kind: 'capture', result, movedTo, path: moved.path };
   }
 
   /**
@@ -441,12 +473,13 @@ export class EnemyAi {
         from,
         to: moved.destination,
         blockedBy: moved.blockedBy,
+        path: moved.path,
       };
     }
     if (equals(moved.destination, from)) {
       return { kind: 'wait', unit };
     }
-    return { kind: 'move', unit, from, to: moved.destination };
+    return { kind: 'move', unit, from, to: moved.destination, path: moved.path };
   }
 
   /**
@@ -611,9 +644,11 @@ export class EnemyAi {
   /**
    * 生産拠点でユニットを生産する。自軍所有かつ空の生産拠点ごとに、
    * 思考パターンに従って生産する種別を決める。買わない(買えない)拠点は飛ばす。
+   *
+   * 拠点 1 つぶんの生産を実行するたびに結果を返すため(遅延実行)、
+   * 呼び出し側は生産を 1 件ずつ演出しながら進められる。
    */
-  private produceAll(): AiAction[] {
-    const actions: AiAction[] = [];
+  private *produceAll(): Generator<AiAction, void, undefined> {
     const producibleTiles: TileData[] = [];
     this.map.forEachTile((tile) => {
       if (this.production.canProduceAt(this.army, tile)) {
@@ -634,9 +669,8 @@ export class EnemyAi {
         continue;
       }
       const result = this.production.produce(this.army, tile, unitType);
-      actions.push({ kind: 'produce', result });
+      yield { kind: 'produce', result };
     }
-    return actions;
   }
 
   /**
