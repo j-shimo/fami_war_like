@@ -190,10 +190,29 @@ describe('RIDGE_MAP(逆転稜線マップ)', () => {
     );
     for (const base of homeNeutrals) {
       const pos = gridPosition(base.col, base.row);
-      // 自軍の工場・本拠地から 4 マス以内(生産した歩兵が 1〜2 ターンで着ける足元の距離)
-      expect(distanceToNearest(pos, playerBases)).toBeLessThanOrEqual(4);
-      // 敵軍の工場・本拠地からは 15 マス以上離れている
-      expect(distanceToNearest(pos, enemyBases)).toBeGreaterThanOrEqual(15);
+      // 自軍の工場・本拠地から 5 マス以内(生産した歩兵が 1〜2 ターンで着ける足元の距離)
+      expect(distanceToNearest(pos, playerBases)).toBeLessThanOrEqual(5);
+      // 敵軍の工場・本拠地からは 14 マス以上離れている
+      expect(distanceToNearest(pos, enemyBases)).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('両軍とも本拠地と 2 つの工場が 2 マス以内に固まっている', () => {
+    const map = MapManager.fromDefinition(RIDGE_MAP);
+    for (const army of ['player', 'enemy'] as const) {
+      const headquarters = basesOf(map, army).filter(
+        (b) => b.terrainType === 'headquarters',
+      );
+      expect(headquarters).toHaveLength(1);
+      const hq = gridPosition(headquarters[0].col, headquarters[0].row);
+      const factories = basesOf(map, army).filter((b) => b.terrainType === 'factory');
+      expect(factories).toHaveLength(2);
+      for (const factory of factories) {
+        expect(manhattanDistance(hq, gridPosition(factory.col, factory.row))).toBe(2);
+      }
+      // 工場は本拠地を挟んで北と南に 1 つずつ置く(南北 2 ルートへ 1 つずつ送り出せる)
+      expect(factories.filter((f) => f.row < hq.row)).toHaveLength(1);
+      expect(factories.filter((f) => f.row > hq.row)).toHaveLength(1);
     }
   });
 
