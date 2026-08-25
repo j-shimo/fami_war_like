@@ -29,10 +29,11 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 攻撃機(attackAircraft): 戦闘機と爆撃機の中間。空・陸・海のすべてを攻撃でき、
  *   とくに海上ユニットに強い。戦闘機には分が悪い(35)。潜水艦だけは攻撃できない。
  * - 戦闘ヘリ(attackHelicopter): 対歩兵に強く(80)、戦車は軽 65・中 55・重 45 と
- *   重くなるほど分が悪い。対空戦車には不利(15)。
+ *   重くなるほど分が悪い。対空戦車には不利(15)。固定翼機には攻撃できない(0)。
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
  * - 対空 3 種(antiAirTank・antiAirArtillery・antiAirRocketArtillery): 固定翼機
- *   (戦闘機・爆撃機・攻撃機)を攻撃できる地上ユニットはこの 3 種だけ。対空戦車は歩兵・車両も撃てるが、
+ *   (戦闘機・爆撃機・攻撃機)を撃てる地上ユニットはこの 3 種だけ(海上では戦艦のみ)。
+ *   対空戦車は歩兵・車両も撃てるが、
  *   対空自走砲(射程 2〜3)・対空ロケット砲(射程 3〜5)は飛行ユニット以外を攻撃できない(0)。
  * - 防御力(被ダメージの列)は、対空自走砲が自走砲と、対空ロケット砲がロケット砲と同じ値になる。
  * - 偵察車(recon): 近接攻撃のみの軽装甲車両。対歩兵は 6〜7 割だが、戦車系(1〜2 割)と
@@ -40,7 +41,8 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 輸送車(transportVehicle): 歩兵を 1 体運ぶ地上の輸送ユニット。相性は偵察車と同じ
  *   (攻撃側の行・防御側の列とも偵察車と同じ値)。
  * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
- * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦と飛行ユニット以外は撃てない(0)。
+ *   固定翼機を撃てる唯一の海上ユニット(戦闘機 60・攻撃機 70・爆撃機 80)。
+ * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ系以外は撃てない(0)。
  * - 潜水艦(submarine): 海上ユニットだけを狙う。護衛艦にだけは分が悪い(25)。
  * - 潜水艦を攻撃できるのは護衛艦と潜水艦のみ(他はすべて 0)。
  */
@@ -295,10 +297,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 45,
       artillery: 50,
       rocketArtillery: 85,
-      // 固定翼機とも撃ち合えるが、速さで勝る戦闘機にはほとんど通らない。
-      fighter: 25,
-      bomber: 50,
-      attackAircraft: 40,
+      // 固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。
+      // 高い高度を速く飛ぶ相手を、ヘリの武装では捉えられないという位置づけ。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 55,
       transportHelicopter: 80,
       antiAirTank: 15,
@@ -481,10 +484,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 75,
       artillery: 75,
       rocketArtillery: 90,
-      // 飛行ユニットには 8〜9 割。固定翼機もヘリ系と同じ水準で撃ち落とす。
-      fighter: 85,
-      bomber: 90,
-      attackAircraft: 85,
+      // 飛行ユニットを撃てる唯一の海上ユニット。速い固定翼機ほど捉えにくく、
+      // 戦闘機 6 割・攻撃機 7 割・爆撃機 8 割と、ヘリ系(8〜9 割)より通りにくい。
+      fighter: 60,
+      bomber: 80,
+      attackAircraft: 70,
       antiAirTank: 75,
       antiAirArtillery: 75,
       antiAirRocketArtillery: 90,
@@ -510,10 +514,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 0,
       artillery: 0,
       rocketArtillery: 0,
-      // 近接対空の護衛役。ヘリ系だけでなく固定翼機も撃てる。
-      fighter: 75,
-      bomber: 80,
-      attackAircraft: 80,
+      // 近接対空の護衛役だが、狙えるのはヘリ系まで。
+      // 高い高度を速く飛ぶ固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 75,
       transportHelicopter: 80,
       antiAirTank: 0,

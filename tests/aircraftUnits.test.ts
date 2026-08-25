@@ -16,6 +16,7 @@ import {
   AIR_UNIT_TYPES,
   GROUND_UNIT_TYPES,
   NAVAL_UNIT_TYPES,
+  UNIT_TYPES,
   type UnitType,
 } from '@/core/units/UnitType';
 import { getBaseDamage } from '@/data/damageTable';
@@ -275,12 +276,45 @@ describe('固定翼機への攻撃', () => {
     }
   });
 
-  it('海上ユニットのうち戦艦・護衛艦は固定翼機を攻撃できる', () => {
+  it('固定翼機を攻撃できる海上ユニットは戦艦だけ(戦闘機6割・攻撃機7割・爆撃機8割)', () => {
+    expect(getBaseDamage('battleship', 'fighter')).toBe(60);
+    expect(getBaseDamage('battleship', 'attackAircraft')).toBe(70);
+    expect(getBaseDamage('battleship', 'bomber')).toBe(80);
     for (const aircraft of FIXED_WING_TYPES) {
-      expect(getBaseDamage('battleship', aircraft)).toBeGreaterThanOrEqual(80);
-      expect(getBaseDamage('escortShip', aircraft)).toBeGreaterThanOrEqual(70);
+      // 護衛艦の近接対空はヘリ系まで。固定翼機・潜水艦・輸送艦は撃てない
+      expect(getBaseDamage('escortShip', aircraft)).toBe(0);
+      expect(canAttackUnit(makeUnit('escortShip'), makeUnit(aircraft, 'enemy'))).toBe(
+        false,
+      );
       expect(getBaseDamage('submarine', aircraft)).toBe(0);
       expect(getBaseDamage('transportShip', aircraft)).toBe(0);
+    }
+  });
+
+  it('戦闘ヘリは固定翼機を攻撃できない', () => {
+    for (const aircraft of FIXED_WING_TYPES) {
+      expect(getBaseDamage('attackHelicopter', aircraft)).toBe(0);
+      expect(
+        canAttackUnit(makeUnit('attackHelicopter'), makeUnit(aircraft, 'enemy')),
+      ).toBe(false);
+    }
+  });
+
+  it('固定翼機を攻撃できるのは対空 3 種・戦艦・戦闘機・攻撃機だけ', () => {
+    // 戦闘機・攻撃機は同種対決も成立するため、どの固定翼機を狙うときも顔ぶれは変わらない
+    const expected = [
+      'antiAirArtillery',
+      'antiAirRocketArtillery',
+      'antiAirTank',
+      'attackAircraft',
+      'battleship',
+      'fighter',
+    ];
+    for (const aircraft of FIXED_WING_TYPES) {
+      const attackers = UNIT_TYPES.filter(
+        (attacker) => getBaseDamage(attacker, aircraft) > 0,
+      );
+      expect([...attackers].sort()).toEqual(expected);
     }
   });
 
