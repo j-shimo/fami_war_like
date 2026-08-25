@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_AI_BEHAVIOR, type AiBehavior } from '@/core/ai/AiBehavior';
 import { EnemyAi, type AiAction } from '@/core/ai/EnemyAi';
 import { BattleManager } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -12,7 +13,7 @@ import type { MapDefinition } from '@/data/maps/mapDefinition';
 /** テスト用に敵軍AIと関連マネージャを組み立てる */
 function setup(
   def: MapDefinition,
-  options: { nightBattle?: boolean } = {},
+  options: { nightBattle?: boolean; behavior?: AiBehavior; funds?: number } = {},
 ): {
   map: MapManager;
   units: UnitManager;
@@ -22,6 +23,9 @@ function setup(
   const map = MapManager.fromDefinition(def);
   const units = UnitManager.fromPlacements(def.units ?? [], map);
   const economy = new EconomyManager();
+  if (options.funds !== undefined) {
+    economy.setFunds('enemy', options.funds);
+  }
   const battle = new BattleManager(map, units);
   const capture = new CaptureSystem();
   const production = new ProductionManager(units, economy);
@@ -32,9 +36,20 @@ function setup(
     capture,
     production,
     nightBattle: options.nightBattle,
+    behavior: options.behavior,
   });
   return { map, units, economy, ai };
 }
+
+/** 突撃長ガルムの思考パターン(歩兵をそろえて中立都市を制圧し、本拠地へ突き進む) */
+const CHARGE_BEHAVIOR: AiBehavior = {
+  production: 'infantryFirst',
+  infantryQuota: 6,
+  powerCostRatio: 0.5,
+  advance: 'captureAndCharge',
+  routing: 'path',
+  preferNeutralCapture: true,
+};
 
 /** 行動ログから指定種別のものだけ取り出す */
 function actionsOfKind<K extends AiAction['kind']>(
@@ -335,5 +350,142 @@ describe('EnemyAi.run(夜戦)', () => {
     expect(moves).toHaveLength(1);
     // 移動力 5 ぶん都市へ近づいている
     expect(tank.position).toEqual(gridPosition(5, 0));
+  });
+});
+
+describe('EnemyAi.run(思考パターン)', () => {
+  it('歩兵がそろうまでは、より高価なユニットを買えても歩兵を生産する', () => {
+    // 資金 10000。既定の思考パターンなら対空戦車(8000)を買うところで歩兵を選ぶ
+    const { economy, ai } = setup(
+      {
+        name: 't',
+        terrain: ['F..'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { behavior: CHARGE_BEHAVIOR },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('infantry');
+    expect(economy.getFunds('enemy')).toBe(9000);
+  });
+
+  it('歩兵がそろったら、安いユニットは買わずに資金を貯める', () => {
+    // 歩兵 6 体で目標数に到達済み。資金 10000 では工場の最強ユニット(重戦車 18000)の
+    // 半額 9000 に届くユニットを買えないため、このターンは生産を見送る
+    const { economy, ai } = setup(
+      {
+        name: 't',
+        terrain: ['F......'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [1, 2, 3, 4, 5, 6].map((col) => ({
+          col,
+          row: 0,
+          unitType: 'infantry' as const,
+          army: 'enemy' as const,
+        })),
+      },
+      { behavior: CHARGE_BEHAVIOR },
+    );
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+    expect(economy.getFunds('enemy')).toBe(10000);
+  });
+
+  it('資金が貯まれば、強力なユニットを生産する', () => {
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F......'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [1, 2, 3, 4, 5, 6].map((col) => ({
+          col,
+          row: 0,
+          unitType: 'infantry' as const,
+          army: 'enemy' as const,
+        })),
+      },
+      { behavior: CHARGE_BEHAVIOR, funds: 12000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('中立優先の思考パターンは、自軍所有の工場より中立都市を先に占領する', () => {
+    // (0,0) 中立都市 / (1,0) 自軍の工場 / (2,0) 敵歩兵。どちらも移動範囲内にある
+    const def: MapDefinition = {
+      name: 't',
+      terrain: ['cF.'],
+      owners: [{ col: 1, row: 0, owner: 'player' }],
+      units: [{ col: 2, row: 0, unitType: 'infantry', army: 'enemy' }],
+    };
+
+    const neutralFirst = actionsOfKind(
+      setup(def, { behavior: CHARGE_BEHAVIOR }).ai.run(),
+      'capture',
+    );
+    expect(neutralFirst).toHaveLength(1);
+    expect(neutralFirst[0].result.tile.position).toEqual(gridPosition(0, 0));
+
+    // 既定の思考パターンは拠点の格(工場 > 都市)を優先するため工場を狙う
+    const standard = actionsOfKind(setup(def).ai.run(), 'capture');
+    expect(standard).toHaveLength(1);
+    expect(standard[0].result.tile.position).toEqual(gridPosition(1, 0));
+  });
+
+  it('突撃型の歩兵は、近くの敵ではなく中立都市の制圧へ向かう', () => {
+    // (0,0) 中立都市 / (5,0) 敵歩兵 / (11,0) 自軍歩兵。敵歩兵からはどちらも移動範囲外
+    const def: MapDefinition = {
+      name: 't',
+      terrain: ['c...........'],
+      units: [
+        { col: 5, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 11, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    };
+
+    const charge = actionsOfKind(
+      setup(def, { behavior: CHARGE_BEHAVIOR }).ai.run(),
+      'move',
+    );
+    expect(charge).toHaveLength(1);
+    // 中立都市のある西へ進む
+    expect(charge[0].to).toEqual(gridPosition(2, 0));
+
+    // 既定の思考パターンは最寄りの敵(東)へ近づく
+    const standard = actionsOfKind(setup(def).ai.run(), 'move');
+    expect(standard).toHaveLength(1);
+    expect(standard[0].to).toEqual(gridPosition(8, 0));
+  });
+
+  it('突撃型は敵が見えていなくても、山を迂回して本拠地へ向かう', () => {
+    // col 1 の row 0〜2 を山が塞ぐ。(2,0) の自軍本拠地へは row 3 を回り込むしかない
+    const def: MapDefinition = {
+      name: 't',
+      terrain: ['.mH', '.m.', '.m.', '...'],
+      owners: [{ col: 2, row: 0, owner: 'player' }],
+      units: [{ col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' }],
+    };
+
+    const charge = setup(def, { behavior: CHARGE_BEHAVIOR }).ai.run();
+    const moves = actionsOfKind(charge, 'move');
+    expect(moves).toHaveLength(1);
+    // 直線距離では遠ざかるが、回り込みルートの入口である南へ動く
+    expect(moves[0].to).toEqual(gridPosition(2, 3));
+
+    // 既定の思考パターンは直線距離で測るため、山の手前から動けず待機する
+    const standard = setup(def).ai.run();
+    expect(actionsOfKind(standard, 'move')).toHaveLength(0);
+    expect(actionsOfKind(standard, 'wait')).toHaveLength(1);
+  });
+
+  it('思考パターンを指定しなければ既定パターンで動く', () => {
+    const { ai } = setup({ name: 't', terrain: ['...'] });
+    expect(ai.aiBehavior).toEqual(DEFAULT_AI_BEHAVIOR);
   });
 });

@@ -3,13 +3,20 @@ import { matchesMap, type SaveData } from '@/core/save/SaveData';
 import { clearSuspendData, readSuspendData } from '@/core/save/SaveStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { INITIAL_FUNDS } from '@/data/economyConfig';
+import {
+  AI_CHARACTERS,
+  DEFAULT_AI_CHARACTER,
+  aiCharacterLabel,
+  getAiCharacter,
+} from '@/data/aiCharacters';
 import { MAP_LIST, type MapEntry } from '@/data/maps';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
+import { wrapText } from '@/ui/textWrap';
 
 /** 選択画面のカードの寸法・間隔 */
 const CARD_MARGIN_X = 40;
-const CARD_TOP = 112;
+const CARD_TOP = 156;
 /** カードの最低の高さ。説明文が短くてもこの高さは確保する */
 const CARD_MIN_HEIGHT = 96;
 /** カード上端から説明文の描画開始位置までの距離 */
@@ -31,7 +38,20 @@ const WHEEL_SCROLL_STEP = 0.5;
 const MODE_BUTTON_WIDTH = 96;
 const MODE_BUTTON_HEIGHT = 26;
 const MODE_BUTTON_GAP = 8;
-const MODE_ROW_CENTER_Y = 88;
+const MODE_ROW_CENTER_Y = 76;
+
+/** 対戦相手(敵指揮官)を選ぶボタンの寸法と縦位置 */
+const CHARACTER_BUTTON_WIDTH = 140;
+const CHARACTER_BUTTON_HEIGHT = 26;
+const CHARACTER_BUTTON_GAP = 8;
+const CHARACTER_ROW_CENTER_Y = 110;
+/**
+ * 選んだ対戦相手の説明文の描画開始位置と、1 行あたりの最大文字数。
+ * 説明文は日本語でスペースを含まないため、Phaser の wordWrap では折り返せない。
+ * フォント 11px の全角 52 文字ぶん(約 572px)で自前に折り返す。
+ */
+const CHARACTER_HINT_TOP = 126;
+const CHARACTER_HINT_MAX_CHARS = 52;
 
 /**
  * 見出し・戦闘モード・ゲーム説明といったヘッダー側 UI の表示深度。
@@ -66,9 +86,11 @@ interface CardLayout {
  * インゲームの前段階に表示するマップ選択画面。
  * 登録済みマップ(MAP_LIST)をカードとして縦に並べ、
  * クリックすると選んだマップを MainScene へ渡してゲームを開始する。
- * 見出しの下では戦闘モード(通常戦 / 夜戦)を選べる。夜戦を選ぶと、
- * 自軍の視界の外が暗くなり敵ユニットが見えない状態でゲームを始める
+ * 見出しの下では戦闘モード(通常戦 / 夜戦)と対戦相手(敵指揮官)を選べる。
+ * 夜戦を選ぶと、自軍の視界の外が暗くなり敵ユニットが見えない状態でゲームを始める
  * (詳細は docs/GameDesign.md「夜戦」を参照)。
+ * 対戦相手ごとに敵軍AIの思考パターンが違い、選んだ相手の説明はボタンの下に表示する
+ * (詳細は docs/GameDesign.md「敵AI」を参照)。
  * 選んだマップの中断データが残っている場合は、再開するかどうかを確認ダイアログで尋ね、
  * 「はい」なら中断データから再開し、「いいえ」なら中断データを破棄して新規に開始する。
  */
@@ -82,8 +104,15 @@ export class MapSelectScene extends Phaser.Scene {
    */
   private static lastNightBattle = false;
 
+  /**
+   * 直前に選ばれた対戦相手。戦闘モードと同じく、ゲームから戻ってきても選択を保つ。
+   */
+  private static lastAiCharacterId: string = DEFAULT_AI_CHARACTER.id;
+
   /** 現在選んでいる戦闘モードが夜戦かどうか */
   private nightBattle = MapSelectScene.lastNightBattle;
+  /** 現在選んでいる対戦相手(敵指揮官)の識別子 */
+  private aiCharacterId: string = MapSelectScene.lastAiCharacterId;
   /** 見出し下の説明文(戦闘モードの切替で書き換える) */
   private hintText!: Phaser.GameObjects.Text;
   /** 戦闘モードのボタン(選択状態に応じて色を塗り替える) */
@@ -92,6 +121,14 @@ export class MapSelectScene extends Phaser.Scene {
     readonly rect: Phaser.GameObjects.Rectangle;
     readonly label: Phaser.GameObjects.Text;
   }[] = [];
+  /** 対戦相手のボタン(選択状態に応じて色を塗り替える) */
+  private characterButtons: {
+    readonly id: string;
+    readonly rect: Phaser.GameObjects.Rectangle;
+    readonly label: Phaser.GameObjects.Text;
+  }[] = [];
+  /** 選んでいる対戦相手の思考パターンの説明文 */
+  private characterHintText!: Phaser.GameObjects.Text;
 
   /** 中断データの再開確認に使うダイアログ(初回オープン時に生成) */
   private confirmWindow: ConfirmWindow | null = null;
@@ -126,7 +163,9 @@ export class MapSelectScene extends Phaser.Scene {
     this.suspendData = readSuspendData();
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
+    this.aiCharacterId = MapSelectScene.lastAiCharacterId;
     this.modeButtons = [];
+    this.characterButtons = [];
     // 直前に大きなマップを遊んでいた場合に備え、選択画面用の寸法へ戻す
     this.scale.resize(DEFAULT_DIMENSIONS.gameWidth, DEFAULT_DIMENSIONS.gameHeight);
 
@@ -139,7 +178,7 @@ export class MapSelectScene extends Phaser.Scene {
 
     // タイトル
     this.add
-      .text(width / 2, 30, 'マップを選択', {
+      .text(width / 2, 26, 'マップを選択', {
         fontFamily: 'sans-serif',
         fontSize: '28px',
         fontStyle: 'bold',
@@ -147,7 +186,7 @@ export class MapSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.hintText = this.add
-      .text(width / 2, 58, '', {
+      .text(width / 2, 50, '', {
         fontFamily: 'sans-serif',
         fontSize: '14px',
         color: '#aaaaaa',
@@ -156,6 +195,9 @@ export class MapSelectScene extends Phaser.Scene {
 
     // 戦闘モード(通常戦 / 夜戦)の選択
     this.createModeSelector(width);
+
+    // 対戦相手(敵指揮官)の選択。指揮官ごとに敵軍AIの思考パターンが変わる
+    this.createCharacterSelector(width);
 
     // ゲーム説明ボタン(右上)。押すとゲームの流れを紹介する GuideScene を開く
     this.createGuideButton(width);
@@ -320,6 +362,95 @@ export class MapSelectScene extends Phaser.Scene {
     });
 
     this.updateModeSelector();
+  }
+
+  /**
+   * 対戦相手(敵指揮官)の選択ボタンを戦闘モードの下に並べる。
+   * 指揮官ごとに敵軍AIの思考パターン(AiBehavior)が紐づいており、
+   * 選んだ相手は MainScene へ渡され、次回以降の初期選択にも残る。
+   */
+  private createCharacterSelector(width: number): void {
+    const totalWidth =
+      CHARACTER_BUTTON_WIDTH * AI_CHARACTERS.length +
+      CHARACTER_BUTTON_GAP * (AI_CHARACTERS.length - 1);
+    const left = width / 2 - totalWidth / 2;
+
+    this.add
+      .text(left - 12, CHARACTER_ROW_CENTER_Y, '対戦相手', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        color: '#c8c8d8',
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(HEADER_DEPTH);
+
+    AI_CHARACTERS.forEach((character, index) => {
+      const x = left + index * (CHARACTER_BUTTON_WIDTH + CHARACTER_BUTTON_GAP);
+      const cx = x + CHARACTER_BUTTON_WIDTH / 2;
+      const rect = this.add
+        .rectangle(
+          x,
+          CHARACTER_ROW_CENTER_Y - CHARACTER_BUTTON_HEIGHT / 2,
+          CHARACTER_BUTTON_WIDTH,
+          CHARACTER_BUTTON_HEIGHT,
+          0x1f2740,
+        )
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, 0x3a4a6a)
+        // 戦闘モードと同じく、スクロールしてきたカードにクリックを奪われないよう手前に置く
+        .setDepth(HEADER_DEPTH)
+        .setInteractive({ useHandCursor: true });
+      const label = this.add
+        .text(cx, CHARACTER_ROW_CENTER_Y, aiCharacterLabel(character), {
+          fontFamily: 'sans-serif',
+          fontSize: '13px',
+          fontStyle: 'bold',
+          color: '#c8c8d8',
+        })
+        .setOrigin(0.5)
+        .setDepth(HEADER_DEPTH);
+      rect.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectCharacter(character.id));
+      this.characterButtons.push({ id: character.id, rect, label });
+    });
+
+    this.characterHintText = this.add
+      .text(width / 2, CHARACTER_HINT_TOP, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '11px',
+        color: '#c8c8d8',
+        align: 'center',
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(HEADER_DEPTH);
+
+    this.updateCharacterSelector();
+  }
+
+  /** 対戦相手を切り替え、ボタンの見た目と説明文を更新する */
+  private selectCharacter(id: string): void {
+    if (this.aiCharacterId === id) {
+      return;
+    }
+    this.aiCharacterId = id;
+    MapSelectScene.lastAiCharacterId = id;
+    this.updateCharacterSelector();
+  }
+
+  /** 対戦相手のボタンと説明文を、現在の選択に合わせて描き直す */
+  private updateCharacterSelector(): void {
+    for (const button of this.characterButtons) {
+      const selected = button.id === this.aiCharacterId;
+      button.rect.setFillStyle(selected ? 0x2d3b5a : 0x1f2740);
+      button.rect.setStrokeStyle(2, selected ? 0x8ad0ff : 0x3a4a6a);
+      button.label.setColor(selected ? '#8ad0ff' : '#c8c8d8');
+    }
+    const character = getAiCharacter(this.aiCharacterId);
+    this.characterHintText.setText(
+      wrapText(
+        `【${character.difficulty}】${character.description}`,
+        CHARACTER_HINT_MAX_CHARS,
+      ),
+    );
   }
 
   /** 戦闘モードを切り替え、ボタンの見た目と説明文を更新する */
@@ -592,14 +723,15 @@ export class MapSelectScene extends Phaser.Scene {
 
   /**
    * 選んだマップでゲームを開始する。save を渡すとその中断データから再開する。
-   * 再開時の戦闘モードは中断データに保存されたものを使い、
-   * 新規開始時はこの画面で選んでいるモードを使う。
+   * 再開時の戦闘モード・対戦相手は中断データに保存されたものを使い、
+   * 新規開始時はこの画面で選んでいるものを使う。
    */
   private startGame(entry: MapEntry, save?: SaveData): void {
     this.scene.start('MainScene', {
       map: entry.definition,
       mapId: entry.id,
       nightBattle: save ? save.nightBattle : this.nightBattle,
+      aiCharacterId: save ? save.aiCharacterId : this.aiCharacterId,
       save,
     });
   }

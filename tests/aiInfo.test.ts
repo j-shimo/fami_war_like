@@ -47,4 +47,10 @@ describe('formatEnemyTurnSummary', () => {
     const lines = formatEnemyTurnSummary([wait(), wait()]);
     expect(lines).toEqual(['敵軍の行動', '待機']);
   });
+
+  it('指揮官名を渡すと、その名前を見出しにする', () => {
+    const lines = formatEnemyTurnSummary([move()], { commander: '突撃長 ガルム' });
+    expect(lines[0]).toBe('突撃長 ガルム の行動');
+    expect(lines).toContain('移動: 1');
+  });
 });

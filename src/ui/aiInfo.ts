@@ -3,12 +3,24 @@
 
 import type { AiAction } from '@/core/ai/EnemyAi';
 
+/** formatEnemyTurnSummary の表示オプション */
+export interface EnemyTurnSummaryOptions {
+  /**
+   * 敵軍を率いている指揮官の表示名(例: 「教導官 ノーラ」)。
+   * 渡すと見出しをその指揮官の名前にする。省略時は「敵軍の行動」と表示する。
+   */
+  readonly commander?: string;
+}
+
 /**
  * 敵軍の 1 手番ぶんの行動ログを、情報パネル用の複数行テキストに集計する。
  * 攻撃・占領・移動・生産の件数と、撃破・占領完了の数をまとめて表示する。
  * 夜戦で見えない自軍ユニットに出くわして強制待機した件数は「遭遇」として示す。
  */
-export function formatEnemyTurnSummary(actions: readonly AiAction[]): string[] {
+export function formatEnemyTurnSummary(
+  actions: readonly AiAction[],
+  options: EnemyTurnSummaryOptions = {},
+): string[] {
   let attack = 0;
   let capture = 0;
   let move = 0;
@@ -44,7 +56,7 @@ export function formatEnemyTurnSummary(actions: readonly AiAction[]): string[] {
     }
   }
 
-  const lines = ['敵軍の行動'];
+  const lines = [options.commander ? `${options.commander} の行動` : '敵軍の行動'];
   if (attack > 0) {
     lines.push(`攻撃: ${attack}` + (defeated > 0 ? `(撃破 ${defeated})` : ''));
   }

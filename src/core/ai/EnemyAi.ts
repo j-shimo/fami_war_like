@@ -1,18 +1,23 @@
 // 敵軍(CPU)の思考ルーチン。Phaser には依存しない純粋なロジックとして実装し、
 // 既存のマネージャ(戦闘・占領・生産)を介して盤面を更新する。
-// docs/DevelopmentPlan.md Phase 9、docs/GameDesign.md「敵AI(簡易)」を参照。
+// docs/DevelopmentPlan.md Phase 9、docs/GameDesign.md「敵AI」を参照。
 //
 // 行動優先順位(ユニット 1 体ごと):
 //   1. 攻撃可能なら攻撃する(移動して攻撃できる場合も含む)
 //   2. 占領可能なら占領する(占領地形へ移動しての占領も含む)
-//   3. 攻撃も占領もできなければ最寄りの敵へ近づく
+//   3. 攻撃も占領もできなければ目標地点へ近づく
 //   4. どこへも進めなければ待機する
 // 全ユニットの行動後、資金があれば生産拠点でユニットを生産する。
+//
+// 「3. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
+// 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
+// 指定しなければ従来どおりの既定パターン(DEFAULT_AI_BEHAVIOR)で動く。
 //
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
 // 敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
 
+import { DEFAULT_AI_BEHAVIOR, type AiBehavior } from '@/core/ai/AiBehavior';
 import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 import type { AttackResult, BattleManager } from '@/core/battle/BattleManager';
@@ -24,11 +29,18 @@ import type {
 } from '@/core/economy/ProductionManager';
 import { equals, manhattanDistance, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
+import type { MovementType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
 import { calculateMovementRange, resolveMovePath } from '@/core/movement/MovementRange';
+import {
+  distancesFrom,
+  distancesTo,
+  type PathDistanceField,
+} from '@/core/movement/PathDistance';
 import { computeVisibility, type Visibility } from '@/core/night/Visibility';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
+import type { UnitType } from '@/core/units/UnitType';
 import { getTerrainData } from '@/data/terrainData';
 import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
 
@@ -74,6 +86,11 @@ export interface EnemyAiDeps {
   readonly production: ProductionManager;
   /** 夜戦かどうか(省略時は昼戦)。夜戦では AI も視界のルールに従う */
   readonly nightBattle?: boolean;
+  /**
+   * 思考パターン(省略時は DEFAULT_AI_BEHAVIOR)。
+   * 対戦キャラクターの選択に応じて、生産方針と進軍方針を差し替えるために使う。
+   */
+  readonly behavior?: AiBehavior;
 }
 
 /** 拠点占領の優先度。本拠地を最優先で狙う */
@@ -83,6 +100,13 @@ const CAPTURE_PRIORITY: Record<string, number> = {
   port: 2,
   city: 1,
 };
+
+/**
+ * 中立の拠点に加える占領優先度。preferNeutralCapture の思考パターンでのみ使う。
+ * 中立の都市(1 + 1.5 = 2.5)が敵軍の工場・港(2)を上回り、
+ * 勝利に直結する敵本拠地(3)は上回らない値にしてある。
+ */
+const NEUTRAL_CAPTURE_BONUS = 1.5;
 
 /**
  * 敵軍(既定)の 1 手番ぶんの思考を行うコントローラ。
@@ -95,6 +119,12 @@ export class EnemyAi {
   private readonly capture: CaptureSystem;
   private readonly production: ProductionManager;
   private readonly nightBattle: boolean;
+  private readonly behavior: AiBehavior;
+  /**
+   * 経路距離(PathDistance)の計算結果のキャッシュ。
+   * 同じ目標・同じ移動タイプを何体ものユニットが参照するため、手番ごとにまとめて使い回す。
+   */
+  private readonly pathFields = new Map<string, PathDistanceField>();
 
   /**
    * @param deps 盤面操作に使うマネージャ群
@@ -110,6 +140,12 @@ export class EnemyAi {
     this.capture = deps.capture;
     this.production = deps.production;
     this.nightBattle = deps.nightBattle ?? false;
+    this.behavior = deps.behavior ?? DEFAULT_AI_BEHAVIOR;
+  }
+
+  /** この AI の思考パターン */
+  get aiBehavior(): AiBehavior {
+    return this.behavior;
   }
 
   /**
@@ -118,6 +154,9 @@ export class EnemyAi {
    */
   run(): AiAction[] {
     const actions: AiAction[] = [];
+    // 経路距離は地形からのみ決まるため手番中は使い回せる。手番をまたぐと目標もユニットの
+    // 位置も変わるため、無駄に抱え込まないよう手番の頭で捨てる。
+    this.pathFields.clear();
 
     // 手番開始時のユニットを固定してから処理する(撃破・生産で集合が変わるため)
     const acting = [...this.units.getUnitsByArmy(this.army)];
@@ -310,9 +349,14 @@ export class EnemyAi {
         continue;
       }
       // すでにその場にいる拠点を最優先(移動せず占領を継続できる)、
-      // 次に拠点の戦略価値(本拠地>工場>都市)を優先する
+      // 次に拠点の戦略価値(本拠地>工場>都市)を優先する。
+      // 中立優先の思考パターンでは中立の拠点に加点し、敵軍の都市・工場より先に取りに行く。
       const priority = CAPTURE_PRIORITY[tile.terrainType] ?? 0;
-      const key = (equals(position, unit.position) ? 100 : 0) + priority;
+      const neutralBonus =
+        this.behavior.preferNeutralCapture && tile.owner === 'neutral'
+          ? NEUTRAL_CAPTURE_BONUS
+          : 0;
+      const key = (equals(position, unit.position) ? 100 : 0) + priority + neutralBonus;
       if (key > bestKey) {
         bestKey = key;
         bestTile = tile;
@@ -343,7 +387,7 @@ export class EnemyAi {
   }
 
   /**
-   * 最寄りの敵へ近づく。近づけない(現在地が最善)場合は待機する。
+   * 目標地点へ近づく。近づけない(現在地が最善)場合は待機する。
    * どちらの場合も行動済みにする。
    * 夜戦で敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
    */
@@ -360,13 +404,15 @@ export class EnemyAi {
       this.units,
       this.movementOptions(vision),
     );
+    // 目標までの距離の測り方は思考パターンによる('path' なら実際に通れるマスをたどった長さ)
+    const distanceTo = this.approachDistance(unit, targetPos);
 
     let bestPos = unit.position;
-    let bestDist = manhattanDistance(unit.position, targetPos);
+    let bestDist = distanceTo(unit.position);
     let bestDefense = this.terrainDefense(unit.position);
 
     for (const { position } of range.tiles) {
-      const dist = manhattanDistance(position, targetPos);
+      const dist = distanceTo(position);
       const defense = this.terrainDefense(position);
       // 目標へより近いマスを優先し、同距離なら防御の高い地形を選ぶ
       if (dist < bestDist || (dist === bestDist && defense > bestDefense)) {
@@ -400,16 +446,145 @@ export class EnemyAi {
   }
 
   /**
-   * 接近の目標地点を返す。見えている敵がいればその最寄りの敵、
-   * いなければ(夜戦の索敵中など)自軍所有でない最寄りの拠点を目標にする。
-   * どちらも無ければ null(その場で待機)。
+   * 接近の目標地点を返す。
+   *
+   * - 'captureAndCharge' の思考パターンでは、敵が見えているかによらず
+   *   占領できるユニットは未所有の拠点(中立優先)、それ以外は相手の本拠地を目標にする。
+   * - 既定('nearestEnemy')では、見えている敵がいればその最寄りの敵、
+   *   いなければ(夜戦の索敵中など)自軍所有でない最寄りの拠点を目標にする。
+   *
+   * どれも見つからなければ null(その場で待機)。
    */
   private approachTarget(unit: Unit, vision: Visibility): GridPosition | null {
+    if (this.behavior.advance === 'captureAndCharge') {
+      const charge = this.chargeTarget(unit);
+      if (charge) {
+        return charge;
+      }
+    }
     const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
     if (enemies.length > 0) {
       return this.nearestEnemyPosition(unit, enemies);
     }
     return this.nearestUnownedBase(unit);
+  }
+
+  /**
+   * 突撃型('captureAndCharge')の目標地点を返す。
+   * 占領できるユニット(歩兵)は未所有の拠点を制圧しに向かい、
+   * それ以外の戦闘ユニットは敵が 1 体も見えていなくても相手の本拠地へ向かって進み続ける。
+   * 目標が見つからなければ null を返し、既定の「最寄りの敵へ近づく」に任せる。
+   */
+  private chargeTarget(unit: Unit): GridPosition | null {
+    if (unit.canCapture) {
+      return this.nearestCaptureTarget(unit);
+    }
+    return this.nearestOpposingHeadquarters(unit);
+  }
+
+  /**
+   * unit から経路がいちばん短い占領目標を返す。中立の拠点が残っていればその中から選び、
+   * 残っていなければ相手軍が所有する拠点から選ぶ(中立都市の制圧を先に済ませる)。
+   */
+  private nearestCaptureTarget(unit: Unit): GridPosition | null {
+    const unowned: TileData[] = [];
+    this.map.forEachTile((tile) => {
+      if (!getTerrainData(tile.terrainType).canCapture || tile.owner === this.army) {
+        return;
+      }
+      unowned.push(tile);
+    });
+    const neutrals = unowned.filter((tile) => tile.owner === 'neutral');
+    const candidates = neutrals.length > 0 ? neutrals : unowned;
+    return this.nearestByPath(
+      unit,
+      candidates.map((tile) => tile.position),
+    );
+  }
+
+  /** unit から経路がいちばん短い、相手軍側の本拠地の位置を返す(無ければ null) */
+  private nearestOpposingHeadquarters(unit: Unit): GridPosition | null {
+    const headquarters: GridPosition[] = [];
+    this.map.forEachTile((tile) => {
+      if (tile.terrainType === 'headquarters' && tile.owner !== this.army) {
+        headquarters.push(tile.position);
+      }
+    });
+    return this.nearestByPath(unit, headquarters);
+  }
+
+  /**
+   * 候補マスのうち、unit が実際にたどれる経路のいちばん短いものを返す。
+   * 経路のつながっている候補が 1 つも無い場合(海を挟んだ相手など)は、
+   * 直線距離が最も近い候補を返してとにかくその方向へ進ませる。
+   */
+  private nearestByPath(
+    unit: Unit,
+    candidates: readonly GridPosition[],
+  ): GridPosition | null {
+    if (candidates.length === 0) {
+      return null;
+    }
+    const field = this.pathField('from', unit.position, unit.movementType);
+    let best: GridPosition | null = null;
+    let bestCost = Infinity;
+    for (const pos of candidates) {
+      const cost = field.get(pos);
+      if (cost !== undefined && cost < bestCost) {
+        bestCost = cost;
+        best = pos;
+      }
+    }
+    if (best) {
+      return best;
+    }
+    return candidates.reduce((nearest, pos) =>
+      manhattanDistance(unit.position, pos) < manhattanDistance(unit.position, nearest)
+        ? pos
+        : nearest,
+    );
+  }
+
+  /**
+   * 目標までの距離を測る関数を、思考パターンに応じて返す。
+   * 'path' では実際に通れるマスをたどった経路の長さで測るため、
+   * 山や海に阻まれていても目標へ通じるルートを回り込んで進める。
+   * 目標へ通じる経路が現在地から無い場合は直線距離で代用する。
+   */
+  private approachDistance(
+    unit: Unit,
+    target: GridPosition,
+  ): (pos: GridPosition) => number {
+    if (this.behavior.routing !== 'path') {
+      return (pos) => manhattanDistance(pos, target);
+    }
+    const field = this.pathField('to', target, unit.movementType);
+    if (field.get(unit.position) === undefined) {
+      return (pos) => manhattanDistance(pos, target);
+    }
+    return (pos) => field.get(pos) ?? Number.MAX_SAFE_INTEGER;
+  }
+
+  /**
+   * 経路距離を求める(同じ組み合わせは手番中キャッシュする)。
+   * kind が 'from' なら pos から各マスへ、'to' なら各マスから pos への経路コストを返す。
+   */
+  private pathField(
+    kind: 'from' | 'to',
+    pos: GridPosition,
+    movementType: MovementType,
+  ): PathDistanceField {
+    const key = `${kind}:${movementType}:${pos.col},${pos.row}`;
+    const cached = this.pathFields.get(key);
+    if (cached) {
+      return cached;
+    }
+    const field =
+      kind === 'from'
+        ? distancesFrom(this.map, pos, movementType)
+        : distancesTo(this.map, pos, movementType);
+    this.pathFields.set(key, field);
+    return field;
   }
 
   /** unit から最も近い、自軍所有でない拠点マスの位置を返す(無ければ null) */
@@ -431,7 +606,7 @@ export class EnemyAi {
 
   /**
    * 生産拠点でユニットを生産する。自軍所有かつ空の生産拠点ごとに、
-   * 資金で購入できる最も高価なユニットを生産する。買えなければ飛ばす。
+   * 思考パターンに従って生産する種別を決める。買わない(買えない)拠点は飛ばす。
    */
   private produceAll(): AiAction[] {
     const actions: AiAction[] = [];
@@ -443,14 +618,7 @@ export class EnemyAi {
     });
 
     for (const tile of producibleTiles) {
-      // 生産拠点(工場・本拠地・空港)ごとに生産できる種別が異なるため、
-      // そのマスで生産できる種別の中から、高価な(強力な)ユニットを優先して購入する。
-      const byCostDesc = [...producibleUnitTypesAt(tile.terrainType)].sort(
-        (a, b) => getUnitData(b).cost - getUnitData(a).cost,
-      );
-      const unitType = byCostDesc.find((type) =>
-        this.production.canProduce(this.army, tile, type),
-      );
+      const unitType = this.chooseProduction(tile);
       if (!unitType) {
         continue;
       }
@@ -458,6 +626,55 @@ export class EnemyAi {
       actions.push({ kind: 'produce', result });
     }
     return actions;
+  }
+
+  /**
+   * tile で生産する種別を思考パターンに従って選ぶ。生産を見送る場合は null を返す。
+   *
+   * 生産拠点(工場・本拠地・空港)ごとに生産できる種別が異なるため、
+   * まずそのマスで生産できる種別を高価な(強力な)順に並べてから選ぶ。
+   *
+   * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
+   *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
+   *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
+   * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
+   */
+  private chooseProduction(tile: TileData): UnitType | null {
+    const byCostDesc = [...producibleUnitTypesAt(tile.terrainType)].sort(
+      (a, b) => getUnitData(b).cost - getUnitData(a).cost,
+    );
+
+    // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
+    if (
+      this.behavior.production === 'infantryFirst' &&
+      this.countUnits('infantry') < this.behavior.infantryQuota &&
+      this.production.canProduce(this.army, tile, 'infantry')
+    ) {
+      return 'infantry';
+    }
+
+    const affordable = byCostDesc.find((type) =>
+      this.production.canProduce(this.army, tile, type),
+    );
+    if (!affordable) {
+      return null;
+    }
+    // 資金を貯めて強力なユニットを狙う思考パターンでは、安いユニットの購入を見送る
+    const strongest = byCostDesc[0];
+    if (
+      strongest !== undefined &&
+      getUnitData(affordable).cost <
+        getUnitData(strongest).cost * this.behavior.powerCostRatio
+    ) {
+      return null;
+    }
+    return affordable;
+  }
+
+  /** この AI が持つ、指定種別の生存ユニット数を返す */
+  private countUnits(unitType: UnitType): number {
+    return this.units.getUnitsByArmy(this.army).filter((u) => u.unitType === unitType)
+      .length;
   }
 
   /** この AI の相手軍勢の生存ユニット一覧を返す */
