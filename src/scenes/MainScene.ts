@@ -11,7 +11,7 @@ import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
 import { ProductionManager } from '@/core/economy/ProductionManager';
 import { RepairManager, type RepairResult } from '@/core/economy/RepairManager';
-import { equals, type GridPosition } from '@/core/map/GridPosition';
+import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
@@ -111,6 +111,23 @@ const MENU_DEPTH = 150;
  * それ以外の項目の画面は今後実装する。
  */
 const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果', '音量', '中断'] as const;
+
+/**
+ * 移動可能範囲の塗り色と濃さ。
+ * 海(0x2f6aa0)や港(0x4a7f9e)といった青系の地形と塗り色が近いと水上の移動範囲が
+ * 見分けづらいため、地形より明るい水色寄りの青を使って浮かび上がらせる。
+ */
+const MOVE_RANGE_FILL_COLOR = 0x6fb7ff;
+const MOVE_RANGE_FILL_ALPHA = 0.42;
+
+/**
+ * 移動可能範囲の外周を縁取る輪郭線。
+ * 塗りだけでは背景の地形色に左右されるため、範囲の外側と接する辺だけを明るい線で描き、
+ * どの地形の上でも「どこまで動けるか」の境界がはっきり分かるようにする。
+ */
+const MOVE_RANGE_OUTLINE_COLOR = 0xe4f3ff;
+const MOVE_RANGE_OUTLINE_ALPHA = 0.95;
+const MOVE_RANGE_OUTLINE_WIDTH = 3;
 
 /** 合流できる味方ユニットを示す枠の色(攻撃対象の赤枠と区別する緑枠) */
 const MERGE_TARGET_COLOR = 0x5ad469;
@@ -2510,7 +2527,7 @@ export class MainScene extends Phaser.Scene {
     this.rangeGraphics.clear();
 
     // 移動可能範囲を半透明の青塗りで表示する(行動対象マス自身は除く)
-    this.rangeGraphics.fillStyle(0x3a7bd5, 0.35);
+    this.rangeGraphics.fillStyle(MOVE_RANGE_FILL_COLOR, MOVE_RANGE_FILL_ALPHA);
     for (const { position } of range.tiles) {
       if (this.movingUnit && equals(this.movingUnit.position, position)) {
         continue;
@@ -2518,6 +2535,8 @@ export class MainScene extends Phaser.Scene {
       const { x, y } = gridToWorld(position, TILE_SIZE);
       this.rangeGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
     }
+    // 範囲の外周を明るい線で縁取り、海の上でも境界を見失わないようにする
+    this.strokeMoveRangeOutline(range);
 
     // 合流できる味方マスを緑枠で強調表示する
     this.strokeMergeTargets(mergeTargets);
@@ -2525,6 +2544,38 @@ export class MainScene extends Phaser.Scene {
     this.strokeUnitTargets(boardTargets, BOARD_TARGET_COLOR);
     // 攻撃可能な敵マスを赤枠で強調表示する
     this.strokeAttackTargets(targets);
+  }
+
+  /**
+   * 移動可能範囲の外周だけを明るい線で縁取る(rangeGraphics のクリアは呼び出し側で行う)。
+   *
+   * 各マスの 4 辺のうち、隣が範囲外になっている辺だけを描くため、
+   * 内側に線が入らず範囲全体の輪郭が 1 本の線として浮かび上がる。
+   * 移動元のマス(塗りからは除いている)も範囲の一部として扱い、輪郭の内側に含める。
+   */
+  private strokeMoveRangeOutline(range: MovementRange): void {
+    this.rangeGraphics.lineStyle(
+      MOVE_RANGE_OUTLINE_WIDTH,
+      MOVE_RANGE_OUTLINE_COLOR,
+      MOVE_RANGE_OUTLINE_ALPHA,
+    );
+    for (const { position } of range.tiles) {
+      const { x, y } = gridToWorld(position, TILE_SIZE);
+      const right = x + TILE_SIZE;
+      const bottom = y + TILE_SIZE;
+      if (!range.canReach(gridPosition(position.col, position.row - 1))) {
+        this.rangeGraphics.lineBetween(x, y, right, y);
+      }
+      if (!range.canReach(gridPosition(position.col, position.row + 1))) {
+        this.rangeGraphics.lineBetween(x, bottom, right, bottom);
+      }
+      if (!range.canReach(gridPosition(position.col - 1, position.row))) {
+        this.rangeGraphics.lineBetween(x, y, x, bottom);
+      }
+      if (!range.canReach(gridPosition(position.col + 1, position.row))) {
+        this.rangeGraphics.lineBetween(right, y, right, bottom);
+      }
+    }
   }
 
   /** 輸送ヘリの降車先マスを緑枠で表示する(移動範囲は描かない。降車先の選択用) */
