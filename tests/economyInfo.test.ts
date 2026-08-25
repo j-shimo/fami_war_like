@@ -63,6 +63,8 @@ describe('economyInfo', () => {
       { unitType: 'artillery', unitName: '自走砲', cost: 6000 },
       { unitType: 'rocketArtillery', unitName: 'ロケット砲', cost: 15000 },
       { unitType: 'antiAirTank', unitName: '対空戦車', cost: 8000 },
+      { unitType: 'antiAirArtillery', unitName: '対空自走砲', cost: 5500 },
+      { unitType: 'antiAirRocketArtillery', unitName: '対空ロケット砲', cost: 13000 },
     ]);
   });
 
@@ -71,6 +73,9 @@ describe('economyInfo', () => {
     expect(items).toEqual([
       { unitType: 'attackHelicopter', unitName: '戦闘ヘリ', cost: 8500 },
       { unitType: 'transportHelicopter', unitName: '輸送ヘリ', cost: 5500 },
+      { unitType: 'fighter', unitName: '戦闘機', cost: 20000 },
+      { unitType: 'bomber', unitName: '爆撃機', cost: 22000 },
+      { unitType: 'attackAircraft', unitName: '攻撃機', cost: 26500 },
     ]);
   });
 

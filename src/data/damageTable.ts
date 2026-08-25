@@ -6,6 +6,9 @@
 //
 // 0 は「その相手には攻撃できない」ことを表す。射程内にいても攻撃対象にならず、
 // 反撃も発生しない(判定は AttackRange の canAttackUnit が担う)。
+//
+// 防御力を他ユニットとそろえる対応づけ(対空自走砲 = 自走砲、対空ロケット砲 = ロケット砲)は
+// 「防御側の列の値がまったく同じ」ことで表す。列の値を変えるときは対応する 2 種をそろえること。
 
 import type { UnitType } from '@/core/units/UnitType';
 
@@ -18,18 +21,28 @@ import type { UnitType } from '@/core/units/UnitType';
  *   潜水艦は攻撃できない。
  * - 自走砲(artillery): 射程 2〜3 の間接攻撃。地上ユニットに広く効く。
  * - ロケット砲(rocketArtillery): 射程 3〜5 の間接攻撃。地上ユニットへの火力は高いが、
- *   飛行ユニットには攻撃できない(0)。地上ユニットの中で最も打たれ弱く、
+ *   飛行ユニットには攻撃できない(0)。対空ロケット砲と並んで地上ユニットの中で最も打たれ弱く、
  *   どの攻撃側から見ても「地上ユニットで最大の被ダメージ」を受ける。
+ * - 戦闘機(fighter): 飛行ユニットだけを攻撃する制空ユニット。対飛行ユニットでは最強で、
+ *   地上ユニット・海上ユニットには攻撃できない(0)。
+ * - 爆撃機(bomber): 地上ユニット全てに 8〜9 割。飛行ユニットと潜水艦には攻撃できない(0)。
+ * - 攻撃機(attackAircraft): 戦闘機と爆撃機の中間。空・陸・海のすべてを攻撃でき、
+ *   とくに海上ユニットに強い。戦闘機には分が悪い(35)。潜水艦だけは攻撃できない。
  * - 戦闘ヘリ(attackHelicopter): 対歩兵に強く(80)、戦車は軽 65・中 55・重 45 と
- *   重くなるほど分が悪い。対空戦車には不利(15)。
+ *   重くなるほど分が悪い。対空戦車には不利(15)。固定翼機には攻撃できない(0)。
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
- * - 対空戦車(antiAirTank): 飛行ユニット・歩兵に強い(80〜90)が、戦車には不利(10〜20)。
+ * - 対空 3 種(antiAirTank・antiAirArtillery・antiAirRocketArtillery): 固定翼機
+ *   (戦闘機・爆撃機・攻撃機)を撃てる地上ユニットはこの 3 種だけ(海上では戦艦のみ)。
+ *   対空戦車は歩兵・車両も撃てるが、
+ *   対空自走砲(射程 2〜3)・対空ロケット砲(射程 3〜5)は飛行ユニット以外を攻撃できない(0)。
+ * - 防御力(被ダメージの列)は、対空自走砲が自走砲と、対空ロケット砲がロケット砲と同じ値になる。
  * - 偵察車(recon): 近接攻撃のみの軽装甲車両。対歩兵は 6〜7 割だが、戦車系(1〜2 割)と
  *   ヘリ系(1〜2 割、特に戦闘ヘリ)には不利で、海上ユニットには攻撃できない(0)。
  * - 輸送車(transportVehicle): 歩兵を 1 体運ぶ地上の輸送ユニット。相性は偵察車と同じ
  *   (攻撃側の行・防御側の列とも偵察車と同じ値)。
  * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
- * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ以外は撃てない(0)。
+ *   固定翼機を撃てる唯一の海上ユニット(戦闘機 60・攻撃機 70・爆撃機 80)。
+ * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ系以外は撃てない(0)。
  * - 潜水艦(submarine): 海上ユニットだけを狙う。護衛艦にだけは分が悪い(25)。
  * - 潜水艦を攻撃できるのは護衛艦と潜水艦のみ(他はすべて 0)。
  */
@@ -42,9 +55,16 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 5,
       artillery: 25,
       rocketArtillery: 50,
+      // 固定翼機(戦闘機・爆撃機・攻撃機)は、対空ユニット以外の地上ユニットからは攻撃できない。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 25,
       transportHelicopter: 25,
       antiAirTank: 10,
+      // 対空自走砲は自走砲、対空ロケット砲はロケット砲と同じ防御力(被ダメージ)を持つ。
+      antiAirArtillery: 25,
+      antiAirRocketArtillery: 50,
       recon: 30,
       transportVehicle: 30,
       battleship: 5,
@@ -62,10 +82,16 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       // 自走砲・対空戦車には 6 割で有利。
       artillery: 60,
       rocketArtillery: 80,
+      // 固定翼機は速すぎて戦車の主砲では狙えない(対空ユニット以外の地上ユニットは攻撃できない)。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       // ヘリ系は 1〜2 割。特に戦闘ヘリには不利(戦闘ヘリ側の 65 に対して 10)。
       attackHelicopter: 10,
       transportHelicopter: 15,
       antiAirTank: 60,
+      antiAirArtillery: 60,
+      antiAirRocketArtillery: 80,
       recon: 75,
       transportVehicle: 75,
       // 対艦装備を持たないため、水上艦には 1 割しか通らない。潜水艦は攻撃できない。
@@ -83,10 +109,15 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 40,
       artillery: 75,
       rocketArtillery: 90,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       // ヘリ系は 1〜2 割。戦闘ヘリとは五分五分(戦闘ヘリ側も 55)。
       attackHelicopter: 15,
       transportHelicopter: 20,
       antiAirTank: 75,
+      antiAirArtillery: 75,
+      antiAirRocketArtillery: 90,
       recon: 80,
       transportVehicle: 80,
       battleship: 15,
@@ -102,11 +133,16 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 50,
       artillery: 80,
       rocketArtillery: 95,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       // ヘリ系は 1〜2 割。戦闘ヘリには若干有利(戦闘ヘリ側の 45 に対して 20)。
       attackHelicopter: 20,
       transportHelicopter: 20,
       // 対空戦車には 8〜9 割。加えて反撃を受けない(COUNTER_SUPPRESSED_DEFENDERS)。
       antiAirTank: 85,
+      antiAirArtillery: 80,
+      antiAirRocketArtillery: 95,
       recon: 85,
       transportVehicle: 85,
       battleship: 20,
@@ -121,9 +157,14 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 50,
       artillery: 55,
       rocketArtillery: 75,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 15,
       transportHelicopter: 15,
       antiAirTank: 60,
+      antiAirArtillery: 55,
+      antiAirRocketArtillery: 75,
       recon: 70,
       transportVehicle: 70,
       battleship: 25,
@@ -140,16 +181,112 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 45,
       artillery: 65,
       rocketArtillery: 90,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       // 飛行ユニットは狙えない(仰角を取れないロケット発射機)。
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 80,
+      antiAirArtillery: 65,
+      antiAirRocketArtillery: 90,
       recon: 85,
       transportVehicle: 85,
       // 装甲の厚い戦艦には 3〜4 割、護衛艦・輸送艦には 6 割。潜水艦は攻撃できない。
       battleship: 35,
       escortShip: 60,
       transportShip: 60,
+      submarine: 0,
+    },
+    /**
+     * 戦闘機: 空だけを狙う制空ユニット。対飛行ユニットでは最強で、
+     * ヘリ系は 9〜10 割・爆撃機は 8〜9 割・攻撃機は 7 割で撃ち落とす。
+     * 地上ユニット・海上ユニットにはまったく攻撃できない(0)。
+     */
+    fighter: {
+      // 地上ユニットには攻撃できない(空対空専門)。
+      infantry: 0,
+      lightTank: 0,
+      mediumTank: 0,
+      heavyTank: 0,
+      artillery: 0,
+      rocketArtillery: 0,
+      // 同じ戦闘機同士は五分の空中戦になる。
+      fighter: 55,
+      bomber: 85,
+      attackAircraft: 70,
+      // ヘリ系は 9〜10 割。逃げ足のない相手を一方的に叩ける。
+      attackHelicopter: 90,
+      transportHelicopter: 95,
+      antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
+      recon: 0,
+      transportVehicle: 0,
+      // 海上ユニットにも攻撃できない。
+      battleship: 0,
+      escortShip: 0,
+      transportShip: 0,
+      submarine: 0,
+    },
+    /**
+     * 爆撃機: 地上ユニットへの絨毯爆撃を担う。地上ユニット全てに 8〜9 割、
+     * 護衛艦・輸送艦にも 7 割が通るが、飛行ユニットはまったく攻撃できない(0)。
+     * 潜水艦も攻撃できない。
+     */
+    bomber: {
+      // 地上ユニットは装甲を問わず 8〜9 割。地上部隊の天敵。
+      infantry: 85,
+      lightTank: 85,
+      mediumTank: 85,
+      heavyTank: 80,
+      artillery: 85,
+      rocketArtillery: 90,
+      // 飛行ユニットには攻撃できない(自衛の空対空装備を持たない)。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
+      attackHelicopter: 0,
+      transportHelicopter: 0,
+      antiAirTank: 85,
+      antiAirArtillery: 85,
+      antiAirRocketArtillery: 90,
+      recon: 85,
+      transportVehicle: 85,
+      // 装甲の厚い戦艦には 4〜5 割、護衛艦・輸送艦には 7 割。潜水艦は攻撃できない。
+      battleship: 45,
+      escortShip: 70,
+      transportShip: 70,
+      submarine: 0,
+    },
+    /**
+     * 攻撃機: 戦闘機と爆撃機の中間の性能を持つ万能機。空・陸・海のすべてを攻撃でき、
+     * とくに海上ユニットへの火力が高い(護衛艦・輸送艦に 9 割)。
+     * 制空戦では戦闘機に分が悪い(3〜4 割)。潜水艦だけは攻撃できない。
+     */
+    attackAircraft: {
+      // 歩兵・偵察車・輸送車・自走砲は 7 割、戦車は装甲が厚いほど通らない。
+      infantry: 70,
+      lightTank: 85,
+      mediumTank: 75,
+      heavyTank: 55,
+      artillery: 70,
+      rocketArtillery: 90,
+      // 戦闘機には 3〜4 割で不利。爆撃機・ヘリ系には有利。
+      fighter: 35,
+      bomber: 75,
+      attackAircraft: 65,
+      attackHelicopter: 85,
+      transportHelicopter: 90,
+      antiAirTank: 70,
+      antiAirArtillery: 70,
+      antiAirRocketArtillery: 90,
+      recon: 70,
+      transportVehicle: 70,
+      // 海上ユニットへの火力が高い(戦艦 6〜7 割・護衛艦/輸送艦 9 割)。潜水艦は不可。
+      battleship: 65,
+      escortShip: 90,
+      transportShip: 90,
       submarine: 0,
     },
     attackHelicopter: {
@@ -160,9 +297,16 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 45,
       artillery: 50,
       rocketArtillery: 85,
+      // 固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。
+      // 高い高度を速く飛ぶ相手を、ヘリの武装では捉えられないという位置づけ。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 55,
       transportHelicopter: 80,
       antiAirTank: 15,
+      antiAirArtillery: 50,
+      antiAirRocketArtillery: 85,
       recon: 75,
       transportVehicle: 75,
       battleship: 25,
@@ -177,9 +321,14 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 0,
       artillery: 0,
       rocketArtillery: 0,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
       battleship: 0,
@@ -195,14 +344,78 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 10,
       artillery: 45,
       rocketArtillery: 85,
+      // 固定翼機を撃てる 3 種の対空ユニットのひとつ。射程 1 のかわりに火力が高い。
+      fighter: 70,
+      bomber: 85,
+      attackAircraft: 80,
       attackHelicopter: 85,
       transportHelicopter: 90,
       antiAirTank: 50,
+      antiAirArtillery: 45,
+      antiAirRocketArtillery: 85,
       recon: 65,
       transportVehicle: 65,
       battleship: 5,
       escortShip: 15,
       transportShip: 25,
+      submarine: 0,
+    },
+    /**
+     * 対空自走砲: 射程 2〜3 の間接攻撃で飛行ユニットだけを狙う安価な対空ユニット。
+     * 飛行ユニット全てに 6〜7 割。飛行ユニット以外にはまったく攻撃できない(0)。
+     * 間接攻撃なので反撃を受けないかわりに、移動したターンは攻撃できない。
+     */
+    antiAirArtillery: {
+      // 飛行ユニット以外には攻撃できない。
+      infantry: 0,
+      lightTank: 0,
+      mediumTank: 0,
+      heavyTank: 0,
+      artillery: 0,
+      rocketArtillery: 0,
+      // 飛行ユニット全てに 6〜7 割。火力は対空戦車に劣るが、射程 2〜3 で先に撃てる。
+      fighter: 60,
+      bomber: 70,
+      attackAircraft: 65,
+      attackHelicopter: 65,
+      transportHelicopter: 70,
+      antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
+      recon: 0,
+      transportVehicle: 0,
+      battleship: 0,
+      escortShip: 0,
+      transportShip: 0,
+      submarine: 0,
+    },
+    /**
+     * 対空ロケット砲: 射程 3〜5 の間接攻撃で飛行ユニットだけを狙う長射程の対空ユニット。
+     * 戦闘機には 7〜8 割、それ以外の飛行ユニットには 8〜9 割。
+     * 飛行ユニット以外にはまったく攻撃できない(0)。
+     */
+    antiAirRocketArtillery: {
+      // 飛行ユニット以外には攻撃できない。
+      infantry: 0,
+      lightTank: 0,
+      mediumTank: 0,
+      heavyTank: 0,
+      artillery: 0,
+      rocketArtillery: 0,
+      // 高速の戦闘機は捉えにくく 7〜8 割。それ以外の飛行ユニットには 8〜9 割。
+      fighter: 75,
+      bomber: 85,
+      attackAircraft: 85,
+      attackHelicopter: 85,
+      transportHelicopter: 90,
+      antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
+      recon: 0,
+      transportVehicle: 0,
+      battleship: 0,
+      escortShip: 0,
+      transportShip: 0,
       submarine: 0,
     },
     recon: {
@@ -215,7 +428,12 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       artillery: 20,
       // 装甲の薄いロケット砲だけは、偵察車の機関銃でも 7 割を削れる。
       rocketArtillery: 70,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       antiAirTank: 15,
+      antiAirArtillery: 20,
+      antiAirRocketArtillery: 70,
       // ヘリ系は 1〜2 割。特に戦闘ヘリには不利。
       attackHelicopter: 10,
       transportHelicopter: 20,
@@ -240,7 +458,12 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       artillery: 20,
       // 装甲の薄いロケット砲だけは、機関銃でも 7 割を削れる。
       rocketArtillery: 70,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       antiAirTank: 15,
+      antiAirArtillery: 20,
+      antiAirRocketArtillery: 70,
       // ヘリ系は 1〜2 割。特に戦闘ヘリには不利。
       attackHelicopter: 10,
       transportHelicopter: 20,
@@ -261,7 +484,14 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 75,
       artillery: 75,
       rocketArtillery: 90,
+      // 飛行ユニットを撃てる唯一の海上ユニット。速い固定翼機ほど捉えにくく、
+      // 戦闘機 6 割・攻撃機 7 割・爆撃機 8 割と、ヘリ系(8〜9 割)より通りにくい。
+      fighter: 60,
+      bomber: 80,
+      attackAircraft: 70,
       antiAirTank: 75,
+      antiAirArtillery: 75,
+      antiAirRocketArtillery: 90,
       recon: 80,
       transportVehicle: 80,
       // 対空砲を備えており、飛行ユニットには 8〜9 割。
@@ -284,9 +514,16 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 0,
       artillery: 0,
       rocketArtillery: 0,
+      // 近接対空の護衛役だが、狙えるのはヘリ系まで。
+      // 高い高度を速く飛ぶ固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 75,
       transportHelicopter: 80,
       antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
       battleship: 0,
@@ -301,9 +538,14 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 0,
       artillery: 0,
       rocketArtillery: 0,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
       battleship: 0,
@@ -319,9 +561,14 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       heavyTank: 0,
       artillery: 0,
       rocketArtillery: 0,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
       attackHelicopter: 0,
       transportHelicopter: 0,
       antiAirTank: 0,
+      antiAirArtillery: 0,
+      antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
       battleship: 90,

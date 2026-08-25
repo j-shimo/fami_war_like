@@ -31,12 +31,13 @@ export interface UnitGuideWindowConfig {
 }
 
 /** ウィンドウの幅(ピクセル) */
-const WIN_WIDTH = 452;
+const WIN_WIDTH = 468;
 /** タイトルバーの高さ */
 const TITLE_HEIGHT = 34;
 /**
  * タイトルバー下の本体の高さ。
- * 左の一覧(全ユニット種別ぶんの行)と右の相性表(同じ行数)が収まる高さにする。
+ * 左の一覧(全ユニット種別ぶんの行)と、右の相性表(全ユニット種別ぶんの行を
+ * MATCHUP_COLUMNS 列に折り返したもの)がどちらも収まる高さにする。
  */
 const BODY_HEIGHT = 412;
 /** ウィンドウ全体の高さ */
@@ -44,15 +45,26 @@ const WIN_HEIGHT = TITLE_HEIGHT + BODY_HEIGHT;
 /** 左側のユニット一覧の幅 */
 const LIST_WIDTH = 148;
 /** 一覧の 1 行の高さ(全ユニット種別ぶんが BODY_HEIGHT に収まる高さにする) */
-const LIST_ROW_HEIGHT = 27;
+const LIST_ROW_HEIGHT = 20;
 /** 一覧のアイコン(軍色トークン)の半径 */
-const LIST_ICON_RADIUS = 11;
+const LIST_ICON_RADIUS = 9;
 /** 右側の詳細ペインの内側余白 */
-const DETAIL_PADDING = 16;
-/** 相性表の 1 行の高さ(全ユニット種別ぶんの行が BODY_HEIGHT に収まる高さにする) */
+const DETAIL_PADDING = 12;
+/** 相性表の 1 行の高さ */
 const MATCHUP_ROW_HEIGHT = 16;
+/**
+ * 相性表の列数。全ユニット種別ぶんの行を 1 列に並べると詳細ペインに収まらないため、
+ * 左右 2 列に折り返して表示する(左の列に前半、右の列に後半が並ぶ)。
+ */
+const MATCHUP_COLUMNS = 2;
+/** 相性表 1 列ぶんの幅(アイコン + 相手名 + 与ダメ + 被ダメ) */
+const MATCHUP_COLUMN_WIDTH = 138;
 /** 相性表のアイコン(軍色トークン)の半径 */
 const MATCHUP_ICON_RADIUS = 7;
+/** 相性表の「与ダメ」列の右端(列の左端からの相対位置) */
+const MATCHUP_DEALT_X = 116;
+/** 相性表の「被ダメ」列の右端(列の左端からの相対位置) */
+const MATCHUP_TAKEN_X = MATCHUP_COLUMN_WIDTH;
 /** ウィンドウの描画深度(生産・音量ウィンドウと同じく最前面帯) */
 const WINDOW_DEPTH = 300;
 
@@ -347,43 +359,55 @@ export class UnitGuideWindow {
   }
 
   /**
-   * 相性表を描く。相手ごとに 1 行(アイコン + 名前 + 与ダメージ + 被ダメージ)。
+   * 相性表を描く。相手ごとに 1 行(アイコン + 名前 + 与ダメージ + 被ダメージ)を、
+   * 全ユニット種別ぶん MATCHUP_COLUMNS 列に折り返して並べる。
    * 「与」= このユニットが相手を攻撃したときのダメージ、
    * 「被」= 相手がこのユニットを攻撃したときのダメージ(いずれも 100 が最大、× は攻撃不可)。
    */
   private renderMatchups(px: number, top: number, rightWidth: number): void {
-    const dealtX = px + rightWidth - 68;
-    const takenX = px + rightWidth - 6;
+    const matchups = getUnitMatchups(this.selectedType);
+    const rowsPerColumn = Math.ceil(matchups.length / MATCHUP_COLUMNS);
+    // 列の間隔。余った幅を列と列のすきまに割り当てる
+    const columnStep =
+      MATCHUP_COLUMNS > 1
+        ? (rightWidth - MATCHUP_COLUMN_WIDTH) / (MATCHUP_COLUMNS - 1)
+        : 0;
+    const columnX = (column: number): number => px + Math.round(column * columnStep);
 
-    // 見出し行(与ダメージ・被ダメージの列見出し)
-    this.addText(px, top, '相手', {
-      fontFamily: 'sans-serif',
-      fontSize: '11px',
-      color: COLOR.hint,
-    });
-    this.addText(dealtX, top, '与ダメ', {
-      fontFamily: 'sans-serif',
-      fontSize: '11px',
-      color: COLOR.hint,
-    }).setOrigin(1, 0);
-    this.addText(takenX, top, '被ダメ', {
-      fontFamily: 'sans-serif',
-      fontSize: '11px',
-      color: COLOR.hint,
-    }).setOrigin(1, 0);
-
-    const rowsTop = top + 18;
     const g = this.scene.add
       .graphics()
       .setScrollFactor(0)
       .setDepth(WINDOW_DEPTH + 2);
     this.contentObjects.push(g);
 
-    getUnitMatchups(this.selectedType).forEach((matchup, index) => {
-      const cy = rowsTop + index * MATCHUP_ROW_HEIGHT + MATCHUP_ROW_HEIGHT / 2;
+    // 見出し行(与ダメージ・被ダメージの列見出し)を列ごとに描く
+    for (let column = 0; column < MATCHUP_COLUMNS; column++) {
+      const colX = columnX(column);
+      this.addText(colX, top, '相手', {
+        fontFamily: 'sans-serif',
+        fontSize: '11px',
+        color: COLOR.hint,
+      });
+      this.addText(colX + MATCHUP_DEALT_X, top, '与ダメ', {
+        fontFamily: 'sans-serif',
+        fontSize: '11px',
+        color: COLOR.hint,
+      }).setOrigin(1, 0);
+      this.addText(colX + MATCHUP_TAKEN_X, top, '被ダメ', {
+        fontFamily: 'sans-serif',
+        fontSize: '11px',
+        color: COLOR.hint,
+      }).setOrigin(1, 0);
+    }
+
+    const rowsTop = top + 18;
+    matchups.forEach((matchup, index) => {
+      const colX = columnX(Math.floor(index / rowsPerColumn));
+      const row = index % rowsPerColumn;
+      const cy = rowsTop + row * MATCHUP_ROW_HEIGHT + MATCHUP_ROW_HEIGHT / 2;
 
       // 相手アイコン(軍色トークン + シルエット)
-      const cx = px + MATCHUP_ICON_RADIUS;
+      const cx = colX + MATCHUP_ICON_RADIUS;
       g.fillStyle(this.config?.tokenColor ?? 0xffffff, 1);
       g.fillCircle(cx, cy, MATCHUP_ICON_RADIUS);
       g.lineStyle(1.5, COLOR.icon, 0.9);
@@ -399,18 +423,18 @@ export class UnitGuideWindow {
 
       // 相手名
       this.addText(
-        cx + MATCHUP_ICON_RADIUS + 6,
+        cx + MATCHUP_ICON_RADIUS + 4,
         cy,
         getUnitData(matchup.opponent).unitName,
         {
           fontFamily: 'sans-serif',
-          fontSize: '11px',
+          fontSize: '10px',
           color: COLOR.desc,
         },
       ).setOrigin(0, 0.5);
 
       // 与ダメージ(このユニット → 相手)
-      this.addText(dealtX, cy, matchup.dealtSymbol, {
+      this.addText(colX + MATCHUP_DEALT_X, cy, matchup.dealtSymbol, {
         fontFamily: 'sans-serif',
         fontSize: '12px',
         fontStyle: 'bold',
@@ -418,7 +442,7 @@ export class UnitGuideWindow {
       }).setOrigin(1, 0.5);
 
       // 被ダメージ(相手 → このユニット)
-      this.addText(takenX, cy, matchup.takenSymbol, {
+      this.addText(colX + MATCHUP_TAKEN_X, cy, matchup.takenSymbol, {
         fontFamily: 'sans-serif',
         fontSize: '12px',
         fontStyle: 'bold',

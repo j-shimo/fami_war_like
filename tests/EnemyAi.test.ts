@@ -353,6 +353,99 @@ describe('EnemyAi.run(夜戦)', () => {
   });
 });
 
+describe('EnemyAi.run(生産の絞り込み)', () => {
+  /** 敵軍の空港(0,0)と、離れた位置に置いた自軍ユニットだけのマップ */
+  function airportMap(playerUnits: MapDefinition['units']): MapDefinition {
+    return {
+      name: 'airport-production',
+      terrain: ['A..........'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: playerUnits,
+    };
+  }
+
+  it('相手に飛行ユニットがいなければ、戦闘機は買わない', () => {
+    // 資金 21000。空港で買えるいちばん高価なユニットは戦闘機(20000)だが、
+    // 相手が歩兵だけなら戦闘機は 1 体も攻撃できないので候補から外れる
+    const { ai } = setup(
+      airportMap([{ col: 10, row: 0, unitType: 'infantry', army: 'player' }]),
+      { funds: 21000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('attackHelicopter');
+  });
+
+  it('相手に飛行ユニットがいれば、戦闘機を買う', () => {
+    const { ai } = setup(
+      airportMap([{ col: 10, row: 0, unitType: 'attackHelicopter', army: 'player' }]),
+      { funds: 21000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('fighter');
+  });
+
+  it('相手に飛行ユニットがいなければ、対空ロケット砲も買わない', () => {
+    // 資金 13500。工場で買えるいちばん高価なユニットは対空ロケット砲(13000)だが、
+    // 相手が戦車だけなら攻撃できないので、次に高価な中戦車(12000)を買う
+    const { ai } = setup(
+      {
+        name: 'factory-production',
+        terrain: ['F..........'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [{ col: 10, row: 0, unitType: 'mediumTank', army: 'player' }],
+      },
+      { funds: 13500 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('相手が 1 体も見えていなければ、従来どおり最も高価なユニットを買う', () => {
+    // 自軍ユニットが盤面にいない(相手の編成が分からない)ときは絞り込まない
+    const { ai } = setup(airportMap([]), { funds: 21000 });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('fighter');
+  });
+
+  it('夜戦では、見えている敵の編成だけで判断する', () => {
+    // 敵歩兵(視界2)から 2 マス先に自軍歩兵、遠くの (10,0) に自軍の戦闘ヘリを置く。
+    // 夜戦では戦闘ヘリが見えないため、空港では戦闘機を買わない
+    const def: MapDefinition = {
+      name: 'night-production',
+      terrain: ['A..........'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: [
+        { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 3, row: 0, unitType: 'infantry', army: 'player' },
+        { col: 10, row: 0, unitType: 'attackHelicopter', army: 'player' },
+      ],
+    };
+
+    const night = setup(def, { funds: 21000, nightBattle: true });
+    const nightProduced = actionsOfKind(night.ai.run(), 'produce');
+    expect(nightProduced).toHaveLength(1);
+    expect(nightProduced[0].result.unit.unitType).toBe('attackHelicopter');
+
+    // 昼戦なら戦闘ヘリが見えているので、戦闘機を買う
+    const day = setup(def, { funds: 21000 });
+    const dayProduced = actionsOfKind(day.ai.run(), 'produce');
+    expect(dayProduced).toHaveLength(1);
+    expect(dayProduced[0].result.unit.unitType).toBe('fighter');
+  });
+});
+
 describe('EnemyAi.run(思考パターン)', () => {
   it('歩兵がそろうまでは、より高価なユニットを買えても歩兵を生産する', () => {
     // 資金 10000。既定の思考パターンなら対空戦車(8000)を買うところで歩兵を選ぶ

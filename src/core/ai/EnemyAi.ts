@@ -9,6 +9,9 @@
 //   4. どこへも進めなければ待機する
 // 全ユニットの行動後、資金があれば生産拠点でユニットを生産する。
 //
+// 生産では、その拠点で作れる種別のうち「いまの相手の編成に 1 体も攻撃できないもの」
+// (相手に飛行ユニットがいないときの戦闘機など)を候補から外してから選ぶ。
+//
 // 「3. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
 // 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
 // 指定しなければ従来どおりの既定パターン(DEFAULT_AI_BEHAVIOR)で動く。
@@ -41,6 +44,7 @@ import { computeVisibility, type Visibility } from '@/core/night/Visibility';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
+import { canDamage } from '@/data/damageTable';
 import { getTerrainData } from '@/data/terrainData';
 import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
 
@@ -617,8 +621,15 @@ export class EnemyAi {
       }
     });
 
+    // 「その編成に対して 1 体も攻撃できない種別は買わない」判定に使う相手の編成。
+    // 夜戦では自軍と同じ視界のルールに従い、見えている敵だけを数える。
+    const vision = computeVisibility(this.map, this.units, this.army, this.nightBattle);
+    const knownOpponents = this.opposingUnits().filter((unit) =>
+      vision.isUnitVisible(unit),
+    );
+
     for (const tile of producibleTiles) {
-      const unitType = this.chooseProduction(tile);
+      const unitType = this.chooseProduction(tile, knownOpponents);
       if (!unitType) {
         continue;
       }
@@ -632,17 +643,23 @@ export class EnemyAi {
    * tile で生産する種別を思考パターンに従って選ぶ。生産を見送る場合は null を返す。
    *
    * 生産拠点(工場・本拠地・空港)ごとに生産できる種別が異なるため、
-   * まずそのマスで生産できる種別を高価な(強力な)順に並べてから選ぶ。
+   * まずそのマスで生産できる種別を高価な(強力な)順に並べ、そこから
+   * 「いまの相手の編成に対して 1 体も攻撃できない種別」を除いてから選ぶ
+   * (usableAgainst)。相手に飛行ユニットが 1 体もいないのに戦闘機を買う、
+   * といった無駄づかいを防ぐための絞り込み。
    *
    * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
    *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
    *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
+   *
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
    */
-  private chooseProduction(tile: TileData): UnitType | null {
+  private chooseProduction(tile: TileData, opponents: readonly Unit[]): UnitType | null {
     const byCostDesc = [...producibleUnitTypesAt(tile.terrainType)].sort(
       (a, b) => getUnitData(b).cost - getUnitData(a).cost,
     );
+    const candidates = this.usableAgainst(byCostDesc, opponents);
 
     // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
     if (
@@ -653,14 +670,14 @@ export class EnemyAi {
       return 'infantry';
     }
 
-    const affordable = byCostDesc.find((type) =>
+    const affordable = candidates.find((type) =>
       this.production.canProduce(this.army, tile, type),
     );
     if (!affordable) {
       return null;
     }
     // 資金を貯めて強力なユニットを狙う思考パターンでは、安いユニットの購入を見送る
-    const strongest = byCostDesc[0];
+    const strongest = candidates[0];
     if (
       strongest !== undefined &&
       getUnitData(affordable).cost <
@@ -669,6 +686,30 @@ export class EnemyAi {
       return null;
     }
     return affordable;
+  }
+
+  /**
+   * 生産候補から「いまの相手の編成に 1 体も攻撃できない種別」を取り除く。
+   *
+   * 相手に飛行ユニットがいないときの戦闘機・対空自走砲・対空ロケット砲や、
+   * そもそも攻撃できない輸送ユニットがこれにあたる。
+   * 攻撃できる種別が 1 つも残らない場合(相手が全滅している・見えている敵がいないなど)は、
+   * 生産そのものが止まらないように元の一覧をそのまま返す。
+   *
+   * @param types 生産候補(高価な順に並んでいること。並び順は保たれる)
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
+   */
+  private usableAgainst(
+    types: readonly UnitType[],
+    opponents: readonly Unit[],
+  ): readonly UnitType[] {
+    if (opponents.length === 0) {
+      return types;
+    }
+    const usable = types.filter((type) =>
+      opponents.some((opponent) => canDamage(type, opponent.unitType)),
+    );
+    return usable.length > 0 ? usable : types;
   }
 
   /** この AI が持つ、指定種別の生存ユニット数を返す */

@@ -3,11 +3,15 @@
 
 /**
  * ユニットの種別。
- * 地上系(歩兵・軽戦車・中戦車・重戦車・自走砲・ロケット砲・対空戦車・偵察車・輸送車)、
- * 飛行系(戦闘ヘリ・輸送ヘリ)に加え、海上系(戦艦・護衛艦・輸送艦・潜水艦)を扱う。
+ * 地上系(歩兵・軽戦車・中戦車・重戦車・自走砲・ロケット砲・対空戦車・対空自走砲・
+ * 対空ロケット砲・偵察車・輸送車)、飛行系(戦闘機・爆撃機・攻撃機・戦闘ヘリ・輸送ヘリ)に加え、
+ * 海上系(戦艦・護衛艦・輸送艦・潜水艦)を扱う。
  *
  * 戦車は装甲と機動力のバランスで 3 段階に分かれる。
  * 軽戦車は安価で足が速く、重戦車は高価で鈍いが正面から撃ち勝てる。
+ *
+ * 固定翼機は役割で 3 段階に分かれる。戦闘機は空だけを、爆撃機は地上・海上だけを狙い、
+ * 攻撃機はその中間で空も陸も海も撃てる。
  */
 export type UnitType =
   | 'infantry'
@@ -16,9 +20,14 @@ export type UnitType =
   | 'heavyTank'
   | 'artillery'
   | 'rocketArtillery'
+  | 'fighter'
+  | 'bomber'
+  | 'attackAircraft'
   | 'attackHelicopter'
   | 'transportHelicopter'
   | 'antiAirTank'
+  | 'antiAirArtillery'
+  | 'antiAirRocketArtillery'
   | 'recon'
   | 'transportVehicle'
   | 'battleship'
@@ -34,9 +43,14 @@ export const UNIT_TYPES: readonly UnitType[] = [
   'heavyTank',
   'artillery',
   'rocketArtillery',
+  'fighter',
+  'bomber',
+  'attackAircraft',
   'attackHelicopter',
   'transportHelicopter',
   'antiAirTank',
+  'antiAirArtillery',
+  'antiAirRocketArtillery',
   'recon',
   'transportVehicle',
   'battleship',
@@ -60,7 +74,26 @@ export const NAVAL_UNIT_TYPES: readonly UnitType[] = [
   'submarine',
 ];
 
-/** 地上ユニット(工場・本拠地で生産する 9 種)の一覧。輸送艦で運べる種別でもある */
+/** 飛行ユニット(空港で生産する 5 種)の一覧。移動タイプ 'air' を持つ */
+export const AIR_UNIT_TYPES: readonly UnitType[] = [
+  'fighter',
+  'bomber',
+  'attackAircraft',
+  'attackHelicopter',
+  'transportHelicopter',
+];
+
+/**
+ * 対空ユニット(飛行ユニットを主目標にする地上ユニット)の一覧。
+ * 固定翼機(戦闘機・爆撃機・攻撃機)を攻撃できる地上ユニットはこの 3 種だけ。
+ */
+export const ANTI_AIR_UNIT_TYPES: readonly UnitType[] = [
+  'antiAirTank',
+  'antiAirArtillery',
+  'antiAirRocketArtillery',
+];
+
+/** 地上ユニット(工場・本拠地で生産する 11 種)の一覧。輸送艦で運べる種別でもある */
 export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'infantry',
   'lightTank',
@@ -69,6 +102,8 @@ export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'artillery',
   'rocketArtillery',
   'antiAirTank',
+  'antiAirArtillery',
+  'antiAirRocketArtillery',
   'recon',
   'transportVehicle',
 ];

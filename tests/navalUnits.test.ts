@@ -148,6 +148,10 @@ describe('海上ユニットの攻撃対象', () => {
     expect(canAttackUnit(escort, makeUnit('submarine', 'enemy'))).toBe(true);
     expect(canAttackUnit(escort, makeUnit('attackHelicopter', 'enemy'))).toBe(true);
     expect(canAttackUnit(escort, makeUnit('transportHelicopter', 'enemy'))).toBe(true);
+    // 固定翼機(戦闘機・爆撃機・攻撃機)は高い高度を速く飛ぶため撃てない
+    expect(canAttackUnit(escort, makeUnit('fighter', 'enemy'))).toBe(false);
+    expect(canAttackUnit(escort, makeUnit('bomber', 'enemy'))).toBe(false);
+    expect(canAttackUnit(escort, makeUnit('attackAircraft', 'enemy'))).toBe(false);
     expect(canAttackUnit(escort, makeUnit('battleship', 'enemy'))).toBe(false);
     expect(canAttackUnit(escort, makeUnit('infantry', 'enemy'))).toBe(false);
     expect(canAttackUnit(escort, makeUnit('transportShip', 'enemy'))).toBe(false);
@@ -240,13 +244,17 @@ describe('海上ユニットの射程と相性', () => {
     }
   });
 
-  it('戦艦は飛行ユニット(ヘリ系)に 8〜9 割', () => {
+  it('戦艦はヘリ系に 8〜9 割、固定翼機には 戦闘機6割・攻撃機7割・爆撃機8割', () => {
     const battleship = makeUnit('battleship');
     for (const type of ['attackHelicopter', 'transportHelicopter'] as const) {
       const damage = calculateDamage(battleship, makeUnit(type, 'enemy'), 0);
       expect(damage).toBeGreaterThanOrEqual(8);
       expect(damage).toBeLessThanOrEqual(9);
     }
+    // 速い固定翼機はヘリ系より捉えにくい。戦艦は固定翼機を撃てる唯一の海上ユニット
+    expect(calculateDamage(battleship, makeUnit('fighter', 'enemy'), 0)).toBe(6);
+    expect(calculateDamage(battleship, makeUnit('attackAircraft', 'enemy'), 0)).toBe(7);
+    expect(calculateDamage(battleship, makeUnit('bomber', 'enemy'), 0)).toBe(8);
   });
 
   it('隣接したヘリは戦艦の最小射程(3)の内側に入るため撃たれない', () => {

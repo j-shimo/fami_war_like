@@ -17,6 +17,7 @@ import { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
 import { canCarry } from '@/core/units/transport';
 import {
+  AIR_UNIT_TYPES,
   GROUND_UNIT_TYPES,
   TANK_UNIT_TYPES,
   UNIT_TYPES,
@@ -41,9 +42,6 @@ function makeUnit(
     position: gridPosition(col, row),
   });
 }
-
-/** 飛行ユニットの一覧(ロケット砲が攻撃できない相手) */
-const AIR_UNIT_TYPES: readonly UnitType[] = ['attackHelicopter', 'transportHelicopter'];
 
 describe('戦車 3 種の基本パラメータ', () => {
   it('ユニット種別の一覧に軽・中・重戦車が含まれ、旧「戦車」は無くなっている', () => {
@@ -174,15 +172,26 @@ describe('戦車 3 種の相性', () => {
 
   it('ヘリ系へは 1〜2 割しか通らず、戦闘ヘリとの相性は 軽=不利 中=五分 重=若干有利', () => {
     for (const tank of TANK_UNIT_TYPES) {
-      for (const air of AIR_UNIT_TYPES) {
-        expect(getBaseDamage(tank, air)).toBeGreaterThan(0);
-        expect(getBaseDamage(tank, air)).toBeLessThanOrEqual(20);
+      for (const heli of ['attackHelicopter', 'transportHelicopter'] as const) {
+        expect(getBaseDamage(tank, heli)).toBeGreaterThan(0);
+        expect(getBaseDamage(tank, heli)).toBeLessThanOrEqual(20);
       }
     }
     // 戦闘ヘリから見た被ダメージ: 軽 65(不利) → 中 55(五分) → 重 45(若干有利)
     expect(getBaseDamage('attackHelicopter', 'lightTank')).toBeGreaterThan(55);
     expect(getBaseDamage('attackHelicopter', 'mediumTank')).toBe(55);
     expect(getBaseDamage('attackHelicopter', 'heavyTank')).toBeLessThan(55);
+  });
+
+  it('固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない(対空ユニットではないため)', () => {
+    for (const tank of TANK_UNIT_TYPES) {
+      for (const aircraft of ['fighter', 'bomber', 'attackAircraft'] as const) {
+        expect(getBaseDamage(tank, aircraft)).toBe(0);
+        expect(canAttackUnit(makeUnit(tank, 'player'), makeUnit(aircraft, 'enemy'))).toBe(
+          false,
+        );
+      }
+    }
   });
 
   it('自走砲・対空戦車には有利(軽6割・中7〜8割・重8〜9割)', () => {
@@ -397,7 +406,10 @@ describe('ロケット砲の攻撃', () => {
   });
 
   it('地上ユニットの中で最も防御力が低い(どの攻撃側から見ても被ダメージが最大)', () => {
-    const otherGround = GROUND_UNIT_TYPES.filter((t) => t !== 'rocketArtillery');
+    // 対空ロケット砲は「防御力はロケット砲と同じ」ユニットなので、比較対象から外す
+    const otherGround = GROUND_UNIT_TYPES.filter(
+      (t) => t !== 'rocketArtillery' && t !== 'antiAirRocketArtillery',
+    );
 
     for (const attacker of UNIT_TYPES) {
       const vsRocket = getBaseDamage(attacker, 'rocketArtillery');
@@ -409,6 +421,14 @@ describe('ロケット砲の攻撃', () => {
       if (maxVsOthers > 0) {
         expect(vsRocket).toBeGreaterThan(maxVsOthers);
       }
+    }
+  });
+
+  it('対空ロケット砲はロケット砲とまったく同じ防御力(被ダメージ)を持つ', () => {
+    for (const attacker of UNIT_TYPES) {
+      expect(getBaseDamage(attacker, 'antiAirRocketArtillery')).toBe(
+        getBaseDamage(attacker, 'rocketArtillery'),
+      );
     }
   });
 

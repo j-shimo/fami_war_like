@@ -49,7 +49,7 @@ export interface UnitData {
   readonly nightStealth: boolean;
 }
 
-/** 視界(vision)の既定値。歩兵・中戦車・対空戦車・輸送ヘリがこの値を持つ */
+/** 視界(vision)の既定値。歩兵・中戦車・対空戦車・輸送ヘリ・固定翼機がこの値を持つ */
 export const DEFAULT_VISION = 2;
 
 /** 歩兵が山の上にいるときの視界ボーナス(マス数)。高所から遠くまで見渡せる */
@@ -161,6 +161,58 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     mountainVisionBonus: 0,
     nightStealth: false,
   },
+  fighter: {
+    unitType: 'fighter',
+    unitName: '戦闘機',
+    maxHp: 10,
+    movement: 10,
+    movementType: 'air',
+    // 近接攻撃のみ。空対空だけを行い、地上・海上ユニットには手が出せない。
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 20000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 全ユニット最速の移動力 10 を持つが、高速で飛ぶぶん地上の細かい様子は見えない(視界 2)
+    vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  bomber: {
+    unitType: 'bomber',
+    unitName: '爆撃機',
+    maxHp: 10,
+    movement: 8,
+    movementType: 'air',
+    // 近接攻撃のみ。爆弾を落とす相手(地上・海上)だけを狙い、飛行ユニットは攻撃できない。
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 22000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  attackAircraft: {
+    unitType: 'attackAircraft',
+    unitName: '攻撃機',
+    maxHp: 10,
+    movement: 9,
+    movementType: 'air',
+    // 近接攻撃のみ。戦闘機と爆撃機の中間で、空・陸・海のすべてを攻撃できる。
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    cost: 26500,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
   attackHelicopter: {
     unitType: 'attackHelicopter',
     unitName: '戦闘ヘリ',
@@ -209,6 +261,44 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     capacity: 0,
     carriableTypes: [],
     vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  antiAirArtillery: {
+    unitType: 'antiAirArtillery',
+    unitName: '対空自走砲',
+    maxHp: 10,
+    movement: 4,
+    // 自走砲・戦車と同じ履帯の車両。森は抜けられるが山・海には進入できない。
+    movementType: 'vehicle',
+    // 射程 2〜3 の間接攻撃のみ。隣接した相手は撃てず、移動したターンは攻撃できない。
+    minAttackRange: 2,
+    maxAttackRange: 3,
+    cost: 5500,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 自走砲と同じく、射程より視界が狭い(単独では最大射程まで撃てない)
+    vision: 1,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
+  antiAirRocketArtillery: {
+    unitType: 'antiAirRocketArtillery',
+    unitName: '対空ロケット砲',
+    maxHp: 10,
+    movement: 4,
+    // ロケット砲・偵察車と同じ装輪車両。道路・拠点は速いが平地では減速し、森・山には入れない。
+    movementType: 'wheeled',
+    // ロケット砲と同じ射程 3〜5 の間接攻撃。狙えるのは飛行ユニットだけ。
+    minAttackRange: 3,
+    maxAttackRange: 5,
+    cost: 13000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // ロケット砲と同じく、射程に対して視界が極端に狭い
+    vision: 1,
     mountainVisionBonus: 0,
     nightStealth: false,
   },
@@ -332,7 +422,8 @@ export function getUnitData(unitType: UnitType): UnitData {
 
 /**
  * 生産拠点(地形)ごとに生産できるユニット種別の一覧(生産メニューの表示順)。
- * 工場・本拠地では地上ユニット、空港では飛行ユニット、港では海上ユニットを生産する。
+ * 工場・本拠地では地上ユニット(対空自走砲・対空ロケット砲を含む)、
+ * 空港では飛行ユニット(ヘリ系と固定翼機)、港では海上ユニットを生産する。
  * 生産できない地形(都市など)は一覧に含めない。
  */
 export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
@@ -348,6 +439,8 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
     'artillery',
     'rocketArtillery',
     'antiAirTank',
+    'antiAirArtillery',
+    'antiAirRocketArtillery',
   ],
   factory: [
     'infantry',
@@ -359,8 +452,16 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
     'artillery',
     'rocketArtillery',
     'antiAirTank',
+    'antiAirArtillery',
+    'antiAirRocketArtillery',
   ],
-  airport: ['attackHelicopter', 'transportHelicopter'],
+  airport: [
+    'attackHelicopter',
+    'transportHelicopter',
+    'fighter',
+    'bomber',
+    'attackAircraft',
+  ],
   port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
 };
 
