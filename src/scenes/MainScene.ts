@@ -56,6 +56,12 @@ import {
   listProductionItems,
 } from '@/ui/economyInfo';
 import { formatEnemyTurnSummary } from '@/ui/aiInfo';
+import {
+  aiCharacterLabel,
+  getAiCharacter,
+  DEFAULT_AI_CHARACTER,
+  type AiCharacter,
+} from '@/data/aiCharacters';
 import { buildBattleForecastView, type ForecastAlert } from '@/ui/forecastInfo';
 import { buildAttackSequence } from '@/rendering/attackSequence';
 import { buildMoveSequence, type MoveSequence } from '@/rendering/moveSequence';
@@ -316,6 +322,8 @@ export class MainScene extends Phaser.Scene {
   private resumeSave: SaveData | null = null;
   /** 夜戦モードで遊んでいるか(マップ選択画面で選ぶ) */
   private nightBattle = false;
+  /** 対戦している敵指揮官(マップ選択画面で選ぶ)。思考パターンはここから決まる */
+  private aiCharacter: AiCharacter = DEFAULT_AI_CHARACTER;
   /**
    * 自軍から見た現在の視界。夜戦では明るいマスと発見済みの敵を保持する。
    * 昼戦ではすべてが見える視界になるため、判定を分岐せずにそのまま使える。
@@ -354,19 +362,22 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * マップ選択画面から遊ぶマップを受け取る(未指定なら既定マップ)。
+   * マップ選択画面から遊ぶマップ・戦闘モード・対戦相手を受け取る(未指定なら既定値)。
    * 中断データから再開する場合は save も渡され、create() で盤面を復元する。
    */
   init(data: {
     map?: MapDefinition;
     mapId?: string;
     nightBattle?: boolean;
+    aiCharacterId?: string;
     save?: SaveData;
   }): void {
     this.mapDef = data.map ?? DEFAULT_MAP_ENTRY.definition;
     this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
     this.resumeSave = data.save ?? null;
     this.nightBattle = data.nightBattle ?? false;
+    // 未知の識別子(古い中断データなど)の場合は既定の指揮官にフォールバックする
+    this.aiCharacter = getAiCharacter(data.aiCharacterId);
     // シーンを再入場したときのために状態を初期化しておく
     this.gameOver = false;
     this.audioStarted = false;
@@ -406,6 +417,8 @@ export class MainScene extends Phaser.Scene {
       production: this.production,
       // 夜戦では敵軍AIも自軍と同じ視界のルールで戦う
       nightBattle: this.nightBattle,
+      // 選んだ敵指揮官の思考パターン(生産方針・進軍方針)で戦わせる
+      behavior: this.aiCharacter.behavior,
     });
     this.audio = new SoundManager();
     // ブラウザが非アクティブ(タブ切替・アプリ切替)の間はゲーム音を止める
@@ -1205,7 +1218,9 @@ export class MainScene extends Phaser.Scene {
     this.drawTerrain();
     this.drawUnits();
     this.updateEconomyText();
-    this.infoText.setText(formatEnemyTurnSummary(actions));
+    this.infoText.setText(
+      formatEnemyTurnSummary(actions, { commander: aiCharacterLabel(this.aiCharacter) }),
+    );
     // 敵軍の占領・撃破で勝敗が決していないか判定する
     this.checkGameEnd();
   }
@@ -1590,6 +1605,7 @@ export class MainScene extends Phaser.Scene {
       createSaveData({
         mapId: this.mapId,
         nightBattle: this.nightBattle,
+        aiCharacterId: this.aiCharacter.id,
         map: this.map,
         units: this.units,
         turn: this.turn,

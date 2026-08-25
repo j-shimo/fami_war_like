@@ -51,6 +51,7 @@ function makeSaveData(): SaveData {
   return createSaveData({
     mapId: 'test',
     nightBattle: false,
+    aiCharacterId: 'instructor',
     map,
     units,
     turn: new TurnManager(units),
