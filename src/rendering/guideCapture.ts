@@ -27,7 +27,7 @@ const GRID_ROWS = 4;
 /** 本編とそろえた表示色 */
 const COLOR = {
   gridLine: 0x0d0d16,
-  moveTile: 0x3a7bd5, // 移動範囲(青)
+  moveTile: 0x6fb7ff, // 移動範囲(本編と同じ明るい青)
   selected: 0xffd479, // 選択・占領中の強調(黄)
   attack: 0xff5a5a, // 攻撃対象(赤枠)
   playerToken: 0x2f5fae,
