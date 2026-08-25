@@ -6,6 +6,7 @@ import { ISLAND_MAP } from '@/data/maps/islandMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
+import { STRAIT_MAP } from '@/data/maps/straitMap';
 import { TEST_MAP } from '@/data/maps/testMap';
 
 /** マップ選択画面に並べる 1 枚ぶんのエントリ */
@@ -47,6 +48,12 @@ export const MAP_LIST: readonly MapEntry[] = [
     definition: RIDGE_MAP,
     description:
       '収入 4000 の自軍と 10000 の敵軍で始まる 20x16 の地上戦マップ。中央の稜線が北の森ルート(装輪車両は通行不可)と南の道路ルートに戦場を分ける。拠点近くの中立都市 8 個を取り切れば収入で追いつける。',
+  },
+  {
+    id: 'strait',
+    definition: STRAIT_MAP,
+    description:
+      '中央を海峡が貫く 26x14 の横長マップ。北と南の大陸をつなぐ陸路は両軍の陣地だけで、戦線を渡せるのは海峡を進む艦隊と空を飛ぶ航空機のみ。中央の双子空港島と海峡の中立港が争点。後手の敵軍は陣地の隣に都市が 2 個多い。',
   },
 ];
 
