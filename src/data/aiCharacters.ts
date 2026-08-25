@@ -17,7 +17,13 @@ export interface AiCharacter {
   readonly title: string;
   /** 想定するプレイヤー層(選択画面での目安表示) */
   readonly difficulty: string;
-  /** 思考パターンの説明(選択画面に表示する) */
+  /**
+   * 指揮官ごとの識別色(エンブレム)。対戦相手の選択ウィンドウと選択ボタンの丸印に使う。
+   * 人数が増えたときに一覧から目当ての相手を見分けやすくするためのもので、
+   * ゲームのルール(軍の色)とは関係しない。
+   */
+  readonly emblemColor: number;
+  /** 思考パターンの説明(選択画面の対戦相手ウィンドウに表示する) */
   readonly description: string;
   /** この指揮官の思考パターン */
   readonly behavior: AiBehavior;
@@ -33,8 +39,9 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     name: 'ノーラ',
     title: '教導官',
     difficulty: '初級〜中級',
+    emblemColor: 0x6ec1a0,
     description:
-      '目の前の敵と拠点を順に片づける、基本に忠実な指揮官。遠くを見ないぶん動きが読みやすく、戦い方を覚える相手に向く。',
+      '目の前の敵と拠点を順に片づける、基本に忠実な指揮官。遠くを見ないぶん動きが読みやすく、まずはこの相手で戦い方を覚えられる。攻撃できる敵がいれば必ず攻撃し、移動できる範囲に拠点があれば占領する。生産は毎ターン、資金で買えるいちばん高価なユニットを選ぶ。',
     // 敵AIを導入した当初からの思考パターン。既定値そのままの素朴な方針。
     behavior: {
       production: 'strongest',
@@ -50,8 +57,9 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     name: 'ガルム',
     title: '突撃長',
     difficulty: '中級〜上級',
+    emblemColor: 0xe8734a,
     description:
-      'まず歩兵をそろえて中立都市を押さえ、伸ばした収入で重装備を整える。敵が見えていなくても、通れるマスをたどって自軍本拠地へ突き進む。',
+      'まず歩兵 6 体をそろえて中立都市を押さえ、伸ばした収入で重装備を整える指揮官。歩兵がそろうまでは歩兵だけを生産し、そのあとは安いユニットを買わずに資金を貯めて強力なユニットを狙う。戦闘ユニットは敵が 1 体も見えていなくても、通れるマスをたどって自軍の本拠地へ突き進む。',
     behavior: {
       // 序盤は歩兵で中立都市を取りに行き、収入を伸ばしてから戦力を整える
       production: 'infantryFirst',

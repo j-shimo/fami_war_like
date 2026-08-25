@@ -23,6 +23,17 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
     }
   });
 
+  it('エンブレムの色は指揮官ごとに違う色が割り当てられている', () => {
+    const colors = AI_CHARACTERS.map((character) => character.emblemColor);
+    // 一覧から目当ての相手を見分けるための色なので、重複していると意味がない
+    expect(new Set(colors).size).toBe(colors.length);
+    for (const color of colors) {
+      expect(Number.isInteger(color)).toBe(true);
+      expect(color).toBeGreaterThanOrEqual(0x000000);
+      expect(color).toBeLessThanOrEqual(0xffffff);
+    }
+  });
+
   it('既定のキャラクターは一覧の先頭で、従来どおりの思考パターンを持つ', () => {
     expect(DEFAULT_AI_CHARACTER).toBe(AI_CHARACTERS[0]);
     // 初級者〜中級者向けの相手として、敵AI導入当初の思考パターンをそのまま残す

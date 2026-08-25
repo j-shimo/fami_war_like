@@ -4,19 +4,18 @@ import { clearSuspendData, readSuspendData } from '@/core/save/SaveStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { INITIAL_FUNDS } from '@/data/economyConfig';
 import {
-  AI_CHARACTERS,
   DEFAULT_AI_CHARACTER,
   aiCharacterLabel,
   getAiCharacter,
 } from '@/data/aiCharacters';
 import { MAP_LIST, type MapEntry } from '@/data/maps';
+import { AiCharacterWindow } from '@/rendering/AiCharacterWindow';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
-import { wrapText } from '@/ui/textWrap';
 
 /** 選択画面のカードの寸法・間隔 */
 const CARD_MARGIN_X = 40;
-const CARD_TOP = 156;
+const CARD_TOP = 134;
 /** カードの最低の高さ。説明文が短くてもこの高さは確保する */
 const CARD_MIN_HEIGHT = 96;
 /** カード上端から説明文の描画開始位置までの距離 */
@@ -40,18 +39,17 @@ const MODE_BUTTON_HEIGHT = 26;
 const MODE_BUTTON_GAP = 8;
 const MODE_ROW_CENTER_Y = 76;
 
-/** 対戦相手(敵指揮官)を選ぶボタンの寸法と縦位置 */
-const CHARACTER_BUTTON_WIDTH = 140;
-const CHARACTER_BUTTON_HEIGHT = 26;
-const CHARACTER_BUTTON_GAP = 8;
-const CHARACTER_ROW_CENTER_Y = 110;
 /**
- * 選んだ対戦相手の説明文の描画開始位置と、1 行あたりの最大文字数。
- * 説明文は日本語でスペースを含まないため、Phaser の wordWrap では折り返せない。
- * フォント 11px の全角 52 文字ぶん(約 572px)で自前に折り返す。
+ * 対戦相手(敵指揮官)を開くボタンの寸法と縦位置。
+ * 指揮官は今後増やせるようにするため、選択画面には現在の相手だけを出し、
+ * 一覧と説明は専用ウィンドウ(AiCharacterWindow)で見せる。
  */
-const CHARACTER_HINT_TOP = 126;
-const CHARACTER_HINT_MAX_CHARS = 52;
+const CHARACTER_BUTTON_WIDTH = 210;
+const CHARACTER_BUTTON_HEIGHT = 26;
+const CHARACTER_ROW_CENTER_Y = 108;
+/** ボタン内の左端に置くエンブレム(指揮官の識別色の円)の半径と左余白 */
+const CHARACTER_EMBLEM_RADIUS = 6;
+const CHARACTER_EMBLEM_MARGIN = 12;
 
 /**
  * 見出し・戦闘モード・ゲーム説明といったヘッダー側 UI の表示深度。
@@ -121,14 +119,12 @@ export class MapSelectScene extends Phaser.Scene {
     readonly rect: Phaser.GameObjects.Rectangle;
     readonly label: Phaser.GameObjects.Text;
   }[] = [];
-  /** 対戦相手のボタン(選択状態に応じて色を塗り替える) */
-  private characterButtons: {
-    readonly id: string;
-    readonly rect: Phaser.GameObjects.Rectangle;
-    readonly label: Phaser.GameObjects.Text;
-  }[] = [];
-  /** 選んでいる対戦相手の思考パターンの説明文 */
-  private characterHintText!: Phaser.GameObjects.Text;
+  /** 対戦相手ウィンドウを開くボタンのラベル(選んでいる指揮官名を表示する) */
+  private characterLabel!: Phaser.GameObjects.Text;
+  /** 対戦相手ボタンのエンブレム(選んでいる指揮官の識別色で塗る) */
+  private characterEmblem!: Phaser.GameObjects.Graphics;
+  /** 対戦相手の一覧・説明を見せるウィンドウ(初回オープン時に生成) */
+  private characterWindow: AiCharacterWindow | null = null;
 
   /** 中断データの再開確認に使うダイアログ(初回オープン時に生成) */
   private confirmWindow: ConfirmWindow | null = null;
@@ -165,7 +161,7 @@ export class MapSelectScene extends Phaser.Scene {
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
     this.modeButtons = [];
-    this.characterButtons = [];
+    this.characterWindow = null;
     // 直前に大きなマップを遊んでいた場合に備え、選択画面用の寸法へ戻す
     this.scale.resize(DEFAULT_DIMENSIONS.gameWidth, DEFAULT_DIMENSIONS.gameHeight);
 
@@ -228,6 +224,12 @@ export class MapSelectScene extends Phaser.Scene {
     this.scrollbar = this.add.graphics();
     this.drawScrollbar(width);
     this.setupScrollInput(width);
+
+    // シーンを抜けるときに、開いたままのウィンドウと入力ハンドラを片付ける
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.characterWindow?.close();
+      this.characterWindow = null;
+    });
   }
 
   /**
@@ -267,8 +269,8 @@ export class MapSelectScene extends Phaser.Scene {
    */
   private setupScrollInput(width: number): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      // 確認ダイアログ表示中はダイアログ側が入力を処理する
-      if (this.confirmWindow?.isOpen()) {
+      // 確認ダイアログ・対戦相手ウィンドウの表示中は、そちらが入力を処理する
+      if (this.isWindowOpen()) {
         return;
       }
       // 一覧の表示領域内で押し始めたときだけドラッグの対象にする
@@ -307,7 +309,7 @@ export class MapSelectScene extends Phaser.Scene {
     this.input.on(
       Phaser.Input.Events.POINTER_WHEEL,
       (_pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number) => {
-        if (this.confirmWindow?.isOpen()) {
+        if (this.isWindowOpen()) {
           return;
         }
         this.setScrollOffset(this.scrollOffset - dy * WHEEL_SCROLL_STEP, width);
@@ -365,15 +367,13 @@ export class MapSelectScene extends Phaser.Scene {
   }
 
   /**
-   * 対戦相手(敵指揮官)の選択ボタンを戦闘モードの下に並べる。
-   * 指揮官ごとに敵軍AIの思考パターン(AiBehavior)が紐づいており、
+   * 戦闘モードの下に、対戦相手(敵指揮官)を開くボタンを置く。
+   * 指揮官は今後増やせるようにするため、ここには現在選んでいる相手だけを出し、
+   * 押すと一覧と思考パターンの説明を並べた専用ウィンドウを開く。
    * 選んだ相手は MainScene へ渡され、次回以降の初期選択にも残る。
    */
   private createCharacterSelector(width: number): void {
-    const totalWidth =
-      CHARACTER_BUTTON_WIDTH * AI_CHARACTERS.length +
-      CHARACTER_BUTTON_GAP * (AI_CHARACTERS.length - 1);
-    const left = width / 2 - totalWidth / 2;
+    const left = width / 2 - CHARACTER_BUTTON_WIDTH / 2;
 
     this.add
       .text(left - 12, CHARACTER_ROW_CENTER_Y, '対戦相手', {
@@ -384,72 +384,106 @@ export class MapSelectScene extends Phaser.Scene {
       .setOrigin(1, 0.5)
       .setDepth(HEADER_DEPTH);
 
-    AI_CHARACTERS.forEach((character, index) => {
-      const x = left + index * (CHARACTER_BUTTON_WIDTH + CHARACTER_BUTTON_GAP);
-      const cx = x + CHARACTER_BUTTON_WIDTH / 2;
-      const rect = this.add
-        .rectangle(
-          x,
-          CHARACTER_ROW_CENTER_Y - CHARACTER_BUTTON_HEIGHT / 2,
-          CHARACTER_BUTTON_WIDTH,
-          CHARACTER_BUTTON_HEIGHT,
-          0x1f2740,
-        )
-        .setOrigin(0, 0)
-        .setStrokeStyle(2, 0x3a4a6a)
-        // 戦闘モードと同じく、スクロールしてきたカードにクリックを奪われないよう手前に置く
-        .setDepth(HEADER_DEPTH)
-        .setInteractive({ useHandCursor: true });
-      const label = this.add
-        .text(cx, CHARACTER_ROW_CENTER_Y, aiCharacterLabel(character), {
+    const button = this.add
+      .rectangle(
+        left,
+        CHARACTER_ROW_CENTER_Y - CHARACTER_BUTTON_HEIGHT / 2,
+        CHARACTER_BUTTON_WIDTH,
+        CHARACTER_BUTTON_HEIGHT,
+        0x1f2740,
+      )
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, 0x3a4a6a)
+      // 戦闘モードと同じく、スクロールしてきたカードにクリックを奪われないよう手前に置く
+      .setDepth(HEADER_DEPTH)
+      .setInteractive({ useHandCursor: true });
+
+    // 選んでいる指揮官のエンブレム(識別色の円)をボタンの左端に描く
+    this.characterEmblem = this.add.graphics().setDepth(HEADER_DEPTH + 1);
+
+    this.characterLabel = this.add
+      .text(
+        left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS * 2 + 8,
+        CHARACTER_ROW_CENTER_Y,
+        '',
+        {
           fontFamily: 'sans-serif',
           fontSize: '13px',
           fontStyle: 'bold',
-          color: '#c8c8d8',
-        })
-        .setOrigin(0.5)
-        .setDepth(HEADER_DEPTH);
-      rect.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectCharacter(character.id));
-      this.characterButtons.push({ id: character.id, rect, label });
-    });
+          color: '#8ad0ff',
+        },
+      )
+      .setOrigin(0, 0.5)
+      .setDepth(HEADER_DEPTH + 1);
 
-    this.characterHintText = this.add
-      .text(width / 2, CHARACTER_HINT_TOP, '', {
+    // 一覧を開けることが分かるよう、右端に印を出す
+    this.add
+      .text(left + CHARACTER_BUTTON_WIDTH - 10, CHARACTER_ROW_CENTER_Y, '▼', {
         fontFamily: 'sans-serif',
-        fontSize: '11px',
-        color: '#c8c8d8',
-        align: 'center',
+        fontSize: '10px',
+        color: '#8ad0ff',
       })
-      .setOrigin(0.5, 0)
-      .setDepth(HEADER_DEPTH);
+      .setOrigin(1, 0.5)
+      .setDepth(HEADER_DEPTH + 1);
 
-    this.updateCharacterSelector();
+    button.on(Phaser.Input.Events.POINTER_OVER, () => {
+      button.setStrokeStyle(2, 0x8ad0ff);
+      button.setFillStyle(0x263255);
+    });
+    button.on(Phaser.Input.Events.POINTER_OUT, () => {
+      button.setStrokeStyle(2, 0x3a4a6a);
+      button.setFillStyle(0x1f2740);
+    });
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => this.openCharacterWindow());
+
+    this.updateCharacterButton(left);
   }
 
-  /** 対戦相手を切り替え、ボタンの見た目と説明文を更新する */
+  /** 対戦相手ボタンのエンブレムと指揮官名を、現在の選択に合わせて描き直す */
+  private updateCharacterButton(left: number): void {
+    const character = getAiCharacter(this.aiCharacterId);
+    this.characterLabel.setText(aiCharacterLabel(character));
+    const cx = left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS;
+    this.characterEmblem.clear();
+    this.characterEmblem.fillStyle(character.emblemColor, 1);
+    this.characterEmblem.fillCircle(cx, CHARACTER_ROW_CENTER_Y, CHARACTER_EMBLEM_RADIUS);
+    this.characterEmblem.lineStyle(2, 0xffffff, 0.9);
+    this.characterEmblem.strokeCircle(
+      cx,
+      CHARACTER_ROW_CENTER_Y,
+      CHARACTER_EMBLEM_RADIUS,
+    );
+  }
+
+  /** 対戦相手の一覧・説明を見せるウィンドウを開く */
+  private openCharacterWindow(): void {
+    const width = DEFAULT_DIMENSIONS.gameWidth;
+    this.characterWindow ??= new AiCharacterWindow(this);
+    this.characterWindow.open({
+      gameWidth: width,
+      gameHeight: DEFAULT_DIMENSIONS.gameHeight,
+      viewWidth: width,
+      viewHeight: DEFAULT_DIMENSIONS.gameHeight,
+      selectedId: this.aiCharacterId,
+      onSelect: (id) => this.selectCharacter(id),
+      onClose: () => {
+        // 一覧を閉じた直後の押下がカードの選択として扱われないよう、状態を片付ける
+        this.pressedEntry = null;
+        this.isPanning = false;
+        this.dragActive = false;
+      },
+    });
+  }
+
+  /** 対戦相手を切り替え、ボタンの表示を更新する */
   private selectCharacter(id: string): void {
     if (this.aiCharacterId === id) {
       return;
     }
     this.aiCharacterId = id;
     MapSelectScene.lastAiCharacterId = id;
-    this.updateCharacterSelector();
-  }
-
-  /** 対戦相手のボタンと説明文を、現在の選択に合わせて描き直す */
-  private updateCharacterSelector(): void {
-    for (const button of this.characterButtons) {
-      const selected = button.id === this.aiCharacterId;
-      button.rect.setFillStyle(selected ? 0x2d3b5a : 0x1f2740);
-      button.rect.setStrokeStyle(2, selected ? 0x8ad0ff : 0x3a4a6a);
-      button.label.setColor(selected ? '#8ad0ff' : '#c8c8d8');
-    }
-    const character = getAiCharacter(this.aiCharacterId);
-    this.characterHintText.setText(
-      wrapText(
-        `【${character.difficulty}】${character.description}`,
-        CHARACTER_HINT_MAX_CHARS,
-      ),
+    this.updateCharacterButton(
+      DEFAULT_DIMENSIONS.gameWidth / 2 - CHARACTER_BUTTON_WIDTH / 2,
     );
   }
 
@@ -472,6 +506,13 @@ export class MapSelectScene extends Phaser.Scene {
       button.label.setColor(selected ? '#8ad0ff' : '#c8c8d8');
     }
     this.hintText.setText(MODE_HINT[this.nightBattle ? 'night' : 'normal']);
+  }
+
+  /** 手前にウィンドウ(確認ダイアログ・対戦相手一覧)が開いているか */
+  private isWindowOpen(): boolean {
+    return (
+      this.confirmWindow?.isOpen() === true || this.characterWindow?.isOpen() === true
+    );
   }
 
   /** ポインタがカード一覧の表示領域内にあるか */
@@ -630,7 +671,8 @@ export class MapSelectScene extends Phaser.Scene {
     });
     card.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       // 一覧の外(切り抜かれて見えていない部分)の押下は無視する
-      this.pressedEntry = this.isInsideList(pointer) ? entry : null;
+      this.pressedEntry =
+        !this.isWindowOpen() && this.isInsideList(pointer) ? entry : null;
     });
     card.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       const pressed = this.pressedEntry;
