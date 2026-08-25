@@ -1,6 +1,7 @@
 // ユニット種別ごとのシルエットアイコンをコードで描く。
 // 外部画像は使わず(グラフィックはすべてオリジナルとする方針)、Phaser の
-// Graphics プリミティブだけで歩兵・戦車・自走砲・輸送車・ヘリ・艦艇の姿を描き分ける。
+// Graphics プリミティブだけで歩兵・戦車・自走砲・輸送車・対空車両・ヘリ・固定翼機・艦艇の
+// 姿を描き分ける。
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
 // 戦車 3 種(軽・中・重)は共通の車体シルエットを大きさで描き分ける。
@@ -175,6 +176,108 @@ function drawTransportHelicopter(ctx: UnitIconContext): void {
   drawRotor(ctx);
 }
 
+/**
+ * 固定翼機共通の尾翼(機体後方に立てる垂直尾翼)を描く。戦闘機・爆撃機・攻撃機で共用する。
+ * 機体はすべて右(進行方向)を向いた側面のシルエットとして描く。
+ */
+function drawTailFin(ctx: UnitIconContext, height: number): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  g.fillPoints(
+    [
+      { x: cx - r * 0.72, y: cy + r * 0.04 },
+      { x: cx - r * 0.5, y: cy - r * height },
+      { x: cx - r * 0.34, y: cy + r * 0.04 },
+    ],
+    true,
+  );
+}
+
+/** 戦闘機: 細く尖った機首と後退翼を持つ、もっとも鋭いシルエット */
+function drawFighter(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTailFin(ctx, 0.62);
+  g.fillStyle(color, alpha);
+  // 機体(前方へ大きく尖った紡錘形)
+  g.fillPoints(
+    [
+      { x: cx + r * 0.86, y: cy + r * 0.08 },
+      { x: cx + r * 0.1, y: cy - r * 0.06 },
+      { x: cx - r * 0.74, y: cy - r * 0.02 },
+      { x: cx - r * 0.74, y: cy + r * 0.2 },
+      { x: cx + r * 0.3, y: cy + r * 0.22 },
+    ],
+    true,
+  );
+  // 後退翼(後ろへ強く傾いた三角形)。爆撃機の直線翼と見分ける特徴
+  g.fillPoints(
+    [
+      { x: cx + r * 0.14, y: cy + r * 0.1 },
+      { x: cx - r * 0.5, y: cy + r * 0.6 },
+      { x: cx + r * 0.06, y: cy + r * 0.6 },
+    ],
+    true,
+  );
+  // 風防(機首寄りの小さなキャノピー)
+  g.fillPoints(
+    [
+      { x: cx + r * 0.34, y: cy - r * 0.06 },
+      { x: cx + r * 0.16, y: cy - r * 0.26 },
+      { x: cx - r * 0.04, y: cy - r * 0.04 },
+    ],
+    true,
+  );
+}
+
+/** 爆撃機: 太い胴体と長い直線翼、胴体下の爆弾を持つ大型機のシルエット */
+function drawBomber(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTailFin(ctx, 0.5);
+  g.fillStyle(color, alpha);
+  // 太く長い胴体(積載量の大きさを表す)。機首は前方へゆるく尖らせる
+  g.fillPoints(
+    [
+      { x: cx + r * 0.88, y: cy + r * 0.04 },
+      { x: cx + r * 0.44, y: cy - r * 0.16 },
+      { x: cx - r * 0.76, y: cy - r * 0.16 },
+      { x: cx - r * 0.76, y: cy + r * 0.18 },
+      { x: cx + r * 0.5, y: cy + r * 0.18 },
+    ],
+    true,
+  );
+  // 長い直線翼(前後にまっすぐ伸びる)
+  g.fillRect(cx - r * 0.56, cy + r * 0.18, r * 1.06, r * 0.1);
+  // 主翼に吊るしたエンジン 2 基
+  g.fillRect(cx - r * 0.4, cy + r * 0.26, r * 0.24, r * 0.14);
+  g.fillRect(cx + r * 0.08, cy + r * 0.26, r * 0.24, r * 0.14);
+  // 胴体下へ落とす爆弾 2 発(爆撃機であることを示す)
+  g.fillCircle(cx - r * 0.1, cy + r * 0.58, r * 0.09);
+  g.fillCircle(cx + r * 0.2, cy + r * 0.58, r * 0.09);
+}
+
+/** 攻撃機: 戦闘機と爆撃機の中間。直線翼の下に武装ポッドを下げたシルエット */
+function drawAttackAircraft(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTailFin(ctx, 0.54);
+  g.fillStyle(color, alpha);
+  // 機体(戦闘機より丸い機首。ずんぐりした攻撃機らしい形)
+  g.fillPoints(
+    [
+      { x: cx + r * 0.78, y: cy - r * 0.02 },
+      { x: cx + r * 0.82, y: cy + r * 0.16 },
+      { x: cx - r * 0.7, y: cy + r * 0.22 },
+      { x: cx - r * 0.7, y: cy - r * 0.12 },
+      { x: cx + r * 0.36, y: cy - r * 0.14 },
+    ],
+    true,
+  );
+  // 直線翼(戦闘機の後退翼と見分ける)
+  g.fillRect(cx - r * 0.42, cy + r * 0.22, r * 0.84, r * 0.12);
+  // 翼下の武装ポッド 2 つ(対地・対艦攻撃力を表す)
+  g.fillRect(cx - r * 0.32, cy + r * 0.34, r * 0.2, r * 0.16);
+  g.fillRect(cx + r * 0.14, cy + r * 0.34, r * 0.2, r * 0.16);
+}
+
 /** 対空戦車: 車体の上に上向きの連装砲(対空機銃)を載せたシルエット */
 function drawAntiAirTank(ctx: UnitIconContext): void {
   const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
@@ -187,6 +290,55 @@ function drawAntiAirTank(ctx: UnitIconContext): void {
   g.lineStyle(Math.max(2, r * 0.1), color, alpha);
   g.lineBetween(cx - r * 0.04, cy - r * 0.02, cx + r * 0.4, cy - r * 0.56);
   g.lineBetween(cx + r * 0.12, cy - r * 0.02, cx + r * 0.56, cy - r * 0.5);
+}
+
+/**
+ * 対空自走砲: 履帯の車体に、レーダー皿と真上へ向く単装の対空砲を載せたシルエット。
+ * 連装砲の対空戦車とは、背中のレーダー皿と 1 本の長い砲身で見分ける。
+ */
+function drawAntiAirArtillery(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 履帯を含む車体下部(自走砲と同じ装軌車両)
+  g.fillRoundedRect(cx - r * 0.6, cy + r * 0.16, r * 1.2, r * 0.34, r * 0.13);
+  // 砲塔(箱型の基部)
+  g.fillRoundedRect(cx - r * 0.3, cy - r * 0.08, r * 0.6, r * 0.28, r * 0.07);
+  // 背中のレーダー皿(索敵しながら撃つ対空車両の目印)
+  g.fillPoints(
+    [
+      { x: cx - r * 0.46, y: cy - r * 0.16 },
+      { x: cx - r * 0.72, y: cy - r * 0.5 },
+      { x: cx - r * 0.34, y: cy - r * 0.44 },
+    ],
+    true,
+  );
+  // 真上へ向く長い単装の対空砲身
+  g.lineStyle(Math.max(2, r * 0.13), color, alpha);
+  g.lineBetween(cx + r * 0.08, cy - r * 0.04, cx + r * 0.34, cy - r * 0.7);
+}
+
+/**
+ * 対空ロケット砲: 装輪車体に、斜め上を向く 2 発の対空ミサイルと索敵レーダーを載せたシルエット。
+ * 3 本の発射レールを持つロケット砲とは、太い 2 発のミサイルとレーダー板で見分ける。
+ */
+function drawAntiAirRocketArtillery(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 低く平たい車体(ロケット砲と同じ装輪車両)
+  g.fillRoundedRect(cx - r * 0.66, cy + r * 0.02, r * 1.24, r * 0.28, r * 0.1);
+  // 車輪(タイヤ 2 つ)
+  g.fillCircle(cx - r * 0.4, cy + r * 0.36, r * 0.18);
+  g.fillCircle(cx + r * 0.36, cy + r * 0.36, r * 0.18);
+  // 発射機の基部
+  g.fillRoundedRect(cx - r * 0.12, cy - r * 0.18, r * 0.32, r * 0.24, r * 0.06);
+  // 斜め上を向く 2 発の対空ミサイル(ロケット砲の 3 本レールより太く本数が少ない)
+  g.lineStyle(Math.max(2.5, r * 0.14), color, alpha);
+  g.lineBetween(cx - r * 0.02, cy - r * 0.14, cx + r * 0.5, cy - r * 0.6);
+  g.lineBetween(cx - r * 0.02, cy - r * 0.36, cx + r * 0.5, cy - r * 0.82);
+  // 車体前方の索敵レーダー板(飛行ユニットしか狙わないことを表す)
+  g.lineStyle(Math.max(1.5, r * 0.08), color, alpha);
+  g.lineBetween(cx - r * 0.46, cy + r * 0.02, cx - r * 0.66, cy - r * 0.42);
+  g.lineBetween(cx - r * 0.66, cy - r * 0.42, cx - r * 0.3, cy - r * 0.3);
 }
 
 /** 偵察車: 車輪 2 つの軽装甲車体と、後方へ伸びる長いアンテナのシルエット */
@@ -345,6 +497,15 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
     case 'rocketArtillery':
       drawRocketArtillery(ctx);
       break;
+    case 'fighter':
+      drawFighter(ctx);
+      break;
+    case 'bomber':
+      drawBomber(ctx);
+      break;
+    case 'attackAircraft':
+      drawAttackAircraft(ctx);
+      break;
     case 'attackHelicopter':
       drawAttackHelicopter(ctx);
       break;
@@ -353,6 +514,12 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'antiAirTank':
       drawAntiAirTank(ctx);
+      break;
+    case 'antiAirArtillery':
+      drawAntiAirArtillery(ctx);
+      break;
+    case 'antiAirRocketArtillery':
+      drawAntiAirRocketArtillery(ctx);
       break;
     case 'recon':
       drawRecon(ctx);

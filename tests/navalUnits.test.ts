@@ -143,11 +143,15 @@ describe('海上ユニットの攻撃対象', () => {
     expect(canAttackUnit(battleship, makeUnit('escortShip', 'enemy'))).toBe(true);
   });
 
-  it('護衛艦はヘリ系と潜水艦だけを攻撃できる', () => {
+  it('護衛艦は飛行ユニットと潜水艦だけを攻撃できる', () => {
     const escort = makeUnit('escortShip');
     expect(canAttackUnit(escort, makeUnit('submarine', 'enemy'))).toBe(true);
     expect(canAttackUnit(escort, makeUnit('attackHelicopter', 'enemy'))).toBe(true);
     expect(canAttackUnit(escort, makeUnit('transportHelicopter', 'enemy'))).toBe(true);
+    // 固定翼機(戦闘機・爆撃機・攻撃機)も近接対空の対象になる
+    expect(canAttackUnit(escort, makeUnit('fighter', 'enemy'))).toBe(true);
+    expect(canAttackUnit(escort, makeUnit('bomber', 'enemy'))).toBe(true);
+    expect(canAttackUnit(escort, makeUnit('attackAircraft', 'enemy'))).toBe(true);
     expect(canAttackUnit(escort, makeUnit('battleship', 'enemy'))).toBe(false);
     expect(canAttackUnit(escort, makeUnit('infantry', 'enemy'))).toBe(false);
     expect(canAttackUnit(escort, makeUnit('transportShip', 'enemy'))).toBe(false);
@@ -240,9 +244,15 @@ describe('海上ユニットの射程と相性', () => {
     }
   });
 
-  it('戦艦は飛行ユニット(ヘリ系)に 8〜9 割', () => {
+  it('戦艦は飛行ユニット(ヘリ系・固定翼機)に 8〜9 割', () => {
     const battleship = makeUnit('battleship');
-    for (const type of ['attackHelicopter', 'transportHelicopter'] as const) {
+    for (const type of [
+      'attackHelicopter',
+      'transportHelicopter',
+      'fighter',
+      'bomber',
+      'attackAircraft',
+    ] as const) {
       const damage = calculateDamage(battleship, makeUnit(type, 'enemy'), 0);
       expect(damage).toBeGreaterThanOrEqual(8);
       expect(damage).toBeLessThanOrEqual(9);
