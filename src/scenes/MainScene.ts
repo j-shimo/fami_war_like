@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { SoundManager } from '@/audio/SoundManager';
-import { EnemyAi } from '@/core/ai/EnemyAi';
+import { EnemyAi, type AiAction } from '@/core/ai/EnemyAi';
 import {
   findAttackableTargets,
   type AttackTargetOptions,
@@ -9,7 +9,10 @@ import { forecastBattle } from '@/core/battle/BattleForecast';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
-import { ProductionManager } from '@/core/economy/ProductionManager';
+import {
+  ProductionManager,
+  type ProductionResult,
+} from '@/core/economy/ProductionManager';
 import { RepairManager, type RepairResult } from '@/core/economy/RepairManager';
 import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
@@ -34,6 +37,11 @@ import {
   type SaveData,
 } from '@/core/save/SaveData';
 import { clearSuspendData, writeSuspendData } from '@/core/save/SaveStorage';
+import {
+  readEnemyAnimationMode,
+  writeEnemyAnimationMode,
+} from '@/core/settings/SettingsStorage';
+import { enemyAnimationModeLabel, type EnemyAnimationMode } from '@/data/enemyAnimation';
 import { TurnManager } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { mergedHp } from '@/core/units/merge';
@@ -55,7 +63,7 @@ import {
   formatRepairLog,
   listProductionItems,
 } from '@/ui/economyInfo';
-import { formatEnemyTurnSummary } from '@/ui/aiInfo';
+import { formatEnemyActionLog, formatEnemyTurnSummary } from '@/ui/aiInfo';
 import {
   aiCharacterLabel,
   getAiCharacter,
@@ -65,6 +73,16 @@ import {
 import { buildBattleForecastView, type ForecastAlert } from '@/ui/forecastInfo';
 import { buildAttackSequence } from '@/rendering/attackSequence';
 import { buildMoveSequence, type MoveSequence } from '@/rendering/moveSequence';
+import {
+  buildEnemyActionView,
+  enemyActionUnit,
+  ENEMY_ACTION_GAP_MS,
+  ENEMY_CAMERA_PAN_MS,
+  ENEMY_RESULT_HOLD_MS,
+  ENEMY_SELECT_HOLD_MS,
+  ENEMY_TURN_BANNER_MS,
+  type EnemyActionView,
+} from '@/rendering/enemyActionSequence';
 import { BattleEffects, DAMAGE_COLOR } from '@/rendering/battleEffects';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
@@ -74,6 +92,7 @@ import { computeRoadLinks } from '@/rendering/roadLinks';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { ProductionWindow } from '@/rendering/ProductionWindow';
 import { VolumeWindow } from '@/rendering/VolumeWindow';
+import { EnemyAnimationWindow } from '@/rendering/EnemyAnimationWindow';
 import { UnitGuideWindow } from '@/rendering/UnitGuideWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 import { drawUnitIcon } from '@/rendering/unitIcon';
@@ -107,10 +126,16 @@ const MENU_DEPTH = 150;
 
 /**
  * 何もないマスの右クリックで出す情報メニューの項目。
- * 「音量」は音量調整ウィンドウを、「中断」は中断確認ダイアログを開く。
- * それ以外の項目の画面は今後実装する。
+ * 「敵の行動アニメ」は敵軍ターンの描画モード切替を、「音量」は音量調整ウィンドウを、
+ * 「中断」は中断確認ダイアログを開く。それ以外の項目の画面は今後実装する。
  */
-const INFO_MENU_ITEMS = ['ユニット説明', '操作', '地形効果', '音量', '中断'] as const;
+const INFO_MENU_ITEMS = [
+  'ユニット説明',
+  '操作',
+  '敵の行動アニメ',
+  '音量',
+  '中断',
+] as const;
 
 /**
  * 移動可能範囲の塗り色と濃さ。
@@ -214,7 +239,7 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   移動先として「元々居たマス」を選んでも同じメニューを出す(その場で待機/占領/攻撃を選べる)。
  *   このため、占領は情報パネルの専用ボタンではなくこのメニューから行う。
  * 情報メニュー: 何もないマス(ユニットのいないマス)を右クリックすると、移動後メニューと同じ位置に
- *   「ユニット説明 / 操作 / 地形効果 / 音量 / 中断」のメニューを出す。未実装の項目の画面は今後実装する。
+ *   「ユニット説明 / 操作 / 敵の行動アニメ / 音量 / 中断」のメニューを出す。未実装の項目の画面は今後実装する。
  *   タッチ端末では右クリックの代わりに長押し(その場で一定時間押し続ける)で同じメニューを出す。
  * 中断: 情報メニューの「中断」を選ぶと確認ダイアログを出し、「はい」で今の盤面を中断データとして
  *   保存してマップ選択画面へ戻る。中断データはマップ選択画面から再開できる。
@@ -271,6 +296,11 @@ export class MainScene extends Phaser.Scene {
    */
   private moveAnimating = false;
   /**
+   * 敵軍ターンの行動演出(「敵の行動アニメ」が「簡単」以上のとき)の再生中か。
+   * 再生中はマップ操作とターン終了を受け付けない。
+   */
+  private enemyTurnAnimating = false;
+  /**
    * 攻撃で撃破されたが、爆散の演出が終わるまで盤面に残して見せるユニット。
    * ゲームロジック上はすでに盤面から取り除かれている。
    */
@@ -321,6 +351,13 @@ export class MainScene extends Phaser.Scene {
   private unitGuideWindow: UnitGuideWindow | null = null;
   /** 確認ダイアログ(情報メニューの「中断」で開く。初回オープン時に生成) */
   private confirmWindow: ConfirmWindow | null = null;
+  /** 敵の行動アニメ設定ウィンドウ(情報メニューの同名項目で開く。初回オープン時に生成) */
+  private enemyAnimationWindow: EnemyAnimationWindow | null = null;
+  /**
+   * 敵の行動アニメ(敵軍ターンをどこまで描画するか)。
+   * 情報メニューの「敵の行動アニメ」で切り替え、localStorage に保存して次回も引き継ぐ。
+   */
+  private enemyAnimationMode: EnemyAnimationMode = 'simple';
   /** 「生産」コマンドで選んでいる生産拠点のマス(生産ウィンドウ表示中に保持) */
   private productionTile: TileData | null = null;
   /**
@@ -395,6 +432,9 @@ export class MainScene extends Phaser.Scene {
     this.nightBattle = data.nightBattle ?? false;
     // 未知の識別子(古い中断データなど)の場合は既定の指揮官にフォールバックする
     this.aiCharacter = getAiCharacter(data.aiCharacterId);
+    // 敵の行動アニメは中断データではなくゲーム設定として保存しているため、
+    // マップ・再開の内容とは関わりなく毎回保存済みの設定を読み直す
+    this.enemyAnimationMode = readEnemyAnimationMode();
     // シーンを再入場したときのために状態を初期化しておく
     this.gameOver = false;
     this.audioStarted = false;
@@ -459,6 +499,7 @@ export class MainScene extends Phaser.Scene {
     this.effects = new BattleEffects(this, TILE_SIZE, BATTLE_EFFECT_DEPTH);
     this.attackAnimating = false;
     this.moveAnimating = false;
+    this.enemyTurnAnimating = false;
     this.animatingUnit = null;
     this.pendingDefeated = [];
 
@@ -1057,10 +1098,16 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 操作を受け付けない状態か。
-   * 勝敗が決したあとと、攻撃・移動の演出の再生中は盤面の操作・ターン終了を止める。
+   * 勝敗が決したあとと、攻撃・移動・敵軍ターンの演出の再生中は
+   * 盤面の操作・ターン終了を止める。
    */
   private isInputLocked(): boolean {
-    return this.gameOver || this.attackAnimating || this.moveAnimating;
+    return (
+      this.gameOver ||
+      this.attackAnimating ||
+      this.moveAnimating ||
+      this.enemyTurnAnimating
+    );
   }
 
   /** ダメージ予測ポップアップを隠す */
@@ -1189,6 +1236,9 @@ export class MainScene extends Phaser.Scene {
    * 自軍のターンを終了する。
    * 敵軍へ手番を移して敵軍AIを自動実行し、決着しなければ自軍へ手番を戻す。
    * 手番が移るたびに、その軍の収入計上と拠点上ユニットの修理を行う。
+   *
+   * 「敵の行動アニメ」が「簡単」以上のときは敵軍の行動を 1 つずつ演出するため、
+   * 敵軍ターンの終わりは非同期に訪れる(自軍へ手番を戻す処理は startPlayerTurn が担う)。
    */
   private handleEndTurn(): void {
     // 勝敗が決した後と攻撃演出の再生中はターン終了も受け付けない
@@ -1200,14 +1250,23 @@ export class MainScene extends Phaser.Scene {
     // 自軍 → 敵軍。敵軍の開始時経済処理(収入・修理)を行う。
     this.turn.endTurn();
     this.runTurnStartEconomy();
+    // 演出しながら進める場合は、敵軍の手番であることが見出しと資金表示に出る
+    this.updateTurnText();
+    this.updateEconomyText();
     this.drawUnits();
 
     // 敵軍AIを実行する。占領・撃破で勝敗が決したらそこで止める。
-    this.runEnemyTurn();
+    this.runEnemyTurn(() => this.startPlayerTurn());
+  }
+
+  /**
+   * 敵軍ターンが終わったあと、自軍へ手番を戻して開始時の処理(収入・修理)を行う。
+   * 敵軍の行動で勝敗が決していれば何もしない。
+   */
+  private startPlayerTurn(): void {
     if (this.gameOver) {
       return;
     }
-
     // 敵軍 → 自軍。自軍の開始時経済処理を行い、表示を更新する。
     this.turn.endTurn();
     const repairs = this.runTurnStartEconomy();
@@ -1226,11 +1285,82 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 敵軍AIの手番を実行する。
-   * AI が盤面を更新したあと表示を再描画し、行動サマリを表示して勝敗を判定する。
+   * 敵軍AIの手番を実行し、終わったら onComplete を呼ぶ。
+   *
+   * 「超速」では手番をまとめて実行し、そのまま同期的に終わる(従来の挙動)。
+   * 「簡単」以上では 1 行動ずつ実行し、カメラ移動と演出を挟みながら見せる。
    */
-  private runEnemyTurn(): void {
-    const actions = this.ai.run();
+  private runEnemyTurn(onComplete: () => void): void {
+    if (this.enemyAnimationMode === 'instant') {
+      this.finishEnemyTurn(this.ai.run());
+      onComplete();
+      return;
+    }
+    this.playEnemyTurn(onComplete);
+  }
+
+  /**
+   * 敵軍の行動を 1 つずつ実行し、手動で操作しているように画面を動かしながら見せる。
+   *
+   * 行動を実行する直前の自軍視界を控えておき、夜戦で自軍から見えていない
+   * (暗い)範囲だけで起きた行動は演出せず、盤面へ反映するだけにする。
+   * 途中で勝敗が決したら、残りの行動は見せずに手番を終える。
+   */
+  private playEnemyTurn(onComplete: () => void): void {
+    this.enemyTurnAnimating = true;
+    // 敵軍のターンが始まったことをバナー・ジングル・BGM で知らせる
+    this.showTurnStartBanner();
+
+    // 敵の行動を追ってカメラが動くため、自軍が見ていた位置へ戻せるよう控えておく
+    const camera = this.cameras.main;
+    const returnTo = { x: camera.scrollX, y: camera.scrollY };
+
+    const steps = this.ai.runSteps();
+    const actions: AiAction[] = [];
+    const finish = (): void => {
+      this.enemyTurnAnimating = false;
+      this.highlight.setVisible(false);
+      // 自軍のターンは、敵軍ターンに入る前に見ていた位置から再開する
+      this.panCameraToScroll(returnTo.x, returnTo.y, ENEMY_CAMERA_PAN_MS);
+      this.finishEnemyTurn(actions);
+      onComplete();
+    };
+
+    const runNext = (): void => {
+      // 行動で盤面が変わる前の視界を控える(暗い範囲での行動を写さない判定に使う)
+      const sight = computeVisibility(this.map, this.units, 'player', this.nightBattle);
+      const next = steps.next();
+      if (next.done === true) {
+        finish();
+        return;
+      }
+      const action = next.value;
+      actions.push(action);
+      this.showEnemyAction(action, sight, (shown) => {
+        // 敵軍の占領・撃破で勝敗が決したら、残りの行動は見せずに手番を終える
+        if (this.victory.check().outcome !== 'ongoing') {
+          finish();
+          return;
+        }
+        // 見せなかった行動(夜戦の暗い範囲での行動)で間を取ると、
+        // 何も起きない待ち時間になるだけなのですぐ次へ進む
+        if (!shown) {
+          runNext();
+          return;
+        }
+        this.time.delayedCall(ENEMY_ACTION_GAP_MS, runNext);
+      });
+    };
+
+    // 開始バナーを見せ終えてから最初の行動に移る
+    this.time.delayedCall(ENEMY_TURN_BANNER_MS, runNext);
+  }
+
+  /**
+   * 敵軍の手番を締めくくる。
+   * 盤面を最新の状態へ描き直し、行動サマリを表示して勝敗を判定する。
+   */
+  private finishEnemyTurn(actions: readonly AiAction[]): void {
     // 占領で所有者が、移動・撃破でユニット配置が変わるため再描画する
     this.drawTerrain();
     this.drawUnits();
@@ -1240,6 +1370,203 @@ export class MainScene extends Phaser.Scene {
     );
     // 敵軍の占領・撃破で勝敗が決していないか判定する
     this.checkGameEnd();
+  }
+
+  /**
+   * 敵軍の行動 1 件を演出する。演出を終えたら done を呼ぶ。
+   * 夜戦の暗い範囲だけで起きた行動は写さず、盤面への反映だけを行う。
+   *
+   * @param sight その行動を実行する前の時点での自軍の視界
+   * @param done 演出を終えたときの通知。実際に演出したかどうかを渡す
+   */
+  private showEnemyAction(
+    action: AiAction,
+    sight: Visibility,
+    done: (shown: boolean) => void,
+  ): void {
+    const view = buildEnemyActionView(action, { isLit: (pos) => sight.isLit(pos) });
+    if (!view.shown || view.focus === null) {
+      // 見えない範囲の行動は演出しない。盤面(占領・撃破・生産の結果)だけ更新する
+      this.drawTerrain();
+      this.drawUnits();
+      this.updateEconomyText();
+      done(false);
+      return;
+    }
+
+    this.infoText.setText(
+      formatEnemyActionLog(action, { commander: aiCharacterLabel(this.aiCharacter) }),
+    );
+    // 手動で操作しているように、行動するマスまで画面を動かしてから見せる
+    this.panCameraTo(view.focus, ENEMY_CAMERA_PAN_MS, () =>
+      this.playEnemyActionBody(action, view, () => done(true)),
+    );
+  }
+
+  /**
+   * カメラを寄せたあとの、敵の行動そのものの演出。
+   * ユニットの選択 → 移動 → 行動(攻撃・占領・遭遇)の順に見せる。
+   */
+  private playEnemyActionBody(
+    action: AiAction,
+    view: EnemyActionView,
+    done: () => void,
+  ): void {
+    // 生産はユニットを動かさないため、拠点で新しいユニットが現れる演出だけを見せる
+    if (action.kind === 'produce') {
+      this.playEnemyProduce(action.result, done);
+      return;
+    }
+    const unit = enemyActionUnit(action);
+    if (!unit) {
+      done();
+      return;
+    }
+    this.showEnemySelection(view, () =>
+      this.playEnemyMove(unit, view, () => this.playEnemyOutcome(action, view, done)),
+    );
+  }
+
+  /**
+   * 敵ユニットを選んだことを、自軍の操作と同じ選択枠で見せる。
+   * 移動前の位置が暗い(見えていない)ときは、どこから動き出したかを明かさないため見せない。
+   */
+  private showEnemySelection(view: EnemyActionView, done: () => void): void {
+    const start = view.path[0];
+    if (!start || view.pathVisibility[0] !== true) {
+      done();
+      return;
+    }
+    this.audio.playSfx('select');
+    this.drawSelectionHighlight(start);
+    this.time.delayedCall(ENEMY_SELECT_HOLD_MS, () => {
+      this.highlight.setVisible(false);
+      done();
+    });
+  }
+
+  /**
+   * 敵ユニットを移動ルートに沿って走らせ、カメラを移動先へ追従させる。
+   * 夜戦で暗いマスを走っているあいだはトークンを隠し、明るいマスに入ったときだけ姿を見せる。
+   * 1 マスも動かない行動ではそのまま次へ進む。
+   */
+  private playEnemyMove(unit: Unit, view: EnemyActionView, done: () => void): void {
+    const path = view.path;
+    if (path.length <= 1) {
+      done();
+      return;
+    }
+    const sequence = buildMoveSequence(path, false);
+    // 走っているあいだは操作を受け付けず、ユニット本体は分身トークンで動かす
+    this.moveAnimating = true;
+    this.animatingUnit = unit;
+    this.drawUnits();
+
+    const token = this.effects.createUnitToken(
+      unit.unitType,
+      path[0],
+      UNIT_BODY_COLOR[unit.armyType],
+    );
+    const visibleAt = (index: number): boolean => view.pathVisibility[index] === true;
+    token.setVisible(visibleAt(0));
+    if (visibleAt(0)) {
+      this.audio.playSfx('move');
+    }
+    // 走る先へカメラを追従させ、手動で操作しているように画面を動かす
+    this.panCameraTo(path[path.length - 1], sequence.travelMs);
+
+    this.effects.moveTokenAlongPath(
+      token,
+      path,
+      () => {
+        token.destroy();
+        this.animatingUnit = null;
+        this.moveAnimating = false;
+        this.drawUnits();
+        done();
+      },
+      (fromIndex, toIndex) => {
+        // 区間の両端のどちらかが明るければ、その 1 マスぶんは姿が見える
+        token.setVisible(visibleAt(fromIndex) || visibleAt(toIndex));
+      },
+    );
+  }
+
+  /** 移動を終えた敵ユニットの行動(攻撃・占領・遭遇)を演出する */
+  private playEnemyOutcome(
+    action: AiAction,
+    view: EnemyActionView,
+    done: () => void,
+  ): void {
+    switch (action.kind) {
+      case 'attack': {
+        const { attacker, defender } = action.result;
+        // 夜戦で攻撃元が暗いマス(間接攻撃など)のときは、攻撃側の姿は見せずに着弾だけ見せる
+        const showAttacker = view.pathVisibility[view.pathVisibility.length - 1] === true;
+        this.playAttackEffects(
+          action.result,
+          { ...attacker.position },
+          { ...defender.position },
+          { showAttacker, onComplete: done },
+        );
+        return;
+      }
+      case 'capture':
+        this.audio.playSfx('capture');
+        // 占領完了で所有者が変わるため、地形の枠と収入表示を描き直す
+        this.drawTerrain();
+        this.drawUnits();
+        this.updateEconomyText();
+        this.time.delayedCall(ENEMY_RESULT_HOLD_MS, done);
+        return;
+      case 'halt': {
+        // 夜戦で自軍ユニットに出くわして停止した。自軍側からも遭遇として見せる
+        const sequence = buildMoveSequence(action.path, true);
+        this.audio.playSfx('encounter');
+        this.effects.playEncounter(action.to, action.blockedBy.position);
+        this.time.delayedCall(sequence.encounterHoldMs, done);
+        return;
+      }
+      default:
+        this.drawUnits();
+        done();
+    }
+  }
+
+  /** 敵軍が拠点でユニットを生産したことを見せる(新しいユニットが現れる演出) */
+  private playEnemyProduce(result: ProductionResult, done: () => void): void {
+    this.audio.playSfx('produce');
+    this.drawUnits();
+    this.effects.playSpawn(result.unit.position, UNIT_BODY_COLOR[result.unit.armyType]);
+    this.updateEconomyText();
+    this.time.delayedCall(ENEMY_RESULT_HOLD_MS, done);
+  }
+
+  /**
+   * カメラを指定マスへ滑らかに寄せる。
+   * 敵の行動を「手動で操作しているように」見せるために使う。
+   * onDone を渡すと、寄せ終えた時点で呼ぶ。
+   */
+  private panCameraTo(pos: GridPosition, duration: number, onDone?: () => void): void {
+    const { x, y } = gridToWorldCenter(pos, TILE_SIZE);
+    this.cameras.main.pan(x, y, duration, 'Quad.easeInOut');
+    if (onDone) {
+      this.time.delayedCall(duration, onDone);
+    }
+  }
+
+  /**
+   * カメラを指定のスクロール位置へ滑らかに戻す。
+   * 敵軍ターンで動かしたカメラを、自軍が見ていた位置へ戻すのに使う。
+   */
+  private panCameraToScroll(scrollX: number, scrollY: number, duration: number): void {
+    const camera = this.cameras.main;
+    camera.pan(
+      scrollX + camera.width / 2,
+      scrollY + camera.height / 2,
+      duration,
+      'Quad.easeInOut',
+    );
   }
 
   /**
@@ -1539,7 +1866,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 右クリックしたマスの近くに情報メニュー(ユニット説明 / 操作 / 地形効果)を表示する。
+   * 右クリックしたマスの近くに情報メニュー(ユニット説明 / 操作 / 敵の行動アニメ)を表示する。
    * 表示位置は移動後コマンドメニューと同じ算出(マスの右隣、はみ出すなら左隣)を使う。
    * 各項目の画面は今後実装するため、現時点では項目を押すとメニューを閉じる。
    */
@@ -1565,7 +1892,8 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 情報メニューの項目が選ばれたときの処理。
-   * 「音量」は音量調整ウィンドウを、「中断」は中断の確認ダイアログを開く。
+   * 「敵の行動アニメ」は敵軍ターンの描画モード切替を、「音量」は音量調整ウィンドウを、
+   * 「中断」は中断の確認ダイアログを開く。
    * その他の画面は今後実装するため、現時点ではメニューを閉じ、
    * 選んだ項目名を表示するだけにとどめる。
    */
@@ -1574,6 +1902,10 @@ export class MainScene extends Phaser.Scene {
     this.closeInfoMenu();
     if (label === 'ユニット説明') {
       this.openUnitGuideWindow();
+      return;
+    }
+    if (label === '敵の行動アニメ') {
+      this.openEnemyAnimationWindow();
       return;
     }
     if (label === '音量') {
@@ -1585,6 +1917,41 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     this.infoText.setText([label, '(準備中)']);
+  }
+
+  /**
+   * 情報メニューの「敵の行動アニメ」で、敵軍ターンの描画モードを選ぶウィンドウを開く。
+   * 選んだ設定は localStorage に保存し、次にゲームを始めるときにも引き継ぐ。
+   * 「しっかり」は戦闘アニメーションができるまで選べないため、押しても切り替えない。
+   */
+  private openEnemyAnimationWindow(): void {
+    this.enemyAnimationWindow ??= new EnemyAnimationWindow(this);
+    this.enemyAnimationWindow.open({
+      gameWidth: this.gameWidth,
+      gameHeight: this.gameHeight,
+      viewWidth: this.viewWidth,
+      viewHeight: this.viewHeight,
+      current: this.enemyAnimationMode,
+      onSelect: (mode) => {
+        this.audio.playSfx('button');
+        this.enemyAnimationMode = mode;
+        // 保存できない環境(localStorage が使えない)でも、今回のゲーム中は選んだ設定で動かす
+        writeEnemyAnimationMode(mode);
+        this.infoText.setText(['敵の行動アニメ', enemyAnimationModeLabel(mode)]);
+      },
+      onDenied: () => {
+        this.audio.playSfx('denied');
+        this.infoText.setText(['敵の行動アニメ', '「しっかり」は準備中です']);
+      },
+      onClose: () => {
+        this.audio.playSfx('button');
+        this.infoText.setText('マスを選択してください');
+      },
+    });
+
+    // 他のウィンドウと同様、開いた直後はグローバルの押下ハンドラが「ウィンドウ表示中ガード」で
+    // 先に return してしまいフラグが取り残されるため、明示的に下ろしておく。
+    this.pointerConsumedByButton = false;
   }
 
   /**
@@ -1639,12 +2006,16 @@ export class MainScene extends Phaser.Scene {
     this.scene.start('MapSelectScene');
   }
 
-  /** いずれかのモーダルウィンドウ(生産・音量・ユニット説明・確認ダイアログ)を表示中か */
+  /**
+   * いずれかのモーダルウィンドウ
+   * (生産・音量・ユニット説明・敵の行動アニメ・確認ダイアログ)を表示中か
+   */
   private isAnyWindowOpen(): boolean {
     return (
       this.productionWindow?.isOpen() === true ||
       this.volumeWindow?.isOpen() === true ||
       this.unitGuideWindow?.isOpen() === true ||
+      this.enemyAnimationWindow?.isOpen() === true ||
       this.confirmWindow?.isOpen() === true
     );
   }
@@ -2244,31 +2615,39 @@ export class MainScene extends Phaser.Scene {
    * 終わってから盤面を描き直して勝敗を判定する。
    * 演出の間は結果を盤面へ反映せず、撃破されたユニットも爆散まで残して見せる。
    * 再生中はマップ操作とターン終了を受け付けない。
+   *
+   * options.showAttacker に false を渡すと、攻撃側の踏み込みと反撃の表示を省き、
+   * 着弾(防御側で起きること)だけを見せる。夜戦で攻撃元が暗いマスのとき、
+   * 敵の位置を明かさずに攻撃されたことだけを伝えるために使う。
+   * options.onComplete を渡すと、演出の終わりに勝敗判定の代わりにそれを呼ぶ。
    */
   private playAttackEffects(
     result: AttackResult,
     attackerPos: GridPosition,
     targetPos: GridPosition,
+    options: { showAttacker?: boolean; onComplete?: () => void } = {},
   ): void {
+    const showAttacker = options.showAttacker ?? true;
     const sequence = buildAttackSequence(result);
     const { attacker, defender } = result;
     const attackerColor = UNIT_BODY_COLOR[attacker.armyType];
 
     this.attackAnimating = true;
     // 攻撃側は分身トークンで動かすため、盤面側の描画からは外す
-    this.animatingUnit = attacker;
+    // (姿を見せない場合は動かさないので、盤面側の描画に任せる)
+    this.animatingUnit = showAttacker ? attacker : null;
     this.pendingDefeated = [
       ...(result.defenderDefeated ? [defender] : []),
       ...(result.attackerDefeated ? [attacker] : []),
     ];
     this.drawUnits();
 
-    const token = this.effects.createUnitToken(
-      attacker.unitType,
-      attackerPos,
-      attackerColor,
-    );
-    this.effects.playLunge(token, attackerPos, targetPos);
+    const token = showAttacker
+      ? this.effects.createUnitToken(attacker.unitType, attackerPos, attackerColor)
+      : null;
+    if (token) {
+      this.effects.playLunge(token, attackerPos, targetPos);
+    }
 
     // 着弾: 打撃音・画面の揺れ・与ダメージの数字
     this.time.delayedCall(sequence.impactAt, () => {
@@ -2287,8 +2666,8 @@ export class MainScene extends Phaser.Scene {
       });
     }
 
-    // 反撃: 被ダメージの数字を攻撃側に出す
-    if (sequence.counterAt !== null) {
+    // 反撃: 被ダメージの数字を攻撃側に出す(姿を見せない攻撃側では出さない)
+    if (sequence.counterAt !== null && showAttacker) {
       this.time.delayedCall(sequence.counterAt, () => {
         this.audio.playSfx('attack');
         this.effects.shake(result.attackerDefeated);
@@ -2297,7 +2676,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     // 反撃で攻撃側が撃破された場合は、分身トークンを消して爆散させる
-    if (sequence.attackerBurstAt !== null) {
+    if (sequence.attackerBurstAt !== null && token) {
       this.time.delayedCall(sequence.attackerBurstAt, () => {
         this.audio.playSfx('defeat');
         token.setVisible(false);
@@ -2307,11 +2686,15 @@ export class MainScene extends Phaser.Scene {
 
     // 演出の終わり: 結果を反映した盤面へ描き直し、操作を再開する
     this.time.delayedCall(sequence.endAt, () => {
-      token.destroy();
+      token?.destroy();
       this.animatingUnit = null;
       this.pendingDefeated = [];
       this.attackAnimating = false;
       this.drawUnits();
+      if (options.onComplete) {
+        options.onComplete();
+        return;
+      }
       // 撃破により全滅が発生していないか判定する
       this.checkGameEnd();
     });
@@ -2703,11 +3086,12 @@ export class MainScene extends Phaser.Scene {
 
   /** 選択・行動対象・コマンドの状態と、それらの表示をすべて初期化する */
   private resetSelection(): void {
-    // 生産・音量・ユニット説明・確認ダイアログを開いていれば閉じる
+    // 生産・音量・ユニット説明・敵の行動アニメ・確認ダイアログを開いていれば閉じる
     // (この経路では onClose や はい/いいえ の通知は行わない)
     this.productionWindow?.close();
     this.volumeWindow?.close();
     this.unitGuideWindow?.close();
+    this.enemyAnimationWindow?.close();
     this.confirmWindow?.close();
     this.productionTile = null;
     this.selected = null;
