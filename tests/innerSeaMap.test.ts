@@ -12,12 +12,18 @@ import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { getTerrainData } from '@/data/terrainData';
 import { UNIT_DATA } from '@/data/unitData';
 
-/** 敵軍陣地まわりの中立拠点を区切る列。col 15 以東が「敵軍が 1 ターンで届く」範囲 */
-const ENEMY_SIDE_MIN_COL = 15;
+/** 敵軍陣地まわりの中立拠点を区切る列。col 12 以東が「敵軍が 1 ターンで届く」範囲 */
+const ENEMY_SIDE_MIN_COL = 12;
 
-/** 中央の中立都市が並ぶ列の範囲(col 7〜12) */
-const CENTER_MIN_COL = 7;
-const CENTER_MAX_COL = 12;
+/** 中央の中立都市が並ぶ列の範囲(col 6〜9) */
+const CENTER_MIN_COL = 6;
+const CENTER_MAX_COL = 9;
+
+/** 自軍で最も戦場に近い前線工場。偵察車が敵陣地まで何ターンで届くかの起点 */
+const PLAYER_FRONT_FACTORY = gridPosition(3, 5);
+
+/** 敵軍の陣地とみなす列。ここへ踏み込めたら「敵陣に到達した」とする */
+const ENEMY_CAMP_MIN_COL = 12;
 
 /** 生産拠点(工場・本拠地)の座標を軍ごとに集める */
 function productionBasesOf(map: MapManager, army: 'player' | 'enemy'): GridPosition[] {
@@ -136,7 +142,7 @@ function canReachWithin(
   return false;
 }
 
-/** 指定した行の範囲だけを使って、西端(col 0〜2)から東端(col 17〜19)まで通り抜けられるか */
+/** 指定した行の範囲だけを使って、西端(col 0〜2)から東端(col 13〜15)まで通り抜けられるか */
 function canCrossEastWest(
   map: MapManager,
   movementType: MovementType,
@@ -153,10 +159,10 @@ function canCrossEastWest(
 }
 
 describe('INNER_SEA_MAP(優勢内海マップ)', () => {
-  it('縦16・横20 のサイズで生成できる', () => {
+  it('縦12・横16 のサイズで生成できる', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    expect(map.cols).toBe(20);
-    expect(map.rows).toBe(16);
+    expect(map.cols).toBe(16);
+    expect(map.rows).toBe(12);
   });
 
   it('初期ユニットは配置しない(0 体で開始する)', () => {
@@ -273,13 +279,13 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
     const nearest = Math.min(...costs);
     // 最寄りでも移動力 3 の 2 ターンぶん(6)より遠い = 3 ターン以上かかる
     expect(nearest).toBeGreaterThan(infantryMovement * 2);
-    expect(nearest).toBe(8);
-    // 敵軍の足元の 4 個は自軍からは 16 以上と、盤面を丸ごと渡る距離にある
+    expect(nearest).toBe(7);
+    // 敵軍の足元の 4 個は自軍からは 12 以上(歩兵で 4 ターン以上)と、盤面を丸ごと渡る距離にある
     for (const base of basesOf(map, 'neutral').filter(
       (b) => b.col >= ENEMY_SIDE_MIN_COL,
     )) {
-      expect(costTo(fromPlayer, gridPosition(base.col, base.row))).toBeGreaterThanOrEqual(
-        16,
+      expect(costTo(fromPlayer, gridPosition(base.col, base.row))).toBeGreaterThan(
+        infantryMovement * 3,
       );
     }
   });
@@ -293,8 +299,8 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
       .map((b) => gridPosition(b.col, b.row));
     expect(center).toHaveLength(6);
     // 北ルート・南ルートに 3 個ずつ
-    expect(center.filter((pos) => pos.row <= 4)).toHaveLength(3);
-    expect(center.filter((pos) => pos.row >= 11)).toHaveLength(3);
+    expect(center.filter((pos) => pos.row <= 3)).toHaveLength(3);
+    expect(center.filter((pos) => pos.row >= 8)).toHaveLength(3);
     // 6 個は盤面中心について点対称
     for (const pos of center) {
       const mirror = gridPosition(map.cols - 1 - pos.col, map.rows - 1 - pos.row);
@@ -335,10 +341,34 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
     expect(economy.getIncome('enemy', map)).toBe(14000);
   });
 
-  it('中央の内海は row 7〜8 の col 5〜14 を隙間なく塞ぎ、地上ユニットは進入できない', () => {
+  it('前線工場から敵陣地まで、偵察車が街道を 2 ターン走れば到達できる', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    for (let row = 7; row <= 8; row += 1) {
-      for (let col = 5; col <= 14; col += 1) {
+    // 起点は自軍で最も戦場に近い前線工場。ここが「工場から敵陣までの距離」の物差しになる
+    expect(map.getTile(PLAYER_FRONT_FACTORY)?.terrainType).toBe('factory');
+    expect(map.getTile(PLAYER_FRONT_FACTORY)?.owner).toBe('player');
+
+    const reconMovement = UNIT_DATA.recon.movement;
+    const fromFrontFactory = moveCostMap(map, UNIT_DATA.recon.movementType, [
+      PLAYER_FRONT_FACTORY,
+    ]);
+    let nearestEnemyCamp = Infinity;
+    map.forEachTile((tile) => {
+      if (tile.position.col < ENEMY_CAMP_MIN_COL) return;
+      nearestEnemyCamp = Math.min(
+        nearestEnemyCamp,
+        costTo(fromFrontFactory, tile.position),
+      );
+    });
+    // 1 ターン(移動力 8)では届かず、2 ターンぶん(16)の移動で敵陣地へ踏み込める
+    expect(nearestEnemyCamp).toBeGreaterThan(reconMovement);
+    expect(nearestEnemyCamp).toBeLessThanOrEqual(reconMovement * 2);
+    expect(nearestEnemyCamp).toBe(13);
+  });
+
+  it('中央の内海は row 5〜6 の col 5〜10 を隙間なく塞ぎ、地上ユニットは進入できない', () => {
+    const map = MapManager.fromDefinition(INNER_SEA_MAP);
+    for (let row = 5; row <= 6; row += 1) {
+      for (let col = 5; col <= 10; col += 1) {
         const pos = gridPosition(col, row);
         expect(map.getTile(pos)?.terrainType).toBe('sea');
         for (const movementType of ['infantry', 'vehicle', 'wheeled'] as const) {
@@ -350,34 +380,34 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
 
   it('北の街道ルートは装輪車両を含むすべての地上ユニットが通り抜けられる', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    expect(canCrossEastWest(map, 'infantry', 0, 4)).toBe(true);
-    expect(canCrossEastWest(map, 'vehicle', 0, 4)).toBe(true);
-    expect(canCrossEastWest(map, 'wheeled', 0, 4)).toBe(true);
+    expect(canCrossEastWest(map, 'infantry', 0, 3)).toBe(true);
+    expect(canCrossEastWest(map, 'vehicle', 0, 3)).toBe(true);
+    expect(canCrossEastWest(map, 'wheeled', 0, 3)).toBe(true);
   });
 
   it('南の森ルートは歩兵・装軌車両は通れるが、装輪車両は通り抜けられない', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    expect(canCrossEastWest(map, 'infantry', 11, 15)).toBe(true);
-    expect(canCrossEastWest(map, 'vehicle', 11, 15)).toBe(true);
-    expect(canCrossEastWest(map, 'wheeled', 11, 15)).toBe(false);
+    expect(canCrossEastWest(map, 'infantry', 8, 11)).toBe(true);
+    expect(canCrossEastWest(map, 'vehicle', 8, 11)).toBe(true);
+    expect(canCrossEastWest(map, 'wheeled', 8, 11)).toBe(false);
   });
 
   it('盤面中央では南北のルートを乗り換えられない(歩兵も内海を渡れない)', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    const midBand = { colMin: 5, colMax: 14, rowMin: 0, rowMax: 15 };
-    const fromNorth = (pos: GridPosition): boolean => pos.row <= 4;
-    const toSouth = (pos: GridPosition): boolean => pos.row >= 11;
+    const midBand = { colMin: 5, colMax: 10, rowMin: 0, rowMax: 11 };
+    const fromNorth = (pos: GridPosition): boolean => pos.row <= 3;
+    const toSouth = (pos: GridPosition): boolean => pos.row >= 8;
     for (const movementType of ['infantry', 'vehicle', 'wheeled'] as const) {
       expect(canReachWithin(map, movementType, midBand, fromNorth, toSouth)).toBe(false);
     }
   });
 
-  it('自陣の近くでは南北のルートを乗り換えられる(自軍 col 0〜4 / 敵軍 col 15〜19)', () => {
+  it('自陣の近くでは南北のルートを乗り換えられる(自軍 col 0〜4 / 敵軍 col 11〜15)', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    const fromNorth = (pos: GridPosition): boolean => pos.row <= 4;
-    const toSouth = (pos: GridPosition): boolean => pos.row >= 11;
-    const playerSide = { colMin: 0, colMax: 4, rowMin: 0, rowMax: 15 };
-    const enemySide = { colMin: 15, colMax: 19, rowMin: 0, rowMax: 15 };
+    const fromNorth = (pos: GridPosition): boolean => pos.row <= 3;
+    const toSouth = (pos: GridPosition): boolean => pos.row >= 8;
+    const playerSide = { colMin: 0, colMax: 4, rowMin: 0, rowMax: 11 };
+    const enemySide = { colMin: 11, colMax: 15, rowMin: 0, rowMax: 11 };
     for (const movementType of ['infantry', 'vehicle', 'wheeled'] as const) {
       expect(canReachWithin(map, movementType, playerSide, fromNorth, toSouth)).toBe(
         true,
