@@ -81,15 +81,30 @@ const FOREST_BYPASS: readonly GridPosition[] = MOUNTAIN_BELT_COLS.map((col) => (
   row: 1,
 }));
 
+/** 山地帯の両端の麓に置いた中立空港(西の麓・東の麓に 1 つずつ) */
+const PASS_AIRPORTS: readonly GridPosition[] = [
+  { col: 17, row: 3 },
+  { col: 22, row: 5 },
+];
+
+/** 山地帯の両端の北岸・南岸に置いた中立港 4 つ */
+const PASS_PORTS: readonly GridPosition[] = [
+  { col: 17, row: 1 },
+  { col: 17, row: 7 },
+  { col: 22, row: 1 },
+  { col: 22, row: 7 },
+];
+
 /**
- * 先手番ハンデとして、中央の山地帯より後手番側(東)にだけ多く置いた中立都市。
- * 左右対称位置((2,3)・(2,5)・(1,6))は平地のままで、盤面はこの 3 マスだけ非対称になる。
+ * 先手番ハンデとして、中央の山地帯より後手番側にだけ多く置いた中立拠点。
+ * 中立都市 3 個と中立空港 1 個で、いずれも敵軍の陣地側にある。
  */
 const HANDICAP_CITIES: readonly GridPosition[] = [
-  { col: 37, row: 3 },
+  { col: 38, row: 3 },
   { col: 37, row: 5 },
   { col: 38, row: 6 },
 ];
+const HANDICAP_AIRPORT: GridPosition = { col: 34, row: 6 };
 
 describe('LONG_ISLAND_MAP(長島街道マップ)', () => {
   it('縦10・横40 のかなりの横長サイズで生成できる', () => {
@@ -224,10 +239,60 @@ describe('LONG_ISLAND_MAP(長島街道マップ)', () => {
     const withoutBoth = (pos: GridPosition): boolean =>
       !bothClosed.has(key(pos)) && passable(map, 'vehicle')(pos);
     expect(floodFill(map, PLAYER_HQ, withoutBoth).has(key(ENEMY_HQ))).toBe(false);
-    // 歩兵は山を乗り越えられるので、両方塞がれても east へ回り込める
+    // 歩兵は山を乗り越えられるので、両方塞がれても敵陣へ回り込める
     const withoutBothInfantry = (pos: GridPosition): boolean =>
       !bothClosed.has(key(pos)) && passable(map, 'infantry')(pos);
     expect(floodFill(map, PLAYER_HQ, withoutBothInfantry).has(key(ENEMY_HQ))).toBe(true);
+  });
+
+  it('山地帯を境に東西の地形を作り分けている(鏡写しではない)', () => {
+    const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
+    // 左右反転して地形が一致するマスは半分程度しかない = 鏡写しの盤面ではない
+    let mirrored = 0;
+    let compared = 0;
+    map.forEachTile((tile) => {
+      if (tile.position.col >= map.cols / 2) return;
+      compared += 1;
+      const opposite = map.getTile({
+        col: map.cols - 1 - tile.position.col,
+        row: tile.position.row,
+      });
+      if (opposite?.terrainType === tile.terrainType) mirrored += 1;
+    });
+    expect(mirrored).toBeLessThan(compared * 0.7);
+
+    // 西は森が多く、東は平地が多い。街道を外れたときの通りやすさが東西で変わる。
+    const countIn = (from: number, to: number, terrain: string): number =>
+      collect(
+        map,
+        (tile) =>
+          tile.position.col >= from &&
+          tile.position.col <= to &&
+          tile.terrainType === terrain,
+      ).length;
+    const westForest = countIn(1, 17, 'forest');
+    const eastForest = countIn(22, 38, 'forest');
+    const westPlain = countIn(1, 17, 'plain');
+    const eastPlain = countIn(22, 38, 'plain');
+    expect(westForest).toBeGreaterThan(eastForest);
+    expect(eastPlain).toBeGreaterThan(westPlain);
+  });
+
+  it('西の街道は折り返しの内側が森で、装輪車両は近道できない', () => {
+    const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
+    // 九十九折りの内側。街道 2 本に挟まれた森で、装輪車両はここを突っ切れない。
+    for (const pos of [
+      { col: 5, row: 4 },
+      { col: 9, row: 4 },
+      { col: 13, row: 4 },
+      { col: 15, row: 5 },
+    ]) {
+      expect(map.getTile(pos)?.terrainType).toBe('forest');
+      expect(map.getMoveCost(pos, 'wheeled')).toBeNull();
+      // 左右はどちらも街道(この森が無ければ 1 マスの近道になっていた)
+      expect(map.getTile({ col: pos.col - 1, row: pos.row })?.terrainType).toBe('road');
+      expect(map.getTile({ col: pos.col + 1, row: pos.row })?.terrainType).toBe('road');
+    }
   });
 
   it('海は島をぐるりと一周する一続きで、両軍の港が同じ海域につながっている', () => {
@@ -240,6 +305,46 @@ describe('LONG_ISLAND_MAP(長島街道マップ)', () => {
     for (const pos of collect(map, (tile) => onSea(tile.position))) {
       expect(reachable.has(key(pos))).toBe(true);
     }
+  });
+
+  it('山地帯の両端の麓に中立空港を 1 つずつ置いている', () => {
+    const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
+    for (const pos of PASS_AIRPORTS) {
+      const tile = map.getTile(pos);
+      expect(tile?.terrainType).toBe('airport');
+      expect(tile?.owner).toBe('neutral');
+      // 山地帯に隣接する麓の空港であること
+      expect(
+        neighbors(pos).some((next) => map.getTile(next)?.terrainType === 'mountain'),
+      ).toBe(true);
+    }
+    // 西の麓・東の麓に 1 つずつ(山地帯を挟んで反対側にある)
+    expect(PASS_AIRPORTS[0].col).toBeLessThan(MOUNTAIN_BELT_COLS[0]);
+    expect(PASS_AIRPORTS[1].col).toBeGreaterThan(
+      MOUNTAIN_BELT_COLS[MOUNTAIN_BELT_COLS.length - 1],
+    );
+  });
+
+  it('山地帯の両端の北岸・南岸に中立港を 1 つずつ、計 4 つ置いている', () => {
+    const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
+    const neutralPorts = collect(
+      map,
+      (tile) => tile.terrainType === 'port' && tile.owner === 'neutral',
+    );
+    expect(neutralPorts).toHaveLength(4);
+    expect(new Set(neutralPorts.map(key))).toEqual(new Set(PASS_PORTS.map(key)));
+    for (const pos of PASS_PORTS) {
+      // 山地帯のすぐ隣で、艦艇が出入りできる海に面していること
+      expect(Math.min(...MOUNTAIN_BELT_COLS.map((col) => Math.abs(col - pos.col)))).toBe(
+        1,
+      );
+      expect(
+        neighbors(pos).some((next) => map.getTile(next)?.terrainType === 'sea'),
+      ).toBe(true);
+    }
+    // 北岸(row 1)と南岸(row 7)に 2 つずつ
+    expect(PASS_PORTS.filter((pos) => pos.row === 1)).toHaveLength(2);
+    expect(PASS_PORTS.filter((pos) => pos.row === 7)).toHaveLength(2);
   });
 
   it('すべての港は海に隣接し、上陸地点となる海岸を南北の海岸線に配置している', () => {
@@ -263,23 +368,29 @@ describe('LONG_ISLAND_MAP(長島街道マップ)', () => {
     }
   });
 
-  it('中央の山地帯より後手番側に中立都市を 3 個多く置く(先手番ハンデ)', () => {
+  it('中央の山地帯より後手番側に中立都市を 3 個・中立空港を 1 個多く置く(先手番ハンデ)', () => {
     const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
+    const west = MOUNTAIN_BELT_COLS[0];
+    const east = MOUNTAIN_BELT_COLS[MOUNTAIN_BELT_COLS.length - 1];
     const cities = collect(map, (tile) => tile.terrainType === 'city');
-    const west = cities.filter((pos) => pos.col < MOUNTAIN_BELT_COLS[0]);
-    const east = cities.filter(
-      (pos) => pos.col > MOUNTAIN_BELT_COLS[MOUNTAIN_BELT_COLS.length - 1],
-    );
-    expect(west).toHaveLength(11);
-    expect(east).toHaveLength(14);
+    expect(cities.filter((pos) => pos.col < west)).toHaveLength(11);
+    expect(cities.filter((pos) => pos.col > east)).toHaveLength(14);
     // 山地帯の中に都市は置かない(関門は純粋な地形だけで作る)
-    expect(cities).toHaveLength(west.length + east.length);
+    expect(cities).toHaveLength(25);
 
+    const neutralAirports = collect(
+      map,
+      (tile) => tile.terrainType === 'airport' && tile.owner === 'neutral',
+    );
+    expect(neutralAirports).toHaveLength(3);
+    expect(neutralAirports.filter((pos) => pos.col < west)).toHaveLength(1);
+    expect(neutralAirports.filter((pos) => pos.col > east)).toHaveLength(2);
+
+    // 多く置いた中立都市 3 個は、いずれも敵軍の生産拠点の隣にあり CPU が確実に取り切れる
     for (const pos of HANDICAP_CITIES) {
       const tile = map.getTile(pos);
       expect(tile?.terrainType).toBe('city');
       expect(tile?.owner).toBe('neutral');
-      // どれも敵軍の生産拠点に隣接していて、生産した歩兵がすぐ占領に入れる
       const nextToEnemyBase = neighbors(pos).some((next) => {
         const neighbor = map.getTile(next);
         return (
@@ -287,40 +398,28 @@ describe('LONG_ISLAND_MAP(長島街道マップ)', () => {
         );
       });
       expect(nextToEnemyBase).toBe(true);
-      // 自軍側の左右対称位置は平地のままで、同じ収入は得られない
-      expect(
-        map.getTile({ col: map.cols - 1 - pos.col, row: pos.row })?.terrainType,
-      ).toBe('plain');
     }
-  });
-
-  it('ハンデの 3 マスを除けば盤面は左右対称', () => {
-    const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
-    const exempt = new Set(
-      HANDICAP_CITIES.flatMap((pos) => [
-        key(pos),
-        key({ col: map.cols - 1 - pos.col, row: pos.row }),
-      ]),
+    // 多く置いた中立空港は敵軍陣地の近く(自軍本拠地からは盤面の反対側)にある
+    const handicapAirport = map.getTile(HANDICAP_AIRPORT);
+    expect(handicapAirport?.terrainType).toBe('airport');
+    expect(handicapAirport?.owner).toBe('neutral');
+    expect(HANDICAP_AIRPORT.col).toBeGreaterThan(
+      MOUNTAIN_BELT_COLS[MOUNTAIN_BELT_COLS.length - 1],
     );
-    map.forEachTile((tile) => {
-      if (exempt.has(key(tile.position))) return;
-      const mirrored = map.getTile({
-        col: map.cols - 1 - tile.position.col,
-        row: tile.position.row,
-      });
-      expect(mirrored?.terrainType).toBe(tile.terrainType);
-    });
+    expect(Math.abs(HANDICAP_AIRPORT.col - ENEMY_HQ.col)).toBeLessThan(
+      Math.abs(HANDICAP_AIRPORT.col - PLAYER_HQ.col),
+    );
   });
 
-  it('占領できる拠点を 37 個持ち、取り切れば高額ユニットに手が届く', () => {
+  it('占領できる拠点を 44 個持ち、取り切れば高額ユニットに手が届く', () => {
     const map = MapManager.fromDefinition(LONG_ISLAND_MAP);
     const capturable = collect(
       map,
       (tile) => getTerrainData(tile.terrainType).canCapture,
     );
-    expect(capturable).toHaveLength(37);
-    // うち 25 個は中立(両軍の初期所有は 6 拠点ずつ)
+    expect(capturable).toHaveLength(44);
+    // うち 32 個は中立(両軍の初期所有は 6 拠点ずつ)
     const neutral = capturable.filter((pos) => map.getTile(pos)?.owner === 'neutral');
-    expect(neutral).toHaveLength(25);
+    expect(neutral).toHaveLength(32);
   });
 });
