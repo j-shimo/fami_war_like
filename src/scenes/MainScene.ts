@@ -463,7 +463,7 @@ export class MainScene extends Phaser.Scene {
     this.economy =
       restored?.economy ?? new EconomyManager({ initialFunds: this.mapDef.initialFunds });
     this.capture = new CaptureSystem();
-    this.production = new ProductionManager(this.units, this.economy);
+    this.production = new ProductionManager(this.map, this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
     this.victory = new VictoryConditionChecker(this.map, this.units);
     this.ai = new EnemyAi({
@@ -2816,7 +2816,9 @@ export class MainScene extends Phaser.Scene {
 
     // 各ユニットの資金充足(生産可否)を判定して行データを作る。
     // 生産できる種別は生産拠点(地形)ごとに異なる(工場・本拠地は地上、空港は飛行)。
-    const items = listProductionItems(tile.terrainType).map((item) => ({
+    // さらに、空港のないマップでは対空自走砲・対空ロケット砲が一覧から外れる。
+    const menu = listProductionItems(tile.terrainType, this.production.mapContext());
+    const items = menu.map((item) => ({
       ...item,
       affordable: this.production.canProduce(army, tile, item.unitType),
     }));

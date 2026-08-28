@@ -6,7 +6,11 @@ import type { EconomyArmy } from '@/core/economy/EconomyManager';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
 import type { RepairResult } from '@/core/economy/RepairManager';
 import { armyLabel } from '@/ui/terrainInfo';
-import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
+import {
+  getUnitData,
+  producibleUnitTypesAt,
+  type ProductionMapContext,
+} from '@/data/unitData';
 import type { TerrainType } from '@/core/map/TerrainType';
 import type { UnitType } from '@/core/units/UnitType';
 
@@ -42,10 +46,14 @@ export interface ProductionMenuItem {
 /**
  * 生産ウィンドウに並べる、指定した生産拠点(地形)で生産できるユニットの一覧を表示順で返す。
  * 工場・本拠地では地上ユニット、空港では飛行ユニットが並ぶ。
+ * context にマップの構成(空港の有無)を渡すと、そのマップで無意味なユニットは並ばない。
  * 表示範囲を超えるぶんはウィンドウ側でスクロール表示する想定で、件数の上限は設けない。
  */
-export function listProductionItems(terrainType: TerrainType): ProductionMenuItem[] {
-  return producibleUnitTypesAt(terrainType).map((unitType) => {
+export function listProductionItems(
+  terrainType: TerrainType,
+  context: ProductionMapContext = {},
+): ProductionMenuItem[] {
+  return producibleUnitTypesAt(terrainType, context).map((unitType) => {
     const data = getUnitData(unitType);
     return { unitType, unitName: data.unitName, cost: data.cost };
   });

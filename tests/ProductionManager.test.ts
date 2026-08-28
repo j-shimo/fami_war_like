@@ -20,7 +20,7 @@ function setup(initialFunds = 10000) {
   const map = MapManager.fromDefinition(PROD_MAP);
   const units = UnitManager.fromPlacements([], map);
   const economy = new EconomyManager({ initialFunds });
-  const production = new ProductionManager(units, economy);
+  const production = new ProductionManager(map, units, economy);
   return { map, units, economy, production };
 }
 

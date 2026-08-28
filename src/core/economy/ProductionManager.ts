@@ -3,12 +3,13 @@
 // docs/DevelopmentPlan.md Phase 7、docs/GameDesign.md「生産」を参照。
 
 import type { EconomyArmy, EconomyManager } from '@/core/economy/EconomyManager';
+import type { MapManager } from '@/core/map/MapManager';
 import type { TileData } from '@/core/map/TileData';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
-import type { UnitType } from '@/core/units/UnitType';
+import { AIR_UNIT_TYPES, type UnitType } from '@/core/units/UnitType';
 import { getTerrainData } from '@/data/terrainData';
-import { getUnitData, isProducibleAt } from '@/data/unitData';
+import { getUnitData, isProducibleAt, type ProductionMapContext } from '@/data/unitData';
 
 /** 生産 1 回ぶんの結果 */
 export interface ProductionResult {
@@ -21,9 +22,23 @@ export interface ProductionResult {
 /** ユニット生産の実行を担うマネージャ */
 export class ProductionManager {
   constructor(
+    private readonly map: MapManager,
     private readonly units: UnitManager,
     private readonly economy: EconomyManager,
   ) {}
+
+  /**
+   * このマップの構成による生産制限。
+   * 空港がなく、盤面にも飛行ユニットが 1 体もいないマップでは飛行ユニットが出てこないため、
+   * 飛行ユニットしか攻撃できない対空自走砲・対空ロケット砲を生産できないようにする
+   * (敵軍AIが無駄なユニットを買ってしまうのを防ぐ意味もある)。
+   */
+  mapContext(): ProductionMapContext {
+    const hasAirUnit = this.units
+      .getAllUnits()
+      .some((unit) => AIR_UNIT_TYPES.includes(unit.unitType));
+    return { hasAirport: this.map.hasAirport || hasAirUnit };
+  }
 
   /**
    * army が tile で生産を行える状態か(資金は考慮しない)。
@@ -47,7 +62,7 @@ export class ProductionManager {
     if (!this.canProduceAt(army, tile)) {
       return false;
     }
-    if (!isProducibleAt(tile.terrainType, unitType)) {
+    if (!isProducibleAt(tile.terrainType, unitType, this.mapContext())) {
       return false;
     }
     return this.economy.canAfford(army, getUnitData(unitType).cost);
@@ -64,7 +79,7 @@ export class ProductionManager {
         `このマスでは生産できません(col ${tile.position.col}, row ${tile.position.row})`,
       );
     }
-    if (!isProducibleAt(tile.terrainType, unitType)) {
+    if (!isProducibleAt(tile.terrainType, unitType, this.mapContext())) {
       throw new Error(
         `この生産拠点では ${getUnitData(unitType).unitName} を生産できません`,
       );

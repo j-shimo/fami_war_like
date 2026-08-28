@@ -93,6 +93,16 @@ export const ANTI_AIR_UNIT_TYPES: readonly UnitType[] = [
   'antiAirRocketArtillery',
 ];
 
+/**
+ * 飛行ユニットしか攻撃できない対空ユニットの一覧。
+ * 対空戦車は地上ユニットも攻撃できるためここには含めない。
+ * 空港のないマップでは飛行ユニットが出てこないため、この 2 種は生産できない。
+ */
+export const AIR_ONLY_ANTI_AIR_UNIT_TYPES: readonly UnitType[] = [
+  'antiAirArtillery',
+  'antiAirRocketArtillery',
+];
+
 /** 地上ユニット(工場・本拠地で生産する 11 種)の一覧。輸送艦で運べる種別でもある */
 export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'infantry',

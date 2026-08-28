@@ -690,9 +690,9 @@ export class EnemyAi {
    * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
    */
   private chooseProduction(tile: TileData, opponents: readonly Unit[]): UnitType | null {
-    const byCostDesc = [...producibleUnitTypesAt(tile.terrainType)].sort(
-      (a, b) => getUnitData(b).cost - getUnitData(a).cost,
-    );
+    const byCostDesc = [
+      ...producibleUnitTypesAt(tile.terrainType, this.production.mapContext()),
+    ].sort((a, b) => getUnitData(b).cost - getUnitData(a).cost);
     const candidates = this.usableAgainst(byCostDesc, opponents);
 
     // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)

@@ -2,7 +2,11 @@
 // 詳細な仕様は docs/UnitSpec.md を参照。
 
 import type { MovementType, TerrainType } from '@/core/map/TerrainType';
-import { GROUND_UNIT_TYPES, type UnitType } from '@/core/units/UnitType';
+import {
+  AIR_ONLY_ANTI_AIR_UNIT_TYPES,
+  GROUND_UNIT_TYPES,
+  type UnitType,
+} from '@/core/units/UnitType';
 
 /** ユニット 1 種類ぶんの静的パラメータ */
 export interface UnitData {
@@ -425,6 +429,8 @@ export function getUnitData(unitType: UnitType): UnitData {
  * 工場・本拠地では地上ユニット(対空自走砲・対空ロケット砲を含む)、
  * 空港では飛行ユニット(ヘリ系と固定翼機)、港では海上ユニットを生産する。
  * 生産できない地形(都市など)は一覧に含めない。
+ * マップの構成による絞り込み(空港のないマップでの対空 2 種の除外)は
+ * producibleUnitTypesAt の context で行う。
  */
 export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   Partial<Record<TerrainType, readonly UnitType[]>>
@@ -465,12 +471,41 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
   port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
 };
 
-/** 指定した生産拠点(地形)で生産できるユニット種別の一覧を返す(生産不可地形は空配列) */
-export function producibleUnitTypesAt(terrainType: TerrainType): readonly UnitType[] {
-  return PRODUCIBLE_UNIT_TYPES_BY_TERRAIN[terrainType] ?? [];
+/**
+ * 生産できる種別をマップの構成に応じて絞り込むための条件。
+ * 地形と種別の対応(PRODUCIBLE_UNIT_TYPES_BY_TERRAIN)だけでは決まらない制限をここで扱う。
+ */
+export interface ProductionMapContext {
+  /**
+   * マップに空港があるか。
+   * 空港がなければ両軍とも飛行ユニットを生産できないため、
+   * 飛行ユニットしか攻撃できない対空ユニット(対空自走砲・対空ロケット砲)を
+   * 生産一覧から除く。指定しない場合は制限なし(true 扱い)。
+   */
+  readonly hasAirport?: boolean;
+}
+
+/**
+ * 指定した生産拠点(地形)で生産できるユニット種別の一覧を返す(生産不可地形は空配列)。
+ * context に hasAirport: false を渡すと、空港のないマップでは無意味になる
+ * 対空自走砲・対空ロケット砲を除いた一覧を返す。
+ */
+export function producibleUnitTypesAt(
+  terrainType: TerrainType,
+  context: ProductionMapContext = {},
+): readonly UnitType[] {
+  const types = PRODUCIBLE_UNIT_TYPES_BY_TERRAIN[terrainType] ?? [];
+  if (context.hasAirport === false) {
+    return types.filter((type) => !AIR_ONLY_ANTI_AIR_UNIT_TYPES.includes(type));
+  }
+  return types;
 }
 
 /** 指定した生産拠点(地形)で unitType を生産できるか */
-export function isProducibleAt(terrainType: TerrainType, unitType: UnitType): boolean {
-  return producibleUnitTypesAt(terrainType).includes(unitType);
+export function isProducibleAt(
+  terrainType: TerrainType,
+  unitType: UnitType,
+  context: ProductionMapContext = {},
+): boolean {
+  return producibleUnitTypesAt(terrainType, context).includes(unitType);
 }
