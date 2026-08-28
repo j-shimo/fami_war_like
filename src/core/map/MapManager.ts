@@ -16,6 +16,12 @@ export class MapManager {
   readonly cols: number;
   readonly rows: number;
   readonly name: string;
+  /**
+   * マップ上に空港マスが 1 つでもあるか(所有者は問わない)。
+   * 空港のないマップでは飛行ユニットが生産されないため、生産可能なユニット種別の
+   * 絞り込み(対空専用ユニットの除外)に使う。
+   */
+  readonly hasAirport: boolean;
 
   /** [row][col] でアクセスするタイル配列 */
   private readonly tiles: TileData[][];
@@ -25,6 +31,9 @@ export class MapManager {
     this.tiles = tiles;
     this.rows = tiles.length;
     this.cols = tiles[0]?.length ?? 0;
+    this.hasAirport = tiles.some((rowTiles) =>
+      rowTiles.some((tile) => tile.terrainType === 'airport'),
+    );
   }
 
   /** マップ定義から MapManager を生成する */

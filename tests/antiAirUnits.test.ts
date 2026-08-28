@@ -5,12 +5,14 @@
 import { describe, expect, it } from 'vitest';
 import { canAttackUnit, findAttackableTargets } from '@/core/battle/AttackRange';
 import { BattleManager } from '@/core/battle/BattleManager';
+import { EconomyManager } from '@/core/economy/EconomyManager';
+import { ProductionManager } from '@/core/economy/ProductionManager';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import type { TerrainType } from '@/core/map/TerrainType';
 import { calculateMovementRange } from '@/core/movement/MovementRange';
 import { Unit } from '@/core/units/Unit';
-import { UnitManager } from '@/core/units/UnitManager';
+import { UnitManager, type UnitPlacement } from '@/core/units/UnitManager';
 import { canCarry } from '@/core/units/transport';
 import {
   AIR_UNIT_TYPES,
@@ -23,7 +25,8 @@ import {
 import { getBaseDamage } from '@/data/damageTable';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { getTerrainData } from '@/data/terrainData';
-import { getUnitData, isProducibleAt } from '@/data/unitData';
+import { getUnitData, isProducibleAt, producibleUnitTypesAt } from '@/data/unitData';
+import { listProductionItems } from '@/ui/economyInfo';
 
 /** テスト用のユニットを 1 体作る */
 function makeUnit(
@@ -263,5 +266,89 @@ describe('対空ユニットの一覧', () => {
       const canHitAircraft = getBaseDamage(ground, 'fighter') > 0;
       expect(canHitAircraft).toBe(ANTI_AIR_UNIT_TYPES.includes(ground));
     }
+  });
+});
+
+describe('空港のないマップでの対空ユニットの生産制限', () => {
+  // 空港のない自軍工場だけのマップ(0,0 が工場)
+  const NO_AIRPORT_MAP: MapDefinition = {
+    name: '空港なしマップ',
+    terrain: ['F..', '...', '...'],
+    owners: [{ col: 0, row: 0, owner: 'player' }],
+  };
+
+  // 同じ配置に中立空港(2,0)を足したマップ
+  const AIRPORT_MAP: MapDefinition = {
+    name: '空港ありマップ',
+    terrain: ['F.A', '...', '...'],
+    owners: [{ col: 0, row: 0, owner: 'player' }],
+  };
+
+  function setup(def: MapDefinition, placements: UnitPlacement[] = []) {
+    const map = MapManager.fromDefinition(def);
+    const units = UnitManager.fromPlacements(placements, map);
+    const economy = new EconomyManager({ initialFunds: 30000 });
+    const production = new ProductionManager(map, units, economy);
+    return { map, production };
+  }
+
+  it('MapManager は空港マスの有無を hasAirport で持つ', () => {
+    expect(MapManager.fromDefinition(NO_AIRPORT_MAP).hasAirport).toBe(false);
+    expect(MapManager.fromDefinition(AIRPORT_MAP).hasAirport).toBe(true);
+  });
+
+  it('空港がなければ対空自走砲・対空ロケット砲は生産できない', () => {
+    const { map, production } = setup(NO_AIRPORT_MAP);
+    const factory = map.getTile(gridPosition(0, 0))!;
+    expect(production.canProduce('player', factory, 'antiAirArtillery')).toBe(false);
+    expect(production.canProduce('player', factory, 'antiAirRocketArtillery')).toBe(
+      false,
+    );
+    expect(() => production.produce('player', factory, 'antiAirArtillery')).toThrow();
+  });
+
+  it('空港がなくても対空戦車と通常の地上ユニットは生産できる', () => {
+    const { map, production } = setup(NO_AIRPORT_MAP);
+    const factory = map.getTile(gridPosition(0, 0))!;
+    // 対空戦車は地上ユニットも攻撃できるため制限しない
+    expect(production.canProduce('player', factory, 'antiAirTank')).toBe(true);
+    expect(production.canProduce('player', factory, 'infantry')).toBe(true);
+    expect(production.canProduce('player', factory, 'mediumTank')).toBe(true);
+  });
+
+  it('空港があれば対空自走砲・対空ロケット砲を生産できる', () => {
+    const { map, production } = setup(AIRPORT_MAP);
+    const factory = map.getTile(gridPosition(0, 0))!;
+    expect(production.canProduce('player', factory, 'antiAirArtillery')).toBe(true);
+    expect(production.canProduce('player', factory, 'antiAirRocketArtillery')).toBe(true);
+  });
+
+  it('空港がなくても飛行ユニットが盤面にいれば対空 2 種を生産できる', () => {
+    const { map, production } = setup(NO_AIRPORT_MAP, [
+      { unitType: 'fighter', army: 'enemy', col: 2, row: 2 },
+    ]);
+    const factory = map.getTile(gridPosition(0, 0))!;
+    expect(production.canProduce('player', factory, 'antiAirArtillery')).toBe(true);
+  });
+
+  it('空港のないマップでは生産メニューにも対空 2 種が並ばない', () => {
+    const { production } = setup(NO_AIRPORT_MAP);
+    const items = listProductionItems('factory', production.mapContext()).map(
+      (item) => item.unitType,
+    );
+    expect(items).not.toContain('antiAirArtillery');
+    expect(items).not.toContain('antiAirRocketArtillery');
+    expect(items).toContain('antiAirTank');
+  });
+
+  it('生産できる種別の一覧は hasAirport: false で対空 2 種を除く', () => {
+    expect(producibleUnitTypesAt('factory', { hasAirport: false })).not.toContain(
+      'antiAirArtillery',
+    );
+    expect(
+      isProducibleAt('headquarters', 'antiAirRocketArtillery', { hasAirport: false }),
+    ).toBe(false);
+    // 指定しなければ従来どおり制限なし
+    expect(isProducibleAt('factory', 'antiAirArtillery')).toBe(true);
   });
 });

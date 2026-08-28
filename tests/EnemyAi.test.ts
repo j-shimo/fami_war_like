@@ -28,7 +28,7 @@ function setup(
   }
   const battle = new BattleManager(map, units);
   const capture = new CaptureSystem();
-  const production = new ProductionManager(units, economy);
+  const production = new ProductionManager(map, units, economy);
   const ai = new EnemyAi({
     map,
     units,
@@ -407,6 +407,34 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
 
     expect(produced).toHaveLength(1);
     expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('空港のないマップでは、相手が見えていなくても対空ロケット砲を買わない', () => {
+    // 資金 14000 で工場で買えるいちばん高価なユニットは対空ロケット砲(13000)。
+    // 空港のあるマップではそれを買うが、空港がなければ飛行ユニットが出てこないため
+    // 生産候補から外れ、次に高価な中戦車(12000)を買う。
+    const withAirport = setup(
+      {
+        name: 'airport',
+        terrain: ['F.........A'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { funds: 14000 },
+    );
+    const boughtWithAirport = actionsOfKind(withAirport.ai.run(), 'produce');
+    expect(boughtWithAirport[0].result.unit.unitType).toBe('antiAirRocketArtillery');
+
+    const withoutAirport = setup(
+      {
+        name: 'no-airport',
+        terrain: ['F..........'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { funds: 14000 },
+    );
+    const boughtWithoutAirport = actionsOfKind(withoutAirport.ai.run(), 'produce');
+    expect(boughtWithoutAirport).toHaveLength(1);
+    expect(boughtWithoutAirport[0].result.unit.unitType).toBe('mediumTank');
   });
 
   it('相手が 1 体も見えていなければ、従来どおり最も高価なユニットを買う', () => {

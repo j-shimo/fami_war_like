@@ -114,7 +114,7 @@ describe('生産拠点ごとの生産可否', () => {
     const map = MapManager.fromDefinition(PROD_MAP);
     const units = UnitManager.fromPlacements([], map);
     const economy = new EconomyManager({ initialFunds });
-    const production = new ProductionManager(units, economy);
+    const production = new ProductionManager(map, units, economy);
     return { map, production };
   }
 
