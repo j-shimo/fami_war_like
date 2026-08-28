@@ -4,6 +4,7 @@
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
+import { LONG_ISLAND_MAP } from '@/data/maps/longIslandMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
@@ -55,6 +56,12 @@ export const MAP_LIST: readonly MapEntry[] = [
     definition: STRAIT_MAP,
     description:
       '中央を海峡が貫く 26x14 の横長マップ。北と南の大陸をつなぐ陸路は両軍の陣地だけで、戦線を渡せるのは海峡を進む艦隊と空を飛ぶ航空機のみ。中央の双子空港島と海峡の中立港が争点。後手の敵軍は陣地の隣に都市が 2 個多い。',
+  },
+  {
+    id: 'longIsland',
+    definition: LONG_ISLAND_MAP,
+    description:
+      '海に囲まれた細長い島を、一本の街道が端から端まで貫く 40x10 の横長マップ。島を断ち切る中央の山地帯を車両が越えられるのは幅 1 マスの峠道と北の森の間道だけで、その両端の麓には中立空港 2 個と中立港 4 個が並ぶ。西は森と九十九折りで守りやすく、東は平地で速く攻められる非対称の島。初期資金 0・両軍とも本拠地 1・工場 2・空港 2・港 1 から始まり、後手の敵軍は中立都市が 3 個・中立空港が 1 個多い。',
   },
   {
     id: 'innerSea',
