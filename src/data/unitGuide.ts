@@ -29,7 +29,7 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
   ],
   heavyTank: [
     '鈍重だが正面戦闘で最強の戦車。',
-    '対空戦車には反撃を許さず一方的に叩くが、',
+    '対空戦車・偵察車・輸送車は寄せつけないが、',
     '移動力4・視界1と足回りと索敵は苦手。',
   ],
   artillery: [
@@ -70,7 +70,7 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
   antiAirTank: [
     '飛行ユニットと歩兵に強い車両。',
     '航空戦力への主力となるが、',
-    '戦車との撃ち合いには弱い。',
+    '戦車には弱く、重戦車は攻撃すらできない。',
   ],
   antiAirArtillery: [
     '射程2〜3で飛行ユニットだけを撃つ対空車両。',
