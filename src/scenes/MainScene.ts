@@ -1519,6 +1519,14 @@ export class MainScene extends Phaser.Scene {
         this.updateEconomyText();
         this.time.delayedCall(ENEMY_RESULT_HOLD_MS, done);
         return;
+      case 'board':
+      case 'unload':
+        // 搭乗すると歩兵が盤面から消え、降車すると隣のマスに現れる。
+        // どちらも移動と同じ効果音で知らせ、結果を見せてから次の行動へ移る
+        this.audio.playSfx('move');
+        this.drawUnits();
+        this.time.delayedCall(ENEMY_RESULT_HOLD_MS, done);
+        return;
       case 'halt': {
         // 夜戦で自軍ユニットに出くわして停止した。自軍側からも遭遇として見せる
         const sequence = buildMoveSequence(action.path, true);

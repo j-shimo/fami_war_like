@@ -206,7 +206,14 @@ export class ProductionWindow {
     config: ProductionWindowConfig,
   ): void {
     const backdrop = this.scene.add
-      .rectangle(scrollX, scrollY, config.gameWidth, config.gameHeight, COLOR.backdrop, 0.5)
+      .rectangle(
+        scrollX,
+        scrollY,
+        config.gameWidth,
+        config.gameHeight,
+        COLOR.backdrop,
+        0.5,
+      )
       .setOrigin(0, 0)
       .setDepth(WINDOW_DEPTH);
     this.objects.push(backdrop);
@@ -227,12 +234,7 @@ export class ProductionWindow {
     panel.fillRect(winX, winY + TITLE_HEIGHT, WIN_WIDTH, FUNDS_HEIGHT);
     // 資金行と一覧を分ける区切り線(ヘッダーの下端)
     panel.lineStyle(1, COLOR.separator, 1);
-    panel.lineBetween(
-      winX,
-      winY + HEADER_HEIGHT,
-      winX + WIN_WIDTH,
-      winY + HEADER_HEIGHT,
-    );
+    panel.lineBetween(winX, winY + HEADER_HEIGHT, winX + WIN_WIDTH, winY + HEADER_HEIGHT);
     // 外枠
     panel.lineStyle(2, COLOR.panelStroke, 1);
     panel.strokeRect(winX, winY, WIN_WIDTH, winHeight);

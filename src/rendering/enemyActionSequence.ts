@@ -57,6 +57,7 @@ const HIDDEN: EnemyActionView = {
 /**
  * 行動したユニットを返す(生産・待機のように演出でユニットを動かさない行動では null)。
  * 攻撃は攻撃側、占領は占領したユニットを返す。
+ * 搭乗は乗り込む側(歩兵)、降車は降ろした輸送ユニットが画面を動く。
  */
 export function enemyActionUnit(action: AiAction): Unit | null {
   switch (action.kind) {
@@ -66,6 +67,8 @@ export function enemyActionUnit(action: AiAction): Unit | null {
       return action.result.unit;
     case 'move':
     case 'halt':
+    case 'board':
+    case 'unload':
       return action.unit;
     default:
       return null;
@@ -79,6 +82,8 @@ export function enemyActionPath(action: AiAction): readonly GridPosition[] {
     case 'capture':
     case 'move':
     case 'halt':
+    case 'board':
+    case 'unload':
       return action.path;
     default:
       return [];
@@ -127,6 +132,7 @@ export function buildEnemyActionView(
 
 /**
  * 行動の山場(攻撃なら防御側のマス、占領なら占領するマス)を返す。
+ * 搭乗は乗り込んだ輸送ユニットのマス、降車は降ろした先のマスが山場になる。
  * 移動だけの行動には山場が無いため null を返す。
  */
 function enemyActionClimax(action: AiAction): GridPosition | null {
@@ -135,6 +141,10 @@ function enemyActionClimax(action: AiAction): GridPosition | null {
       return action.result.defender.position;
     case 'capture':
       return action.result.tile.position;
+    case 'board':
+      return action.to;
+    case 'unload':
+      return action.droppedAt;
     default:
       return null;
   }

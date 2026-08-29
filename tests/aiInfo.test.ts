@@ -18,6 +18,8 @@ const capture = (captured: boolean): AiAction =>
   }) as unknown as AiAction;
 
 const move = (): AiAction => ({ kind: 'move' }) as unknown as AiAction;
+const board = (): AiAction => ({ kind: 'board' }) as unknown as AiAction;
+const unload = (): AiAction => ({ kind: 'unload' }) as unknown as AiAction;
 const produce = (): AiAction => ({ kind: 'produce' }) as unknown as AiAction;
 const wait = (): AiAction => ({ kind: 'wait' }) as unknown as AiAction;
 
@@ -46,6 +48,11 @@ describe('formatEnemyTurnSummary', () => {
   it('行動が待機のみなら「待機」と表示する', () => {
     const lines = formatEnemyTurnSummary([wait(), wait()]);
     expect(lines).toEqual(['敵軍の行動', '待機']);
+  });
+
+  it('搭乗と降車はまとめて「輸送」として数える', () => {
+    const lines = formatEnemyTurnSummary([board(), unload(), unload()]);
+    expect(lines).toContain('輸送: 3');
   });
 
   it('指揮官名を渡すと、その名前を見出しにする', () => {
@@ -137,6 +144,23 @@ describe('formatEnemyActionLog', () => {
         result: { unit: { unitName: '歩兵' }, cost: 1000 },
       } as unknown as AiAction),
     ).toEqual(['敵軍の行動', '生産', '歩兵 を生産', '消費資金: 1000']);
+  });
+
+  it('搭乗・降車は輸送ユニットと運ばれるユニットの組み合わせを示す', () => {
+    expect(
+      formatEnemyActionLog({
+        kind: 'board',
+        unit: { unitName: '歩兵' },
+        transport: { unitName: '輸送艦' },
+      } as unknown as AiAction),
+    ).toEqual(['敵軍の行動', '搭乗', '輸送艦に歩兵が搭乗']);
+    expect(
+      formatEnemyActionLog({
+        kind: 'unload',
+        unit: { unitName: '輸送艦' },
+        passenger: { unitName: '歩兵' },
+      } as unknown as AiAction),
+    ).toEqual(['敵軍の行動', '降ろす', '輸送艦が歩兵を配置']);
   });
 
   it('指揮官名を渡すと、その名前を見出しにする', () => {
