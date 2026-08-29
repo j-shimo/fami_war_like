@@ -15,6 +15,10 @@
 // 「3. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
 // 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
 // 指定しなければ従来どおりの既定パターン(DEFAULT_AI_BEHAVIOR)で動く。
+// 思考パターンによっては、3 の前進に次の味付けが加わる。
+//   - indirectStandoff: 間接攻撃ユニットは敵へ近づかず、射程に収めるマスへ構える
+//   - regroupRadius: 味方から離れすぎるマスへは進まず、隊列を保って押し上げる
+// 生産では nightVisionFloor により、夜戦で視界の狭いユニットを候補から外せる。
 //
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
@@ -34,7 +38,11 @@ import { equals, manhattanDistance, type GridPosition } from '@/core/map/GridPos
 import type { MapManager } from '@/core/map/MapManager';
 import type { MovementType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
-import { calculateMovementRange, resolveMovePath } from '@/core/movement/MovementRange';
+import {
+  calculateMovementRange,
+  resolveMovePath,
+  type ReachableTile,
+} from '@/core/movement/MovementRange';
 import {
   distancesFrom,
   distancesTo,
@@ -119,6 +127,23 @@ const CAPTURE_PRIORITY: Record<string, number> = {
  * 勝利に直結する敵本拠地(3)は上回らない値にしてある。
  */
 const NEUTRAL_CAPTURE_BONUS = 1.5;
+
+/**
+ * 前進先を選ぶときの「目標へ 1 マス近づく」価値。
+ * 地形防御の加点(下の重みで最大 1.5)ではこの値に届かないため、
+ * 防御地形はあくまで「目標へ同じだけ近づけるマス」の選び分けにだけ効く。
+ */
+const GOAL_WEIGHT = 10;
+
+/** 前進先を選ぶときの地形防御の重み(防御値は 0〜3) */
+const DEFENSE_WEIGHT = 0.5;
+
+/**
+ * 間合いを取る間接攻撃ユニットが、最小射程より内側へ入り込むときの 1 マスあたりの重み。
+ * 「遠すぎて届かない」より「近すぎて撃てない(しかも反撃を受ける)」ほうが不利なため、
+ * 遠いぶんのはみ出し(重み 1)より重く見る。
+ */
+const TOO_CLOSE_WEIGHT = 2;
 
 /**
  * 敵軍(既定)の 1 手番ぶんの思考を行うコントローラ。
@@ -426,9 +451,13 @@ export class EnemyAi {
    * 目標地点へ近づく。近づけない(現在地が最善)場合は待機する。
    * どちらの場合も行動済みにする。
    * 夜戦で敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
+   *
+   * 間合いを取る思考パターンの間接攻撃ユニットだけは「近づく」のではなく
+   * 「見えている敵を射程に収めるマスへ構える」ため、目標との遠近の測り方が変わる。
    */
   private moveOrWait(unit: Unit, vision: Visibility): AiAction {
-    const targetPos = this.approachTarget(unit, vision);
+    const standoff = this.standoffAnchor(unit, vision);
+    const targetPos = standoff ?? this.approachTarget(unit, vision);
     if (!targetPos) {
       unit.hasActed = true;
       return { kind: 'wait', unit };
@@ -440,20 +469,21 @@ export class EnemyAi {
       this.units,
       this.movementOptions(vision),
     );
-    // 目標までの距離の測り方は思考パターンによる('path' なら実際に通れるマスをたどった長さ)
-    const distanceTo = this.approachDistance(unit, targetPos);
+    // 目標との「遠さ」の測り方。間合いを取る間接攻撃ユニットは射程に収まっていれば 0 とし、
+    // それ以外は思考パターンに従った距離('path' なら実際に通れるマスをたどった長さ)で測る。
+    const goalCost = standoff
+      ? (pos: GridPosition) => this.standoffCost(unit, pos, standoff)
+      : this.approachDistance(unit, targetPos);
 
+    // 現在地(＝動かない)を基準に、より評価の高いマスがあればそこへ動く。
+    // 集結する思考パターンでは、味方から離れすぎるマスは候補から外す。
     let bestPos = unit.position;
-    let bestDist = distanceTo(unit.position);
-    let bestDefense = this.terrainDefense(unit.position);
+    let bestScore = this.moveScore(unit.position, goalCost);
 
-    for (const { position } of range.tiles) {
-      const dist = distanceTo(position);
-      const defense = this.terrainDefense(position);
-      // 目標へより近いマスを優先し、同距離なら防御の高い地形を選ぶ
-      if (dist < bestDist || (dist === bestDist && defense > bestDefense)) {
-        bestDist = dist;
-        bestDefense = defense;
+    for (const { position } of this.regroupCandidates(unit, range.tiles)) {
+      const score = this.moveScore(position, goalCost);
+      if (score > bestScore) {
+        bestScore = score;
         bestPos = position;
       }
     }
@@ -480,6 +510,74 @@ export class EnemyAi {
       return { kind: 'wait', unit };
     }
     return { kind: 'move', unit, from, to: moved.destination, path: moved.path };
+  }
+
+  /**
+   * 前進先マスの評価値(大きいほど良い)を返す。
+   * 目標への近さ(goalCost)を最優先し、同じだけ近づけるマスが複数あれば
+   * 防御の高い地形を選ぶ。
+   */
+  private moveScore(pos: GridPosition, goalCost: (pos: GridPosition) => number): number {
+    return -goalCost(pos) * GOAL_WEIGHT + this.terrainDefense(pos) * DEFENSE_WEIGHT;
+  }
+
+  /**
+   * 前進先の候補マスを返す。集結する思考パターン(regroupRadius が 1 以上)では、
+   * その距離以内に味方がいるマスだけを候補にして、足の速いユニットが 1 体だけ
+   * 突出して各個撃破されるのを防ぐ。
+   *
+   * 条件を満たすマスが 1 つも無い(味方がいない・孤立している)場合は絞り込まない。
+   * 現在地はこの絞り込みに関わらず常に選べるため、行き場を失うことはない。
+   */
+  private regroupCandidates(
+    unit: Unit,
+    tiles: readonly ReachableTile[],
+  ): readonly ReachableTile[] {
+    const radius = this.behavior.regroupRadius;
+    if (radius <= 0) {
+      return tiles;
+    }
+    const allies = this.units
+      .getUnitsByArmy(this.army)
+      .filter((ally) => ally !== unit && ally.isAlive);
+    if (allies.length === 0) {
+      return tiles;
+    }
+    const nearAllies = tiles.filter(({ position }) =>
+      allies.some((ally) => manhattanDistance(position, ally.position) <= radius),
+    );
+    return nearAllies.length > 0 ? nearAllies : tiles;
+  }
+
+  /**
+   * 間合いを取る間接攻撃ユニットが基準にする敵の位置を返す。
+   *
+   * 間合いを取らない思考パターン・直接攻撃ユニット・敵が 1 体も見えていないときは null。
+   * その場合は従来どおり approachTarget の目標へ近づく。
+   */
+  private standoffAnchor(unit: Unit, vision: Visibility): GridPosition | null {
+    if (!this.behavior.indirectStandoff || !unit.isIndirect) {
+      return null;
+    }
+    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    if (enemies.length === 0) {
+      return null;
+    }
+    return this.nearestEnemyPosition(unit, enemies);
+  }
+
+  /**
+   * pos から anchor にいる敵を狙える度合いを「遠さ」(小さいほど良い)として返す。
+   *
+   * 射程(最小〜最大)に収まっていれば 0。遠すぎれば足りないマス数、
+   * 近すぎれば撃てないうえ反撃も受けるため、そのマス数を重く見た値を返す。
+   */
+  private standoffCost(unit: Unit, pos: GridPosition, anchor: GridPosition): number {
+    const distance = manhattanDistance(pos, anchor);
+    if (distance < unit.minAttackRange) {
+      return (unit.minAttackRange - distance) * TOO_CLOSE_WEIGHT;
+    }
+    return Math.max(0, distance - unit.maxAttackRange);
   }
 
   /**
@@ -685,7 +783,13 @@ export class EnemyAi {
    * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
    *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
    *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
+   * - 'roster': 編成表(roster)で決めた最低限の頭数を先に補充する。
+   *   そろったあとは 'infantryFirst' と同じ判断に進む。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
+   *
+   * さらに saveForUpgrade の思考パターンでは、いま買える最強の種別をすでに持っていて
+   * 「より高価でまだ 1 体も持っていない種別」が残っていれば、そのターンは見送って資金を貯める。
+   * 夜戦では nightVisionFloor により、視界の狭い種別を候補から外す(withNightVision)。
    *
    * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
    */
@@ -693,7 +797,7 @@ export class EnemyAi {
     const byCostDesc = [
       ...producibleUnitTypesAt(tile.terrainType, this.production.mapContext()),
     ].sort((a, b) => getUnitData(b).cost - getUnitData(a).cost);
-    const candidates = this.usableAgainst(byCostDesc, opponents);
+    const candidates = this.withNightVision(this.usableAgainst(byCostDesc, opponents));
 
     // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
     if (
@@ -702,6 +806,15 @@ export class EnemyAi {
       this.production.canProduce(this.army, tile, 'infantry')
     ) {
       return 'infantry';
+    }
+
+    // 編成表に足りない種別があれば、強力なユニットより先に補充する。
+    // 占領役の歩兵や夜戦の目になる偵察車を切らさないための最低限の頭数。
+    if (this.behavior.production === 'roster') {
+      const shortage = this.rosterShortage(tile);
+      if (shortage) {
+        return shortage;
+      }
     }
 
     const affordable = candidates.find((type) =>
@@ -719,7 +832,51 @@ export class EnemyAi {
     ) {
       return null;
     }
+    // 同じ種別を並べるより一段上を狙う思考パターンでは、すでに持っている種別しか
+    // 買えないターンを見送って資金を貯める。次の段のユニットが買えるまで貯め続ける
+    if (
+      this.behavior.saveForUpgrade &&
+      this.hasUpgradeToSaveFor(affordable, candidates)
+    ) {
+      return null;
+    }
     return affordable;
+  }
+
+  /**
+   * 編成表(roster)で頭数が足りず、いま tile で生産できる種別を返す(足りていれば null)。
+   * 一覧の先頭にあるものほど優先し、この拠点で作れない・資金が足りない種別は次へ送る。
+   */
+  private rosterShortage(tile: TileData): UnitType | null {
+    for (const entry of this.behavior.roster) {
+      if (this.countUnits(entry.unitType) >= entry.count) {
+        continue;
+      }
+      if (this.production.canProduce(this.army, tile, entry.unitType)) {
+        return entry.unitType;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * affordable(いま買える中で最強の種別)をすでに持っていて、その拠点に
+   * 「より高価でまだ 1 体も持っていない種別」が残っているかを返す。
+   * true なら、そのターンの生産を見送って資金を貯める価値がある。
+   *
+   * @param candidates 生産候補(高価な順)
+   */
+  private hasUpgradeToSaveFor(
+    affordable: UnitType,
+    candidates: readonly UnitType[],
+  ): boolean {
+    if (this.countUnits(affordable) === 0) {
+      return false;
+    }
+    const affordableCost = getUnitData(affordable).cost;
+    return candidates.some(
+      (type) => getUnitData(type).cost > affordableCost && this.countUnits(type) === 0,
+    );
   }
 
   /**
@@ -744,6 +901,24 @@ export class EnemyAi {
       opponents.some((opponent) => canDamage(type, opponent.unitType)),
     );
     return usable.length > 0 ? usable : types;
+  }
+
+  /**
+   * 夜戦で、生産候補から「視界が nightVisionFloor に満たない種別」を取り除く。
+   *
+   * 夜戦では視界の狭いユニットは自力で敵を見つけられないため、高価でも持て余す
+   * (重戦車・自走砲・ロケット砲・輸送車などの視界は 1)。昼戦では絞り込まない。
+   * 残る候補が 1 つも無い場合は、生産そのものが止まらないよう元の一覧をそのまま返す。
+   *
+   * @param types 生産候補(高価な順に並んでいること。並び順は保たれる)
+   */
+  private withNightVision(types: readonly UnitType[]): readonly UnitType[] {
+    const floor = this.behavior.nightVisionFloor;
+    if (!this.nightBattle || floor <= 0) {
+      return types;
+    }
+    const sighted = types.filter((type) => getUnitData(type).vision >= floor);
+    return sighted.length > 0 ? sighted : types;
   }
 
   /** この AI が持つ、指定種別の生存ユニット数を返す */

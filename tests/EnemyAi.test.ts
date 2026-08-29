@@ -8,6 +8,7 @@ import { ProductionManager } from '@/core/economy/ProductionManager';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import { UnitManager } from '@/core/units/UnitManager';
+import type { UnitType } from '@/core/units/UnitType';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 /** テスト用に敵軍AIと関連マネージャを組み立てる */
@@ -45,10 +46,36 @@ function setup(
 const CHARGE_BEHAVIOR: AiBehavior = {
   production: 'infantryFirst',
   infantryQuota: 6,
+  roster: [],
   powerCostRatio: 0.5,
+  saveForUpgrade: false,
   advance: 'captureAndCharge',
   routing: 'path',
   preferNeutralCapture: true,
+  indirectStandoff: false,
+  nightVisionFloor: 0,
+  regroupRadius: 0,
+};
+
+/**
+ * 猟兵長ヴェスパの思考パターン(編成表をそろえてから戦力を一段ずつ引き上げる)。
+ * 個々の要素を切り分けて確かめられるよう、テストごとに一部だけ差し替えて使う。
+ */
+const HUNTER_BEHAVIOR: AiBehavior = {
+  production: 'roster',
+  infantryQuota: 0,
+  roster: [
+    { unitType: 'infantry', count: 4 },
+    { unitType: 'recon', count: 1 },
+  ],
+  powerCostRatio: 0.3,
+  saveForUpgrade: true,
+  advance: 'captureAndCharge',
+  routing: 'path',
+  preferNeutralCapture: true,
+  indirectStandoff: true,
+  nightVisionFloor: 2,
+  regroupRadius: 2,
 };
 
 /** 行動ログから指定種別のものだけ取り出す */
@@ -630,6 +657,236 @@ describe('EnemyAi.run(思考パターン)', () => {
     // 1 マスずつ通ったマスが抜けなく並んでいる
     expect(path).toHaveLength(to.col - from.col + 1);
     expect(path.map((pos) => pos.col)).toEqual(path.map((_, index) => from.col + index));
+  });
+});
+
+describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
+  /** 敵軍の工場 1 つと、生産の絞り込みに使う自軍の歩兵 1 体だけを置いたマップ */
+  function factoryMap(enemyUnits: readonly UnitType[]): MapDefinition {
+    return {
+      name: 't',
+      terrain: ['F.........'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: [
+        { col: 9, row: 0, unitType: 'infantry', army: 'player' },
+        ...enemyUnits.map((unitType, index) => ({
+          col: index + 1,
+          row: 0,
+          unitType,
+          army: 'enemy' as const,
+        })),
+      ],
+    };
+  }
+
+  it('編成表に足りない種別があれば、強力なユニットより先に補充する', () => {
+    // 資金 10000。編成表を持たなければ対空戦車(8000)を買うところで、歩兵から埋める
+    const { economy, ai } = setup(factoryMap([]), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 10000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('infantry');
+    expect(economy.getFunds('enemy')).toBe(9000);
+  });
+
+  it('歩兵がそろえば、編成表の次の種別(偵察車)を補充する', () => {
+    const { ai } = setup(factoryMap(['infantry', 'infantry', 'infantry', 'infantry']), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 10000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('recon');
+  });
+
+  it('編成表がそろったら、買える中で最も強力なユニットを生産する', () => {
+    // 歩兵 4 体・偵察車 1 台で編成表を満たしている。資金 10000 で買える最強は対空戦車(8000)
+    const roster: UnitType[] = ['infantry', 'infantry', 'infantry', 'infantry', 'recon'];
+    const { ai } = setup(factoryMap(roster), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 10000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+  });
+
+  it('すでに持っている種別しか買えないターンは、一段上のために資金を貯める', () => {
+    // 対空戦車(8000)はもう 1 台持っている。より高価な中戦車(12000)がまだ無いので見送る
+    const roster: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      'infantry',
+      'recon',
+      'antiAirTank',
+    ];
+    const { economy, ai } = setup(factoryMap(roster), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 10000,
+    });
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+    expect(economy.getFunds('enemy')).toBe(10000);
+  });
+
+  it('資金が一段上に届けば、まだ持っていない強力なユニットを生産する', () => {
+    const roster: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      'infantry',
+      'recon',
+      'antiAirTank',
+    ];
+    const { ai } = setup(factoryMap(roster), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 12000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('資金を貯める思考パターンでなければ、同じ種別でも買い足す', () => {
+    const roster: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      'infantry',
+      'recon',
+      'antiAirTank',
+    ];
+    const { ai } = setup(factoryMap(roster), {
+      behavior: { ...HUNTER_BEHAVIOR, saveForUpgrade: false },
+      funds: 10000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+  });
+
+  it('夜戦では、視界の狭い重戦車を買わずに目の利く中戦車を選ぶ', () => {
+    // 資金 20000。重戦車(18000)は視界 1 で夜戦では敵を見つけられないため候補から外れ、
+    // 次に高価で視界 2 を持つ中戦車(12000)を買う
+    const roster: UnitType[] = ['infantry', 'infantry', 'infantry', 'infantry', 'recon'];
+    const { ai } = setup(factoryMap(roster), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 20000,
+      nightBattle: true,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('昼戦では視界を気にせず、最も強力な重戦車を買う', () => {
+    const roster: UnitType[] = ['infantry', 'infantry', 'infantry', 'infantry', 'recon'];
+    const { ai } = setup(factoryMap(roster), {
+      behavior: HUNTER_BEHAVIOR,
+      funds: 20000,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('heavyTank');
+  });
+});
+
+describe('EnemyAi.run(間合いと隊列)', () => {
+  /**
+   * 自走砲(射程 2〜3・移動 4)と自軍歩兵だけを平地に置いたマップ。
+   * 自走砲はその場から届かないため、接近の判断だけがログに出る。
+   */
+  const STANDOFF_MAP: MapDefinition = {
+    name: 't',
+    terrain: ['..........'],
+    units: [
+      { col: 0, row: 0, unitType: 'artillery', army: 'enemy' },
+      { col: 4, row: 0, unitType: 'infantry', army: 'player' },
+    ],
+  };
+
+  it('間合いを取る思考パターンの間接攻撃ユニットは、最小射程より内側へ踏み込まない', () => {
+    const { ai } = setup(STANDOFF_MAP, {
+      behavior: { ...HUNTER_BEHAVIOR, regroupRadius: 0 },
+    });
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    // 次のターンにその場から撃てるよう、射程 2〜3 に収まるマスで止まる
+    const distance = 4 - moves[0].to.col;
+    expect(distance).toBeGreaterThanOrEqual(2);
+    expect(distance).toBeLessThanOrEqual(3);
+  });
+
+  it('間合いを取らない思考パターンでは、撃てなくなる距離まで詰めてしまう', () => {
+    const { ai } = setup(STANDOFF_MAP, {
+      behavior: { ...HUNTER_BEHAVIOR, regroupRadius: 0, indirectStandoff: false },
+    });
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    // 敵の隣(最小射程 2 の内側)まで踏み込むため、次のターンも攻撃できない
+    expect(moves[0].to).toEqual(gridPosition(3, 0));
+  });
+
+  it('隊列を保つ思考パターンでは、味方を置き去りにして突出しない', () => {
+    // 中戦車(移動 5)は味方の歩兵から 2 マス以内に留まり、col5 まで走らない
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['............'],
+        units: [
+          { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
+          { col: 0, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 11, row: 0, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { behavior: { ...HUNTER_BEHAVIOR, indirectStandoff: false } },
+    );
+
+    const tankMove = actionsOfKind(ai.run(), 'move').find(
+      (move) => move.unit.unitType === 'mediumTank',
+    );
+
+    expect(tankMove?.to).toEqual(gridPosition(2, 0));
+  });
+
+  it('味方が 1 体もいなければ、隊列を気にせず前進する', () => {
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['............'],
+        units: [
+          { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
+          { col: 11, row: 0, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { behavior: { ...HUNTER_BEHAVIOR, indirectStandoff: false } },
+    );
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    expect(moves[0].to).toEqual(gridPosition(6, 0));
   });
 });
 
