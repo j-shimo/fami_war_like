@@ -763,6 +763,80 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
     expect(produced[0].result.unit.unitType).toBe('mediumTank');
   });
 
+  it('戦力で負けているあいだは貯めず、いま買えるものを買って頭数を戻す', () => {
+    // 編成は「すでに持っている種別しか買えない」状態(通常なら一段上のために見送る)。
+    // ただし相手の中戦車 2 両(24000)に対して自軍の戦力は 15500 で劣勢なので、貯めずに買う
+    const roster: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      'infantry',
+      'recon',
+      'antiAirTank',
+    ];
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F...................'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [
+          // 敵AIの手が届かない遠くに置き、このターンに撃破されないようにする
+          { col: 18, row: 0, unitType: 'mediumTank', army: 'player' },
+          { col: 19, row: 0, unitType: 'mediumTank', army: 'player' },
+          ...roster.map((unitType, index) => ({
+            col: index + 1,
+            row: 0,
+            unitType,
+            army: 'enemy' as const,
+          })),
+        ],
+      },
+      { behavior: HUNTER_BEHAVIOR, funds: 10000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+  });
+
+  it('傷ついた相手は戦力を割り引いて数える(HP が減っていれば劣勢にならない)', () => {
+    // 相手の中戦車 2 両は HP1 まで削れており、戦力は 24000 × 0.1 × 2 = 4800。
+    // 自軍(15500)のほうが上なので、従来どおり一段上のために資金を貯める
+    const roster: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      'infantry',
+      'recon',
+      'antiAirTank',
+    ];
+    const { units, ai } = setup(
+      {
+        name: 't',
+        terrain: ['F...................'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [
+          // 敵AIの手が届かない遠くに置き、このターンに撃破されないようにする
+          { col: 18, row: 0, unitType: 'mediumTank', army: 'player' },
+          { col: 19, row: 0, unitType: 'mediumTank', army: 'player' },
+          ...roster.map((unitType, index) => ({
+            col: index + 1,
+            row: 0,
+            unitType,
+            army: 'enemy' as const,
+          })),
+        ],
+      },
+      { behavior: HUNTER_BEHAVIOR, funds: 10000 },
+    );
+    for (const col of [18, 19]) {
+      units.getUnitAt(gridPosition(col, 0))!.currentHp = 1;
+    }
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+  });
+
   it('資金を貯める思考パターンでなければ、同じ種別でも買い足す', () => {
     const roster: UnitType[] = [
       'infantry',

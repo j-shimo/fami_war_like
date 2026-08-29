@@ -1338,6 +1338,7 @@ export class EnemyAi {
    *
    * さらに saveForUpgrade の思考パターンでは、いま買える最強の種別をすでに持っていて
    * 「より高価でまだ 1 体も持っていない種別」が残っていれば、そのターンは見送って資金を貯める。
+   * ただし戦力で相手に負けている(劣勢の)あいだは貯めず、いま買えるものを買って頭数を戻す。
    * 夜戦では nightVisionFloor により、視界の狭い種別を候補から外す(withNightVision)。
    *
    * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
@@ -1397,14 +1398,42 @@ export class EnemyAi {
       return null;
     }
     // 同じ種別を並べるより一段上を狙う思考パターンでは、すでに持っている種別しか
-    // 買えないターンを見送って資金を貯める。次の段のユニットが買えるまで貯め続ける
+    // 買えないターンを見送って資金を貯める。次の段のユニットが買えるまで貯め続ける。
+    // ただし戦力で負けているあいだは貯めない(資金を抱えたまま押し切られてしまうため)
     if (
       this.behavior.saveForUpgrade &&
+      !this.isOutmatched(opponents) &&
       this.hasUpgradeToSaveFor(affordable, candidates)
     ) {
       return null;
     }
     return affordable;
+  }
+
+  /**
+   * 自軍の戦力が相手を下回っている(劣勢)かどうかを返す。
+   *
+   * 戦力は「生産コストを残 HP の割合で割り引いた合計」で測る。頭数ではなく値段で見るため、
+   * 歩兵を並べただけの軍と重戦車をそろえた軍を取り違えない。
+   *
+   * 劣勢のあいだは一段上のユニットを待たず、いま買えるものを買って頭数を戻す。
+   * 資金を抱えたまま押し切られるのがいちばん悪い負け方のため。
+   *
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)。
+   *   夜戦で相手が見えていなければ劣勢と判断できないため、そのまま貯め続けることになる。
+   */
+  private isOutmatched(opponents: readonly Unit[]): boolean {
+    const own = this.armyValue(this.units.getUnitsByArmy(this.army));
+    return own < this.armyValue(opponents);
+  }
+
+  /** ユニット群の戦力を、生産コストを残 HP の割合で割り引いて合計した値で返す */
+  private armyValue(units: readonly Unit[]): number {
+    return units.reduce(
+      (total, unit) =>
+        total + getUnitData(unit.unitType).cost * (unit.currentHp / unit.maxHp),
+      0,
+    );
   }
 
   /**
