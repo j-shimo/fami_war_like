@@ -44,6 +44,49 @@ const path = (...cols: number[]): GridPosition[] =>
   cols.map((col) => gridPosition(col, 0));
 
 describe('enemyActionUnit / enemyActionPath', () => {
+  it('搭乗は乗り込む側、降車は輸送ユニットが画面を動く', () => {
+    const { enemy, player } = setup();
+    const board: AiAction = {
+      kind: 'board',
+      unit: player,
+      transport: enemy,
+      from: gridPosition(3, 0),
+      to: gridPosition(0, 0),
+      path: path(3, 2, 1, 0),
+    };
+    expect(enemyActionUnit(board)).toBe(player);
+    expect(enemyActionPath(board)).toHaveLength(4);
+
+    const unload: AiAction = {
+      kind: 'unload',
+      unit: enemy,
+      passenger: player,
+      from: gridPosition(0, 0),
+      to: gridPosition(1, 0),
+      droppedAt: gridPosition(2, 0),
+      path: path(0, 1),
+    };
+    expect(enemyActionUnit(unload)).toBe(enemy);
+    expect(enemyActionPath(unload)).toHaveLength(2);
+  });
+
+  it('降車は、経路が暗くても降ろしたマスが明るければ見せる', () => {
+    const { enemy, player } = setup();
+    const unload: AiAction = {
+      kind: 'unload',
+      unit: enemy,
+      passenger: player,
+      from: gridPosition(0, 0),
+      to: gridPosition(1, 0),
+      droppedAt: gridPosition(2, 0),
+      path: path(0, 1),
+    };
+    // 経路(col 0・1)は暗く、降ろしたマス(col 2)だけが明るい
+    const view = buildEnemyActionView(unload, sightOf([2]));
+    expect(view.shown).toBe(true);
+    expect(view.focus).toEqual(gridPosition(2, 0));
+  });
+
   it('移動・攻撃・占領は行動したユニットと経路を取り出せる', () => {
     const { enemy } = setup();
     const move: AiAction = {

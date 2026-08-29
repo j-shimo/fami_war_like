@@ -15,6 +15,10 @@
 // 「3. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
 // 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
 // 指定しなければ従来どおりの既定パターン(DEFAULT_AI_BEHAVIOR)で動く。
+// 思考パターンによっては、3 の前進に次の味付けが加わる。
+//   - indirectStandoff: 間接攻撃ユニットは敵へ近づかず、射程に収めるマスへ構える
+//   - regroupRadius: 味方から離れすぎるマスへは進まず、隊列を保って押し上げる
+// 生産では nightVisionFloor により、夜戦で視界の狭いユニットを候補から外せる。
 //
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
@@ -30,17 +34,28 @@ import type {
   ProductionManager,
   ProductionResult,
 } from '@/core/economy/ProductionManager';
-import { equals, manhattanDistance, type GridPosition } from '@/core/map/GridPosition';
+import {
+  equals,
+  gridPosition,
+  manhattanDistance,
+  type GridPosition,
+} from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { MovementType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
-import { calculateMovementRange, resolveMovePath } from '@/core/movement/MovementRange';
+import {
+  calculateMovementRange,
+  findTransportTargets,
+  resolveMovePath,
+  type ReachableTile,
+} from '@/core/movement/MovementRange';
 import {
   distancesFrom,
   distancesTo,
   type PathDistanceField,
 } from '@/core/movement/PathDistance';
 import { computeVisibility, type Visibility } from '@/core/night/Visibility';
+import { canCarry } from '@/core/units/transport';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
@@ -85,6 +100,34 @@ export type AiAction =
       /** 停止マスまでの移動経路(先頭は from、末尾は to) */
       readonly path: readonly GridPosition[];
     }
+  | {
+      /** 味方の輸送ユニットへ乗り込んだ(乗り込んだユニットは盤面から外れる) */
+      readonly kind: 'board';
+      /** 乗り込んだユニット(歩兵) */
+      readonly unit: Unit;
+      /** 乗せた輸送ユニット */
+      readonly transport: Unit;
+      readonly from: GridPosition;
+      /** 乗り込んだ先(輸送ユニットのマス) */
+      readonly to: GridPosition;
+      /** 輸送ユニットのマスまでの移動経路(先頭は移動前の位置) */
+      readonly path: readonly GridPosition[];
+    }
+  | {
+      /** 輸送ユニットが運んでいたユニットを隣接マスへ降ろした */
+      readonly kind: 'unload';
+      /** 降ろした輸送ユニット */
+      readonly unit: Unit;
+      /** 降ろされたユニット */
+      readonly passenger: Unit;
+      readonly from: GridPosition;
+      /** 輸送ユニットの移動先(降ろした時点の位置) */
+      readonly to: GridPosition;
+      /** 降ろした先のマス */
+      readonly droppedAt: GridPosition;
+      /** 降ろす位置までの移動経路(先頭は移動前の位置) */
+      readonly path: readonly GridPosition[];
+    }
   | { readonly kind: 'produce'; readonly result: ProductionResult }
   | { readonly kind: 'wait'; readonly unit: Unit };
 
@@ -119,6 +162,60 @@ const CAPTURE_PRIORITY: Record<string, number> = {
  * 勝利に直結する敵本拠地(3)は上回らない値にしてある。
  */
 const NEUTRAL_CAPTURE_BONUS = 1.5;
+
+/**
+ * 前進先を選ぶときの「目標へ 1 マス近づく」価値。
+ * 地形防御の加点(下の重みで最大 1.5)ではこの値に届かないため、
+ * 防御地形はあくまで「目標へ同じだけ近づけるマス」の選び分けにだけ効く。
+ */
+const GOAL_WEIGHT = 10;
+
+/** 前進先を選ぶときの地形防御の重み(防御値は 0〜3) */
+const DEFENSE_WEIGHT = 0.5;
+
+/**
+ * 自軍の生産拠点(工場・本拠地・空港・港)で足を止めることの減点。
+ * ユニットが居座っているあいだ、その拠点では生産できなくなってしまうため、
+ * 同じくらい目標へ近づけるマスが他にあればそちらを選ばせる。
+ * 地形防御の加点(最大 1.5)より大きく、1 マスぶんの前進(GOAL_WEIGHT)より小さい。
+ */
+const OWN_PRODUCTION_SITE_PENALTY = 2;
+
+/**
+ * 間合いを取る間接攻撃ユニットが、最小射程より内側へ入り込むときの 1 マスあたりの重み。
+ * 「遠すぎて届かない」より「近すぎて撃てない(しかも反撃を受ける)」ほうが不利なため、
+ * 遠いぶんのはみ出し(重み 1)より重く見る。
+ */
+const TOO_CLOSE_WEIGHT = 2;
+
+/**
+ * 生産拠点ごとの「海を渡って歩兵を運べる輸送ユニット」。
+ * 工場・本拠地で作れる輸送車は海を渡れないため含めない
+ * (歩兵が歩いて行けない陸地は輸送車でも行けないので、陸の輸送は生産の対象にしない)。
+ */
+const FERRY_BY_TERRAIN: Record<string, UnitType> = {
+  port: 'transportShip',
+  airport: 'transportHelicopter',
+};
+
+/**
+ * 移動タイプをおおまかな移動領域(陸・海・空)にまとめる。
+ * 隊列を組む相手を「同じ場所を進める味方」に絞るために使う。
+ */
+function movementDomain(movementType: MovementType): 'land' | 'sea' | 'air' {
+  if (movementType === 'sea' || movementType === 'air') {
+    return movementType;
+  }
+  return 'land';
+}
+
+/** 隣接 4 方向のオフセット(斜め移動はしない)。降車できるマスを調べるのに使う */
+const NEIGHBOR_OFFSETS: readonly { readonly dc: number; readonly dr: number }[] = [
+  { dc: 0, dr: -1 },
+  { dc: 0, dr: 1 },
+  { dc: -1, dr: 0 },
+  { dc: 1, dr: 0 },
+];
 
 /**
  * 敵軍(既定)の 1 手番ぶんの思考を行うコントローラ。
@@ -201,9 +298,16 @@ export class EnemyAi {
   private actUnit(unit: Unit): AiAction {
     // 行動のたびに盤面が変わるため、そのユニットの手番ごとに視界を計算し直す
     const vision = computeVisibility(this.map, this.units, this.army, this.nightBattle);
+    // 荷物を積んでいる輸送ユニットは、戦うより届けることを優先する。
+    // 輸送ユニットが被弾すると搭乗ユニットも同じダメージを受けるため、戦闘には近寄らせない
+    if (unit.isCarrying) {
+      return this.deliver(unit, vision);
+    }
     return (
       this.tryAttack(unit, vision) ??
       this.tryCapture(unit, vision) ??
+      this.tryBoard(unit, vision) ??
+      this.tryRendezvous(unit, vision) ??
       this.moveOrWait(unit, vision)
     );
   }
@@ -426,9 +530,13 @@ export class EnemyAi {
    * 目標地点へ近づく。近づけない(現在地が最善)場合は待機する。
    * どちらの場合も行動済みにする。
    * 夜戦で敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
+   *
+   * 間合いを取る思考パターンの間接攻撃ユニットだけは「近づく」のではなく
+   * 「見えている敵を射程に収めるマスへ構える」ため、目標との遠近の測り方が変わる。
    */
   private moveOrWait(unit: Unit, vision: Visibility): AiAction {
-    const targetPos = this.approachTarget(unit, vision);
+    const standoff = this.standoffAnchor(unit, vision);
+    const targetPos = standoff ?? this.approachTarget(unit, vision);
     if (!targetPos) {
       unit.hasActed = true;
       return { kind: 'wait', unit };
@@ -440,20 +548,39 @@ export class EnemyAi {
       this.units,
       this.movementOptions(vision),
     );
-    // 目標までの距離の測り方は思考パターンによる('path' なら実際に通れるマスをたどった長さ)
-    const distanceTo = this.approachDistance(unit, targetPos);
+    // 目標との「遠さ」の測り方。間合いを取る間接攻撃ユニットは射程に収まっていれば 0 とし、
+    // それ以外は思考パターンに従った距離('path' なら実際に通れるマスをたどった長さ)で測る。
+    const goalCost = standoff
+      ? (pos: GridPosition) => this.standoffCost(unit, pos, standoff)
+      : this.approachDistance(unit, targetPos);
 
+    // 集結する思考パターンでは、味方から離れすぎるマスは候補から外す
+    return this.stepTowards(
+      unit,
+      goalCost,
+      this.regroupCandidates(unit, range.tiles),
+      vision,
+    );
+  }
+
+  /**
+   * candidates のうち goalCost がいちばん小さいマスへ動く。
+   * 現在地(＝動かない)を基準にするため、今いるマスより良いマスが無ければ待機になる。
+   * どちらの場合も行動済みにする。接近・間合い取り・輸送の移動で共用する。
+   */
+  private stepTowards(
+    unit: Unit,
+    goalCost: (pos: GridPosition) => number,
+    candidates: readonly ReachableTile[],
+    vision: Visibility,
+  ): AiAction {
     let bestPos = unit.position;
-    let bestDist = distanceTo(unit.position);
-    let bestDefense = this.terrainDefense(unit.position);
+    let bestScore = this.moveScore(unit.position, goalCost);
 
-    for (const { position } of range.tiles) {
-      const dist = distanceTo(position);
-      const defense = this.terrainDefense(position);
-      // 目標へより近いマスを優先し、同距離なら防御の高い地形を選ぶ
-      if (dist < bestDist || (dist === bestDist && defense > bestDefense)) {
-        bestDist = dist;
-        bestDefense = defense;
+    for (const { position } of candidates) {
+      const score = this.moveScore(position, goalCost);
+      if (score > bestScore) {
+        bestScore = score;
         bestPos = position;
       }
     }
@@ -480,6 +607,526 @@ export class EnemyAi {
       return { kind: 'wait', unit };
     }
     return { kind: 'move', unit, from, to: moved.destination, path: moved.path };
+  }
+
+  // ---- 輸送(積む・運ぶ・降ろす) ----
+  //
+  // 海で分断されたマップ(分断列島マップなど)では、歩兵は自分の足で相手の島へ渡れない。
+  // 輸送ユニットが無ければ敵AIは海岸で足踏みしたまま攻め込めないため、
+  // 思考パターンによらず全キャラクター共通の行動として次の 3 つを扱う。
+  //
+  //   1. 搭乗(tryBoard): 歩いて占領できる拠点がもう無い歩兵が、味方の輸送ユニットへ乗り込む
+  //   2. 輸送(deliver): 積んでいる輸送ユニットが、降ろせる岸へ寄せて歩兵を降ろす
+  //   3. 待ち合わせ(tryRendezvous): 空の輸送ユニットが、歩兵を乗せられる位置で待つ
+  //
+  // 運ぶ相手は占領できるユニット(歩兵)だけに絞ってある。戦車を輸送艦で揚陸させる判断までは
+  // 行わない(そこまで踏み込むと、揚陸地点の選び方そのものが別の思考になるため)。
+
+  /**
+   * 味方の輸送ユニットへ乗り込む。乗り込めない・乗り込む必要がなければ null を返す。
+   *
+   * 乗り込むのは「自分の足で行ける未所有の拠点の数が、自軍の占領役の数より少ない」ときだけ。
+   * つまり陸続きの拠点を取り切る見込みが立ち、占領役が余ってきてから海を渡る。
+   * 陸だけのマップでは足で行けない拠点が無く、取り切れば未所有の拠点そのものが無くなるため、
+   * 従来どおり誰も船に乗らない。
+   *
+   * 乗り込んだ歩兵は盤面から外れて占領役の数が減るため、
+   * 余っていたぶんだけが順に乗り込み、残りは陸の拠点を取り続ける。
+   */
+  private tryBoard(unit: Unit, vision: Visibility): AiAction | null {
+    if (!unit.canCapture) {
+      return null;
+    }
+    const unowned = this.unownedCaptureTiles();
+    if (unowned.length === 0) {
+      return null;
+    }
+    // 自分の足で行ける拠点が占領役より多いうちは、まず陸の拠点を取りに行く
+    const onFoot = this.pathField('from', unit.position, unit.movementType);
+    const walkable = unowned.filter((pos) => onFoot.get(pos) !== undefined).length;
+    if (walkable === unowned.length || walkable >= this.countCapturers()) {
+      return null;
+    }
+
+    const transports = findTransportTargets(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    )
+      // 自分では行けない土地へ運べる輸送ユニットだけを選ぶ。
+      // 海を渡れない輸送車に乗り込んで、荷物のまま海岸で止まってしまうのを防ぐ
+      .filter((candidate) => this.canFerryBeyondFoot(candidate, unit, onFoot));
+    if (transports.length === 0) {
+      return null;
+    }
+    const transport = transports.reduce((nearest, candidate) =>
+      manhattanDistance(unit.position, candidate.position) <
+      manhattanDistance(unit.position, nearest.position)
+        ? candidate
+        : nearest,
+    );
+
+    const from = unit.position;
+    const resolved = resolveMovePath(
+      unit,
+      this.map,
+      this.units,
+      transport.position,
+      this.movementOptions(vision),
+    );
+    // 夜戦で経路上の見えない敵に出くわしたら、乗り込めずに手前で強制待機になる
+    if (resolved.blockedBy) {
+      if (!equals(resolved.destination, from)) {
+        this.units.moveUnit(unit, resolved.destination, { markActed: false });
+      }
+      unit.hasActed = true;
+      return {
+        kind: 'halt',
+        unit,
+        from,
+        to: resolved.destination,
+        blockedBy: resolved.blockedBy,
+        path: resolved.path,
+      };
+    }
+    // 搭乗したユニットは盤面から外れるため、輸送ユニットのマスへ動かす必要はない
+    this.units.carryUnit(transport, unit);
+    return {
+      kind: 'board',
+      unit,
+      transport,
+      from,
+      to: transport.position,
+      path: resolved.path,
+    };
+  }
+
+  /**
+   * transport が passenger を「passenger 自身では歩いて行けない土地」へ運べるかを返す。
+   *
+   * transport が通れるマスの隣に passenger を降ろせて、その降車先が
+   * いま歩いて行ける範囲(onFoot)の外にあるなら運ぶ価値がある。
+   * 海を渡れる輸送艦・輸送ヘリだけがこれを満たし、陸の輸送車は満たさない。
+   *
+   * @param onFoot passenger が現在地から歩いて行ける範囲
+   */
+  private canFerryBeyondFoot(
+    transport: Unit,
+    passenger: Unit,
+    onFoot: PathDistanceField,
+  ): boolean {
+    const afloat = this.pathField('from', transport.position, transport.movementType);
+    let found = false;
+    this.map.forEachTile((tile) => {
+      if (found || afloat.get(tile.position) === undefined) {
+        return;
+      }
+      found = this.unloadSpotsAt(transport, tile.position, passenger).some(
+        (spot) => onFoot.get(spot) === undefined,
+      );
+    });
+    return found;
+  }
+
+  /**
+   * 荷物を積んでいる輸送ユニットの行動。降ろした歩兵が目的の拠点へ歩いて行けるマス
+   * (揚陸点)へ寄せ、降ろせるようになったらその場で降ろす。
+   *
+   * 移動先は「降ろした先から目的地までの徒歩距離」がいちばん短いマスを選ぶ。
+   * まだどこにも降ろせない(海の上など)あいだは、目的地へ近づくマスを選んで進む。
+   */
+  private deliver(transport: Unit, vision: Visibility): AiAction {
+    const passenger = transport.carried[0];
+    if (!passenger) {
+      // 呼び出し側で isCarrying を確かめているため、通常はここへ来ない
+      transport.hasActed = true;
+      return { kind: 'wait', unit: transport };
+    }
+    const goal = this.landingGoal(transport, passenger);
+    if (!goal) {
+      // 運ぶ先が無くなった(取り切った・降ろした先から歩いて行ける)。その場で降ろして身軽になる
+      return this.unloadHere(transport, passenger, transport.position);
+    }
+    const footField = this.pathField('to', goal, passenger.movementType);
+    const range = calculateMovementRange(
+      transport,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
+
+    // 揚陸できるマスを最優先し、まだどこにも降ろせないうちは目的地へ近づく
+    let bestPos = transport.position;
+    let bestLanding = this.landingCost(
+      transport,
+      transport.position,
+      passenger,
+      footField,
+    );
+    let bestDistance = manhattanDistance(transport.position, goal);
+    for (const { position } of range.tiles) {
+      const landing = this.landingCost(transport, position, passenger, footField);
+      const distance = manhattanDistance(position, goal);
+      if (landing < bestLanding || (landing === bestLanding && distance < bestDistance)) {
+        bestLanding = landing;
+        bestDistance = distance;
+        bestPos = position;
+      }
+    }
+
+    const from = transport.position;
+    const moved = this.moveAlong(transport, bestPos, vision);
+    if (moved.blockedBy) {
+      transport.hasActed = true;
+      return {
+        kind: 'halt',
+        unit: transport,
+        from,
+        to: moved.destination,
+        blockedBy: moved.blockedBy,
+        path: moved.path,
+      };
+    }
+
+    // 寄せた先で降ろせるなら降ろす(降ろしたユニットも輸送ユニットも行動済みになる)
+    const spot = this.bestUnloadSpot(transport, transport.position, passenger, footField);
+    if (spot) {
+      this.units.dropUnit(transport, spot, passenger);
+      return {
+        kind: 'unload',
+        unit: transport,
+        passenger,
+        from,
+        to: transport.position,
+        droppedAt: spot,
+        path: moved.path,
+      };
+    }
+
+    transport.hasActed = true;
+    if (equals(moved.destination, from)) {
+      return { kind: 'wait', unit: transport };
+    }
+    return {
+      kind: 'move',
+      unit: transport,
+      from,
+      to: moved.destination,
+      path: moved.path,
+    };
+  }
+
+  /**
+   * 何も積んでいない輸送ユニットが、歩兵を乗せられる位置へ向かう。
+   * 輸送ユニット以外では null を返し、通常の行動に任せる。
+   *
+   * 海上の輸送ユニット(輸送艦)は陸へ上がれないため、歩兵が乗り込める浜辺・自軍の港で待つ。
+   * 陸と空の輸送ユニット(輸送車・輸送ヘリ)は、最寄りの味方歩兵のそばへ自分から寄る。
+   */
+  private tryRendezvous(unit: Unit, vision: Visibility): AiAction | null {
+    if (unit.capacity < 1) {
+      return null;
+    }
+    const target =
+      unit.movementType === 'sea'
+        ? this.boardingBerth(unit)
+        : (this.nearestCarriableAlly(unit)?.position ?? null);
+    if (!target) {
+      // 運ぶ相手も待つ場所も無い。前線へ出しても落とされるだけなのでその場で待つ
+      unit.hasActed = true;
+      return { kind: 'wait', unit };
+    }
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
+    return this.stepTowards(unit, this.routeDistance(unit, target), range.tiles, vision);
+  }
+
+  /**
+   * 運んでいる passenger を届ける先(未所有の拠点)を返す。届ける先が無ければ null。
+   *
+   * 候補は「passenger が乗り込んだ場所から歩いては行けない拠点」だけに絞る。
+   * 乗り込んだ場所から歩いて行ける拠点をわざわざ船で運んでも意味がないうえ、
+   * 降ろした先でまた乗り込む往復になってしまうため。
+   *
+   * 基準にするのは輸送ユニットの現在地ではなく passenger の位置(搭乗しているあいだは
+   * 乗り込んだマスのまま変わらない)。海の上とに岸に着いたときとで目的地が入れ替わらず、
+   * 何ターンかけて運んでも同じ場所を目指し続ける。
+   */
+  private landingGoal(transport: Unit, passenger: Unit): GridPosition | null {
+    const unowned = this.unownedCaptureTiles();
+    if (unowned.length === 0) {
+      return null;
+    }
+    const onFoot = this.pathField('from', passenger.position, passenger.movementType);
+    const remote = unowned.filter((pos) => onFoot.get(pos) === undefined);
+    return remote.length > 0 ? this.nearestByPath(transport, remote) : null;
+  }
+
+  /**
+   * その場で passenger を降ろす。降ろせる隣接マスが無ければ待機する。
+   * 運ぶ必要が無くなった(目的地を取り切った)荷物を抱え込まないために使う。
+   */
+  private unloadHere(transport: Unit, passenger: Unit, from: GridPosition): AiAction {
+    const spot = this.unloadSpotsAt(transport, transport.position, passenger)[0];
+    if (!spot) {
+      transport.hasActed = true;
+      return { kind: 'wait', unit: transport };
+    }
+    this.units.dropUnit(transport, spot, passenger);
+    return {
+      kind: 'unload',
+      unit: transport,
+      passenger,
+      from,
+      to: transport.position,
+      droppedAt: spot,
+      path: [from],
+    };
+  }
+
+  /**
+   * transport が pos にいるとき、passenger を降ろせる隣接マスのうち
+   * 「降ろした先から目的地までの徒歩距離」がいちばん短いものを返す(降ろせなければ null)。
+   */
+  private bestUnloadSpot(
+    transport: Unit,
+    pos: GridPosition,
+    passenger: Unit,
+    footField: PathDistanceField,
+  ): GridPosition | null {
+    let best: GridPosition | null = null;
+    let bestCost = Infinity;
+    for (const spot of this.unloadSpotsAt(transport, pos, passenger)) {
+      const cost = footField.get(spot);
+      if (cost !== undefined && cost < bestCost) {
+        bestCost = cost;
+        best = spot;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * transport が pos にいるときの「揚陸のしやすさ」を、降ろした先から目的地までの
+   * 徒歩距離で表す(小さいほど良い)。どこにも降ろせないマスは Infinity。
+   */
+  private landingCost(
+    transport: Unit,
+    pos: GridPosition,
+    passenger: Unit,
+    footField: PathDistanceField,
+  ): number {
+    const spot = this.bestUnloadSpot(transport, pos, passenger, footField);
+    return spot ? (footField.get(spot) ?? Infinity) : Infinity;
+  }
+
+  /**
+   * transport が pos にいるとき、passenger を降ろせる隣接マスを返す。
+   *
+   * 条件は findUnloadPositions と同じ(passenger が進入できる地形・他ユニットがいない)。
+   * こちらは移動先の候補マスに対して先読みするため、transport 自身は
+   * そのマスから居なくなるものとして数える。
+   */
+  private unloadSpotsAt(
+    transport: Unit,
+    pos: GridPosition,
+    passenger: Unit,
+  ): GridPosition[] {
+    const spots: GridPosition[] = [];
+    for (const { dc, dr } of NEIGHBOR_OFFSETS) {
+      const spot = gridPosition(pos.col + dc, pos.row + dr);
+      if (this.map.getMoveCost(spot, passenger.movementType) === null) {
+        continue;
+      }
+      const occupant = this.units.getUnitAt(spot);
+      if (occupant && occupant !== transport) {
+        continue;
+      }
+      spots.push(spot);
+    }
+    return spots;
+  }
+
+  /**
+   * 空の輸送艦が歩兵を待つ場所を返す。歩兵が乗り込めるのは輸送艦が停泊している
+   * 浜辺・港のマスだけなので、そこから選ぶ。運ぶ相手がいなければ null。
+   *
+   * 最寄りの味方歩兵から見て徒歩でいちばん近い場所を選び、同じ近さなら港より浜辺を優先する
+   * (自軍の港に居座ると、そのあいだ港での生産が止まってしまうため)。
+   */
+  private boardingBerth(unit: Unit): GridPosition | null {
+    const ally = this.nearestCarriableAlly(unit);
+    if (!ally) {
+      return null;
+    }
+    const footField = this.pathField('from', ally.position, ally.movementType);
+    let best: GridPosition | null = null;
+    let bestKey = Infinity;
+    this.map.forEachTile((tile) => {
+      const isBerth =
+        tile.terrainType === 'beach' ||
+        (tile.terrainType === 'port' && tile.owner === this.army);
+      if (!isBerth) {
+        return;
+      }
+      if (this.map.getMoveCost(tile.position, unit.movementType) === null) {
+        return;
+      }
+      const cost = footField.get(tile.position);
+      if (cost === undefined) {
+        return;
+      }
+      // 徒歩距離を主、港かどうかを従にした順位付け(同じ距離なら浜辺が先)
+      const key = cost * 2 + (tile.terrainType === 'port' ? 1 : 0);
+      if (key < bestKey) {
+        bestKey = key;
+        best = tile.position;
+      }
+    });
+    return best;
+  }
+
+  /** unit が運べる自軍ユニットのうち、直線距離でいちばん近いものを返す(いなければ null) */
+  private nearestCarriableAlly(unit: Unit): Unit | null {
+    const allies = this.units
+      .getUnitsByArmy(this.army)
+      .filter((ally) => canCarry(unit, ally));
+    if (allies.length === 0) {
+      return null;
+    }
+    return allies.reduce((nearest, ally) =>
+      manhattanDistance(unit.position, ally.position) <
+      manhattanDistance(unit.position, nearest.position)
+        ? ally
+        : nearest,
+    );
+  }
+
+  /** この AI が持つ、占領できる生存ユニット(歩兵)の数を返す */
+  private countCapturers(): number {
+    return this.units.getUnitsByArmy(this.army).filter((unit) => unit.canCapture).length;
+  }
+
+  /** 自軍が所有していない占領地形の一覧を返す */
+  private unownedCaptureTiles(): GridPosition[] {
+    const tiles: GridPosition[] = [];
+    this.map.forEachTile((tile) => {
+      if (getTerrainData(tile.terrainType).canCapture && tile.owner !== this.army) {
+        tiles.push(tile.position);
+      }
+    });
+    return tiles;
+  }
+
+  /**
+   * 目標までの距離を、実際に通れるマスをたどった経路の長さで測る関数を返す。
+   * 目標へ通じる経路が現在地から無い場合は直線距離で代用する。
+   * 思考パターンによらず経路で測りたい輸送ユニットの移動で使う。
+   */
+  private routeDistance(unit: Unit, target: GridPosition): (pos: GridPosition) => number {
+    const field = this.pathField('to', target, unit.movementType);
+    if (field.get(unit.position) === undefined) {
+      return (pos) => manhattanDistance(pos, target);
+    }
+    return (pos) => field.get(pos) ?? Number.MAX_SAFE_INTEGER;
+  }
+
+  /**
+   * 前進先マスの評価値(大きいほど良い)を返す。
+   * 目標への近さ(goalCost)を最優先し、同じだけ近づけるマスが複数あれば
+   * 防御の高い地形を選ぶ。
+   */
+  private moveScore(pos: GridPosition, goalCost: (pos: GridPosition) => number): number {
+    const score =
+      -goalCost(pos) * GOAL_WEIGHT + this.terrainDefense(pos) * DEFENSE_WEIGHT;
+    // 自軍の生産拠点で足を止めると、そのあいだ生産が止まってしまう
+    return this.isOwnProductionSite(pos) ? score - OWN_PRODUCTION_SITE_PENALTY : score;
+  }
+
+  /** pos が自軍の生産拠点(工場・本拠地・空港・港)かどうか */
+  private isOwnProductionSite(pos: GridPosition): boolean {
+    const tile = this.map.getTile(pos);
+    return (
+      tile !== undefined &&
+      tile.owner === this.army &&
+      getTerrainData(tile.terrainType).canProduce
+    );
+  }
+
+  /**
+   * 前進先の候補マスを返す。集結する思考パターン(regroupRadius が 1 以上)では、
+   * その距離以内に味方がいるマスだけを候補にして、足の速いユニットが 1 体だけ
+   * 突出して各個撃破されるのを防ぐ。
+   *
+   * 隊列を組むのは戦闘ユニットだけで、占領役(歩兵)は数えも縛りもしない。
+   * 拠点は散らばっているため、歩兵まで固めると占領が進まなくなるため。
+   * 味方として数えるのは同じ移動領域(陸・海・空)のユニットに限る。
+   * 陸の味方に合わせようとして艦隊が港から出られない、といった詰まり方を防ぐ。
+   *
+   * 条件を満たすマスが 1 つも無い(味方がいない・孤立している)場合は絞り込まない。
+   * 現在地はこの絞り込みに関わらず常に選べるため、行き場を失うことはない。
+   */
+  private regroupCandidates(
+    unit: Unit,
+    tiles: readonly ReachableTile[],
+  ): readonly ReachableTile[] {
+    const radius = this.behavior.regroupRadius;
+    if (radius <= 0 || unit.canCapture) {
+      return tiles;
+    }
+    const domain = movementDomain(unit.movementType);
+    const allies = this.units
+      .getUnitsByArmy(this.army)
+      .filter(
+        (ally) =>
+          ally !== unit &&
+          ally.isAlive &&
+          !ally.canCapture &&
+          movementDomain(ally.movementType) === domain,
+      );
+    if (allies.length === 0) {
+      return tiles;
+    }
+    const nearAllies = tiles.filter(({ position }) =>
+      allies.some((ally) => manhattanDistance(position, ally.position) <= radius),
+    );
+    return nearAllies.length > 0 ? nearAllies : tiles;
+  }
+
+  /**
+   * 間合いを取る間接攻撃ユニットが基準にする敵の位置を返す。
+   *
+   * 間合いを取らない思考パターン・直接攻撃ユニット・敵が 1 体も見えていないときは null。
+   * その場合は従来どおり approachTarget の目標へ近づく。
+   */
+  private standoffAnchor(unit: Unit, vision: Visibility): GridPosition | null {
+    if (!this.behavior.indirectStandoff || !unit.isIndirect) {
+      return null;
+    }
+    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    if (enemies.length === 0) {
+      return null;
+    }
+    return this.nearestEnemyPosition(unit, enemies);
+  }
+
+  /**
+   * pos から anchor にいる敵を狙える度合いを「遠さ」(小さいほど良い)として返す。
+   *
+   * 射程(最小〜最大)に収まっていれば 0。遠すぎれば足りないマス数、
+   * 近すぎれば撃てないうえ反撃も受けるため、そのマス数を重く見た値を返す。
+   */
+  private standoffCost(unit: Unit, pos: GridPosition, anchor: GridPosition): number {
+    const distance = manhattanDistance(pos, anchor);
+    if (distance < unit.minAttackRange) {
+      return (unit.minAttackRange - distance) * TOO_CLOSE_WEIGHT;
+    }
+    return Math.max(0, distance - unit.maxAttackRange);
   }
 
   /**
@@ -685,7 +1332,14 @@ export class EnemyAi {
    * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
    *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
    *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
+   * - 'roster': 編成表(roster)で決めた最低限の頭数を先に補充する。
+   *   そろったあとは 'infantryFirst' と同じ判断に進む。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
+   *
+   * さらに saveForUpgrade の思考パターンでは、いま買える最強の種別をすでに持っていて
+   * 「より高価でまだ 1 体も持っていない種別」が残っていれば、そのターンは見送って資金を貯める。
+   * ただし戦力で相手に負けている(劣勢の)あいだは貯めず、いま買えるものを買って頭数を戻す。
+   * 夜戦では nightVisionFloor により、視界の狭い種別を候補から外す(withNightVision)。
    *
    * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
    */
@@ -693,7 +1347,22 @@ export class EnemyAi {
     const byCostDesc = [
       ...producibleUnitTypesAt(tile.terrainType, this.production.mapContext()),
     ].sort((a, b) => getUnitData(b).cost - getUnitData(a).cost);
-    const candidates = this.usableAgainst(byCostDesc, opponents);
+    // 輸送ユニットは戦力にならないため、通常の生産候補からは外す。
+    // 必要になったぶんだけ neededFerry が名指しで生産する
+    const combatTypes = byCostDesc.filter(
+      (type) => getUnitData(type).capacity < 1 && this.canReachAnyTarget(tile, type),
+    );
+    const candidates = this.withNightVision(this.usableAgainst(combatTypes, opponents));
+
+    // 海を挟んだ拠点へ兵を送る足が無ければ、何より先に輸送ユニットを 1 体そろえる。
+    // まだ資金が足りないうちは、他の拠点での生産を見送って足のために貯める
+    const ferry = this.neededFerry(tile);
+    if (ferry) {
+      return ferry;
+    }
+    if (this.savingForFerry()) {
+      return null;
+    }
 
     // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
     if (
@@ -702,6 +1371,15 @@ export class EnemyAi {
       this.production.canProduce(this.army, tile, 'infantry')
     ) {
       return 'infantry';
+    }
+
+    // 編成表に足りない種別があれば、強力なユニットより先に補充する。
+    // 占領役の歩兵や夜戦の目になる偵察車を切らさないための最低限の頭数。
+    if (this.behavior.production === 'roster') {
+      const shortage = this.rosterShortage(tile);
+      if (shortage) {
+        return shortage;
+      }
     }
 
     const affordable = candidates.find((type) =>
@@ -719,7 +1397,165 @@ export class EnemyAi {
     ) {
       return null;
     }
+    // 同じ種別を並べるより一段上を狙う思考パターンでは、すでに持っている種別しか
+    // 買えないターンを見送って資金を貯める。次の段のユニットが買えるまで貯め続ける。
+    // ただし戦力で負けているあいだは貯めない(資金を抱えたまま押し切られてしまうため)
+    if (
+      this.behavior.saveForUpgrade &&
+      !this.isOutmatched(opponents) &&
+      this.hasUpgradeToSaveFor(affordable, candidates)
+    ) {
+      return null;
+    }
     return affordable;
+  }
+
+  /**
+   * 自軍の戦力が相手を下回っている(劣勢)かどうかを返す。
+   *
+   * 戦力は「生産コストを残 HP の割合で割り引いた合計」で測る。頭数ではなく値段で見るため、
+   * 歩兵を並べただけの軍と重戦車をそろえた軍を取り違えない。
+   *
+   * 劣勢のあいだは一段上のユニットを待たず、いま買えるものを買って頭数を戻す。
+   * 資金を抱えたまま押し切られるのがいちばん悪い負け方のため。
+   *
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)。
+   *   夜戦で相手が見えていなければ劣勢と判断できないため、そのまま貯め続けることになる。
+   */
+  private isOutmatched(opponents: readonly Unit[]): boolean {
+    const own = this.armyValue(this.units.getUnitsByArmy(this.army));
+    return own < this.armyValue(opponents);
+  }
+
+  /** ユニット群の戦力を、生産コストを残 HP の割合で割り引いて合計した値で返す */
+  private armyValue(units: readonly Unit[]): number {
+    return units.reduce(
+      (total, unit) =>
+        total + getUnitData(unit.unitType).cost * (unit.currentHp / unit.maxHp),
+      0,
+    );
+  }
+
+  /**
+   * tile で unitType を生産したとき、そのユニットに行き先(相手ユニット・未所有の拠点)が
+   * あるかを返す。海で分断されたマップで、渡る手段の無い戦車や自走砲を作り続けて
+   * 自陣に詰まらせてしまう(そのうち生産拠点まで塞いでしまう)のを防ぐ。
+   *
+   * 占領できるユニット(歩兵)は輸送ユニットで運べるため、陸続きでなくても常に役に立つ。
+   */
+  private canReachAnyTarget(tile: TileData, unitType: UnitType): boolean {
+    const data = getUnitData(unitType);
+    if (data.canCapture) {
+      return true;
+    }
+    const field = this.pathField('from', tile.position, data.movementType);
+    const targets = [
+      ...this.unownedCaptureTiles(),
+      ...this.opposingUnits().map((unit) => unit.position),
+    ];
+    return targets.some((pos) => field.get(pos) !== undefined);
+  }
+
+  /**
+   * 渡る足(輸送ユニット)のために資金を貯めている最中かどうかを返す。
+   *
+   * 海を挟んだ拠点しか残っていないのに輸送ユニットが 1 体も無いと、いくら戦力を並べても
+   * 攻め込めない。そこで「いま空いている自軍の港・空港で輸送ユニットを作れる状況なのに、
+   * まだ資金が足りない」あいだは、他の拠点での生産を見送って足の代金を残す。
+   *
+   * 資金が足りていれば neededFerry がその場で買うため、ここが true になるのは
+   * 買えるようになるまでの数ターンだけ。港・空港がふさがっているあいだは
+   * 貯めても買えないため、生産を止めないよう false を返す。
+   */
+  private savingForFerry(): boolean {
+    const own = this.units.getUnitsByArmy(this.army);
+    if (own.some((unit) => unit.capacity >= 1)) {
+      return false;
+    }
+    const passenger = own.find((unit) => unit.canCapture);
+    if (!passenger) {
+      return false;
+    }
+    let saving = false;
+    this.map.forEachTile((tile) => {
+      if (saving || !FERRY_BY_TERRAIN[tile.terrainType]) {
+        return;
+      }
+      if (!this.production.canProduceAt(this.army, tile)) {
+        return;
+      }
+      const onFoot = this.pathField('from', tile.position, passenger.movementType);
+      saving = this.unownedCaptureTiles().some((pos) => onFoot.get(pos) === undefined);
+    });
+    return saving;
+  }
+
+  /**
+   * この拠点で生産すべき輸送ユニットを返す(必要なければ null)。
+   *
+   * 海を挟んだ拠点には歩兵が自分の足で行けないため、輸送ユニットが 1 体も無いと
+   * 敵AIは海岸で足踏みしたまま攻め込めない。そこで次のすべてを満たすときに限り、
+   * 思考パターンによらず輸送ユニットを 1 体だけ買う。
+   *
+   * - この拠点から歩いて行けない未所有の拠点が残っている
+   * - 運ぶ相手(占領できる自軍ユニット)がいる
+   * - 自軍に輸送ユニットが 1 体もいない(渡る足は 1 本あれば足りる)
+   * - この拠点が海を渡れる輸送ユニットを作れる(港なら輸送艦・空港なら輸送ヘリ)
+   */
+  private neededFerry(tile: TileData): UnitType | null {
+    const ferry = FERRY_BY_TERRAIN[tile.terrainType];
+    if (!ferry || !this.production.canProduce(this.army, tile, ferry)) {
+      return null;
+    }
+    const own = this.units.getUnitsByArmy(this.army);
+    // すでに足がある(輸送ユニットを持っている)なら買い足さない
+    if (own.some((unit) => unit.capacity >= 1)) {
+      return null;
+    }
+    const passenger = own.find((unit) => unit.canCapture);
+    if (!passenger) {
+      return null;
+    }
+    const onFoot = this.pathField('from', tile.position, passenger.movementType);
+    return this.unownedCaptureTiles().some((pos) => onFoot.get(pos) === undefined)
+      ? ferry
+      : null;
+  }
+
+  /**
+   * 編成表(roster)で頭数が足りず、いま tile で生産できる種別を返す(足りていれば null)。
+   * 一覧の先頭にあるものほど優先し、この拠点で作れない・資金が足りない種別は次へ送る。
+   */
+  private rosterShortage(tile: TileData): UnitType | null {
+    for (const entry of this.behavior.roster) {
+      if (this.countUnits(entry.unitType) >= entry.count) {
+        continue;
+      }
+      if (this.production.canProduce(this.army, tile, entry.unitType)) {
+        return entry.unitType;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * affordable(いま買える中で最強の種別)をすでに持っていて、その拠点に
+   * 「より高価でまだ 1 体も持っていない種別」が残っているかを返す。
+   * true なら、そのターンの生産を見送って資金を貯める価値がある。
+   *
+   * @param candidates 生産候補(高価な順)
+   */
+  private hasUpgradeToSaveFor(
+    affordable: UnitType,
+    candidates: readonly UnitType[],
+  ): boolean {
+    if (this.countUnits(affordable) === 0) {
+      return false;
+    }
+    const affordableCost = getUnitData(affordable).cost;
+    return candidates.some(
+      (type) => getUnitData(type).cost > affordableCost && this.countUnits(type) === 0,
+    );
   }
 
   /**
@@ -744,6 +1580,24 @@ export class EnemyAi {
       opponents.some((opponent) => canDamage(type, opponent.unitType)),
     );
     return usable.length > 0 ? usable : types;
+  }
+
+  /**
+   * 夜戦で、生産候補から「視界が nightVisionFloor に満たない種別」を取り除く。
+   *
+   * 夜戦では視界の狭いユニットは自力で敵を見つけられないため、高価でも持て余す
+   * (重戦車・自走砲・ロケット砲・輸送車などの視界は 1)。昼戦では絞り込まない。
+   * 残る候補が 1 つも無い場合は、生産そのものが止まらないよう元の一覧をそのまま返す。
+   *
+   * @param types 生産候補(高価な順に並んでいること。並び順は保たれる)
+   */
+  private withNightVision(types: readonly UnitType[]): readonly UnitType[] {
+    const floor = this.behavior.nightVisionFloor;
+    if (!this.nightBattle || floor <= 0) {
+      return types;
+    }
+    const sighted = types.filter((type) => getUnitData(type).vision >= floor);
+    return sighted.length > 0 ? sighted : types;
   }
 
   /** この AI が持つ、指定種別の生存ユニット数を返す */

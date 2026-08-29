@@ -17,7 +17,7 @@ export interface EnemyTurnSummaryOptions {
 
 /**
  * 敵軍の 1 手番ぶんの行動ログを、情報パネル用の複数行テキストに集計する。
- * 攻撃・占領・移動・生産の件数と、撃破・占領完了の数をまとめて表示する。
+ * 攻撃・占領・移動・輸送・生産の件数と、撃破・占領完了の数をまとめて表示する。
  * 夜戦で見えない自軍ユニットに出くわして強制待機した件数は「遭遇」として示す。
  */
 export function formatEnemyTurnSummary(
@@ -27,6 +27,7 @@ export function formatEnemyTurnSummary(
   let attack = 0;
   let capture = 0;
   let move = 0;
+  let transport = 0;
   let produce = 0;
   let halt = 0;
   let defeated = 0;
@@ -49,6 +50,11 @@ export function formatEnemyTurnSummary(
       case 'move':
         move += 1;
         break;
+      case 'board':
+      case 'unload':
+        // 搭乗と降車はどちらも「輸送」1 件として数える
+        transport += 1;
+        break;
       case 'halt':
         halt += 1;
         break;
@@ -68,6 +74,9 @@ export function formatEnemyTurnSummary(
   }
   if (move > 0) {
     lines.push(`移動: ${move}`);
+  }
+  if (transport > 0) {
+    lines.push(`輸送: ${transport}`);
   }
   if (halt > 0) {
     lines.push(`遭遇: ${halt}(強制待機)`);
@@ -117,6 +126,12 @@ export function formatEnemyActionLog(
       break;
     case 'move':
       lines.push('移動', action.unit.unitName);
+      break;
+    case 'board':
+      lines.push('搭乗', `${action.transport.unitName}に${action.unit.unitName}が搭乗`);
+      break;
+    case 'unload':
+      lines.push('降ろす', `${action.unit.unitName}が${action.passenger.unitName}を配置`);
       break;
     case 'halt':
       lines.push('そうぐう！', `${action.unit.unitName} が停止`);
