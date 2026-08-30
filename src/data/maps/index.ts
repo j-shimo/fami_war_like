@@ -11,6 +11,7 @@ import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
 import { STRAIT_MAP } from '@/data/maps/straitMap';
 import { TEST_MAP } from '@/data/maps/testMap';
+import { TWIN_CONTINENTS_MAP } from '@/data/maps/twinContinentsMap';
 
 /** マップ選択画面に並べる 1 枚ぶんのエントリ */
 export interface MapEntry {
@@ -92,6 +93,13 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       definition: INNER_SEA_MAP,
       description:
         '収入 13000 の自軍と 4000 の敵軍で始まる 16x12 の地上戦マップ。前線工場から偵察車が 2 ターンで敵陣へ届く狭い盤面で、中央のレンズ型の内海が戦場を北の街道ルートと南の森ルート(装輪車両は通行不可)に完全に分断する。中立拠点はすべて自軍から遠く、うち 4 個は敵軍が 1 ターンで届く位置にある。',
+    },
+    {
+      id: 'twinContinents',
+      definition: TWIN_CONTINENTS_MAP,
+      description:
+        '中央の海峡が東西に断ち切る 42x26 の激ムズマップ。自軍は陣地 8 拠点・都市 0 個・収入 8000 の裸一貫、敵軍は東の島 21 拠点を占領済みの収入 29000 で、戦闘機・爆撃機を含む 10 体を配置して待ち構える。西の島の中立拠点 22 個を取り切るまで、海峡に架かる 3 本の橋を渡らせずに守り切れるかが勝負。海峡に浮かぶ 2 島の中立空港・中立港は輸送艦か輸送ヘリでしか取れない。',
+      category: 'extra',
     },
   ] as const satisfies readonly MapEntry[]
 ).map(resolveMapEntry);
