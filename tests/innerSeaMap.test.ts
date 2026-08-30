@@ -15,9 +15,9 @@ import { UNIT_DATA } from '@/data/unitData';
 /** 敵軍陣地まわりの中立拠点を区切る列。col 12 以東が「敵軍が 1 ターンで届く」範囲 */
 const ENEMY_SIDE_MIN_COL = 12;
 
-/** 中央の中立都市が並ぶ列の範囲(col 6〜9) */
-const CENTER_MIN_COL = 6;
-const CENTER_MAX_COL = 9;
+/** 中央の中立都市が並ぶ列の範囲。自軍陣地(col 4 以西)と敵軍まわり(col 12 以東)に挟まれた帯 */
+const CENTER_MIN_COL = 5;
+const CENTER_MAX_COL = 11;
 
 /** 自軍で最も戦場に近い前線工場。偵察車が敵陣地まで何ターンで届くかの起点 */
 const PLAYER_FRONT_FACTORY = gridPosition(3, 5);
@@ -91,9 +91,11 @@ function costTo(dist: Map<string, number>, pos: GridPosition): number {
   return dist.get(`${pos.col},${pos.row}`) ?? Infinity;
 }
 
-/** pos から bases のうち最も近いものまでのマンハッタン距離 */
-function distanceToNearest(pos: GridPosition, bases: readonly GridPosition[]): number {
-  return Math.min(...bases.map((base) => manhattanDistance(pos, base)));
+/** 中央(自軍陣地と敵軍まわりに挟まれた帯)にある中立都市の座標 */
+function centerNeutralCities(map: MapManager): GridPosition[] {
+  return basesOf(map, 'neutral')
+    .filter((b) => b.col >= CENTER_MIN_COL && b.col <= CENTER_MAX_COL)
+    .map((b) => gridPosition(b.col, b.row));
 }
 
 /**
@@ -279,7 +281,7 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
     const nearest = Math.min(...costs);
     // 最寄りでも移動力 3 の 2 ターンぶん(6)より遠い = 3 ターン以上かかる
     expect(nearest).toBeGreaterThan(infantryMovement * 2);
-    expect(nearest).toBe(7);
+    expect(nearest).toBe(8);
     // 敵軍の足元の 4 個は自軍からは 12 以上(歩兵で 4 ターン以上)と、盤面を丸ごと渡る距離にある
     for (const base of basesOf(map, 'neutral').filter(
       (b) => b.col >= ENEMY_SIDE_MIN_COL,
@@ -290,32 +292,70 @@ describe('INNER_SEA_MAP(優勢内海マップ)', () => {
     }
   });
 
-  it('中央の中立都市 6 個は両軍の生産拠点から等距離に置かれている', () => {
+  it('中央の中立都市 6 個は北ルートに 3 個・南ルートに 3 個ある', () => {
     const map = MapManager.fromDefinition(INNER_SEA_MAP);
-    const playerBases = productionBasesOf(map, 'player');
-    const enemyBases = productionBasesOf(map, 'enemy');
-    const center = basesOf(map, 'neutral')
-      .filter((b) => b.col >= CENTER_MIN_COL && b.col <= CENTER_MAX_COL)
-      .map((b) => gridPosition(b.col, b.row));
+    const center = centerNeutralCities(map);
     expect(center).toHaveLength(6);
-    // 北ルート・南ルートに 3 個ずつ
     expect(center.filter((pos) => pos.row <= 3)).toHaveLength(3);
     expect(center.filter((pos) => pos.row >= 8)).toHaveLength(3);
-    // 6 個は盤面中心について点対称
-    for (const pos of center) {
-      const mirror = gridPosition(map.cols - 1 - pos.col, map.rows - 1 - pos.row);
-      expect(center.some((p) => p.col === mirror.col && p.row === mirror.row)).toBe(true);
+  });
+
+  it('中央の中立都市はすべて敵軍のほうが近い(取り合いは敵軍有利に傾けてある)', () => {
+    const map = MapManager.fromDefinition(INNER_SEA_MAP);
+    const fromPlayer = moveCostMap(map, 'infantry', productionBasesOf(map, 'player'));
+    const fromEnemy = moveCostMap(map, 'infantry', productionBasesOf(map, 'enemy'));
+    const infantryMovement = UNIT_DATA.infantry.movement;
+    for (const pos of centerNeutralCities(map)) {
+      // 敵軍のほうが先に着くが、足元の 4 拠点と違って歩兵 1 ターンでは届かない
+      expect(costTo(fromEnemy, pos)).toBeLessThan(costTo(fromPlayer, pos));
+      expect(costTo(fromEnemy, pos)).toBeGreaterThan(infantryMovement);
     }
-    // 生産拠点も点対称なので、マンハッタン距離の合計は両軍で等しい
-    const playerTotal = center.reduce(
-      (sum, pos) => sum + distanceToNearest(pos, playerBases),
-      0,
+  });
+
+  it('北ルートの中立都市は南ルートよりも大きく敵軍側へ寄せてある', () => {
+    const map = MapManager.fromDefinition(INNER_SEA_MAP);
+    const fromPlayer = moveCostMap(map, 'infantry', productionBasesOf(map, 'player'));
+    const fromEnemy = moveCostMap(map, 'infantry', productionBasesOf(map, 'enemy'));
+    const center = centerNeutralCities(map);
+    /** 自軍の移動コスト - 敵軍の移動コスト の合計。大きいほど敵軍側に寄っている */
+    const gapOf = (positions: readonly GridPosition[]): number =>
+      positions.reduce(
+        (sum, pos) => sum + costTo(fromPlayer, pos) - costTo(fromEnemy, pos),
+        0,
+      );
+    const north = center.filter((pos) => pos.row <= 3);
+    const south = center.filter((pos) => pos.row >= 8);
+    expect(gapOf(north)).toBe(13);
+    expect(gapOf(south)).toBe(5);
+    expect(gapOf(north)).toBeGreaterThan(gapOf(south));
+
+    // 北は敵軍が 2〜3 ターン・自軍は 4 ターン、南は敵軍が 3 ターン・自軍も 3〜4 ターン
+    const sorted = (positions: readonly GridPosition[], dist: Map<string, number>) =>
+      positions.map((pos) => costTo(dist, pos)).sort((a, b) => a - b);
+    expect(sorted(north, fromPlayer)).toEqual([10, 10, 11]);
+    expect(sorted(north, fromEnemy)).toEqual([5, 6, 7]);
+    expect(sorted(south, fromPlayer)).toEqual([8, 9, 10]);
+    expect(sorted(south, fromEnemy)).toEqual([7, 7, 8]);
+  });
+
+  it('中央の中立都市には隣り合う 2 個組が北と南に 1 組ずつある', () => {
+    const map = MapManager.fromDefinition(INNER_SEA_MAP);
+    const center = centerNeutralCities(map);
+    const pairs = center.flatMap((a, i) =>
+      center.slice(i + 1).filter((b) => manhattanDistance(a, b) === 1),
     );
-    const enemyTotal = center.reduce(
-      (sum, pos) => sum + distanceToNearest(pos, enemyBases),
-      0,
-    );
-    expect(playerTotal).toBe(enemyTotal);
+    expect(pairs).toHaveLength(2);
+    // 北ルートと南ルートに 1 組ずつ(歩兵 1 体が続けて 2 個占領できるかたまり)
+    expect(
+      center.filter(
+        (pos) => pos.row <= 3 && center.some((o) => manhattanDistance(pos, o) === 1),
+      ),
+    ).toHaveLength(2);
+    expect(
+      center.filter(
+        (pos) => pos.row >= 8 && center.some((o) => manhattanDistance(pos, o) === 1),
+      ),
+    ).toHaveLength(2);
   });
 
   it('敵軍が足元の 4 拠点を取り切っても、収入は自軍が 5000 上回る', () => {
