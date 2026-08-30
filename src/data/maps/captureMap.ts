@@ -15,7 +15,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const CAPTURE_MAP: MapDefinition = {
-  name: '拠点争奪マップ 01',
+  name: '拠点争奪マップ',
   terrain: [
     '..f.........f..',
     '...f...c...f...',

@@ -8,7 +8,14 @@ import {
   aiCharacterLabel,
   getAiCharacter,
 } from '@/data/aiCharacters';
-import { MAP_LIST, type MapEntry } from '@/data/maps';
+import {
+  clearRecordOf,
+  emptyClearProgress,
+  readClearProgress,
+  type ClearProgress,
+} from '@/core/progress/ClearProgress';
+import { remainingRequiredMaps, visibleMaps } from '@/core/progress/MapUnlock';
+import { MAP_LIST, type ResolvedMapEntry } from '@/data/maps';
 import { AiCharacterWindow } from '@/rendering/AiCharacterWindow';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
@@ -27,9 +34,16 @@ const CARD_PADDING_X = 16;
 const CARD_GAP = 16;
 /** カード一覧の表示領域の下端に空ける余白 */
 const LIST_BOTTOM_MARGIN = 12;
+/** 一覧の末尾に出す「激ムズマップの解放まであと何枚か」のヒントの高さ */
+const UNLOCK_HINT_HEIGHT = 28;
 /** スクロールバー(画面右端)の幅と余白 */
 const SCROLLBAR_WIDTH = 4;
 const SCROLLBAR_MARGIN = 8;
+/** カード内のバッジ(激ムズ・クリア済み)どうしの間隔 */
+const BADGE_GAP = 10;
+/** 激ムズマップのカードの枠色(通常マップと見分けるために変える) */
+const EXTRA_STROKE_COLOR = 0xd0704a;
+
 /** ホイール 1 ノッチあたりのスクロール量(px) */
 const WHEEL_SCROLL_STEP = 0.5;
 
@@ -73,7 +87,7 @@ const MODE_HINT: Readonly<Record<'normal' | 'night', string>> = {
 
 /** カード 1 枚ぶんの配置情報(縦位置と高さは説明文の行数によってマップごとに変わる) */
 interface CardLayout {
-  readonly entry: MapEntry;
+  readonly entry: ResolvedMapEntry;
   /** カード上端の Y 座標(スクロール量 0 のとき) */
   readonly y: number;
   /** カードの高さ */
@@ -130,6 +144,10 @@ export class MapSelectScene extends Phaser.Scene {
   private confirmWindow: ConfirmWindow | null = null;
   /** 画面表示時点の中断データ(なければ null)。カードの「中断データあり」表示にも使う */
   private suspendData: SaveData | null = null;
+  /** 画面表示時点のクリア状況。カードの「クリア済み」表示と激ムズマップの解放判定に使う */
+  private clearProgress: ClearProgress = emptyClearProgress();
+  /** この画面に並べるマップ(激ムズマップは解放されるまで含まれない) */
+  private entries: readonly ResolvedMapEntry[] = [];
   /** カードをまとめて動かすためのコンテナ(これを上下に動かしてスクロールする) */
   private cardLayer!: Phaser.GameObjects.Container;
   /** スクロールバーの描画先 */
@@ -148,7 +166,7 @@ export class MapSelectScene extends Phaser.Scene {
   /** しきい値を超えて動かした(= スクロール操作でありクリックではない)か */
   private isPanning = false;
   /** 押し始めたカード。指を離したカードと一致するときだけ選択として扱う */
-  private pressedEntry: MapEntry | null = null;
+  private pressedEntry: ResolvedMapEntry | null = null;
 
   constructor() {
     super('MapSelectScene');
@@ -157,6 +175,10 @@ export class MapSelectScene extends Phaser.Scene {
   create(): void {
     // 保存済みの中断データを読み込む(壊れていた場合は null になり、新規開始の扱いになる)
     this.suspendData = readSuspendData();
+    // クリア状況を読み込み、並べるマップを決める。
+    // 激ムズマップは通常マップをすべてクリアするまで一覧に出さない。
+    this.clearProgress = readClearProgress();
+    this.entries = visibleMaps(MAP_LIST, this.clearProgress);
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
@@ -204,7 +226,11 @@ export class MapSelectScene extends Phaser.Scene {
     // カードの高さは説明文の折り返し行数によって変わるため、先に実測してから縦位置を決める
     const layouts = this.layoutCards(width - CARD_MARGIN_X * 2);
     const last = layouts[layouts.length - 1];
-    this.contentHeight = last ? last.y + last.height - CARD_TOP : 0;
+    const listBottom = last ? last.y + last.height : CARD_TOP;
+    // 未解放の激ムズマップがあるときは、一覧の末尾に解放条件のヒントを出す
+    const unlockHint = this.unlockHintText();
+    this.contentHeight =
+      listBottom - CARD_TOP + (unlockHint ? CARD_GAP + UNLOCK_HINT_HEIGHT : 0);
     this.scrollOffset = 0;
     this.dragActive = false;
     this.isPanning = false;
@@ -220,6 +246,17 @@ export class MapSelectScene extends Phaser.Scene {
     for (const layout of layouts) {
       this.createMapCard(layout, width);
     }
+    if (unlockHint) {
+      this.cardLayer.add(
+        this.add
+          .text(width / 2, listBottom + CARD_GAP, unlockHint, {
+            fontFamily: 'sans-serif',
+            fontSize: '13px',
+            color: '#ff9a6a',
+          })
+          .setOrigin(0.5, 0),
+      );
+    }
 
     this.scrollbar = this.add.graphics();
     this.drawScrollbar(width);
@@ -230,6 +267,21 @@ export class MapSelectScene extends Phaser.Scene {
       this.characterWindow?.close();
       this.characterWindow = null;
     });
+  }
+
+  /**
+   * 一覧の末尾に出す、激ムズマップの解放条件のヒント文を返す。
+   * 激ムズマップが未登録のとき、またはすでに解放済み(一覧に並んでいる)ときは null を返す。
+   */
+  private unlockHintText(): string | null {
+    if (!MAP_LIST.some((entry) => entry.category === 'extra')) {
+      return null;
+    }
+    const remaining = remainingRequiredMaps(MAP_LIST, this.clearProgress);
+    if (remaining.length === 0) {
+      return null;
+    }
+    return `あと ${remaining.length} マップをクリアすると、激ムズマップが現れる…`;
   }
 
   /**
@@ -247,7 +299,7 @@ export class MapSelectScene extends Phaser.Scene {
       .setVisible(false);
 
     let y = CARD_TOP;
-    const layouts = MAP_LIST.map((entry) => {
+    const layouts = this.entries.map((entry) => {
       probe.setText(entry.description);
       const height = Math.max(
         CARD_MIN_HEIGHT,
@@ -604,10 +656,14 @@ export class MapSelectScene extends Phaser.Scene {
     const rows = entry.definition.terrain.length;
     const cols = entry.definition.terrain[0]?.length ?? 0;
 
+    // 激ムズマップは通常マップと見分けが付くよう、枠の色を変える
+    const isExtra = entry.category === 'extra';
+    const baseStroke = isExtra ? EXTRA_STROKE_COLOR : 0x3a4a6a;
+
     const card = this.add
       .rectangle(x, y, cardWidth, height, 0x1f2740)
       .setOrigin(0, 0)
-      .setStrokeStyle(2, 0x3a4a6a)
+      .setStrokeStyle(2, baseStroke)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(0, 0, cardWidth, height),
         hitAreaCallback: this.cardHitTest,
@@ -616,14 +672,38 @@ export class MapSelectScene extends Phaser.Scene {
     this.cardLayer.add(card);
 
     // マップ名
-    this.cardLayer.add(
-      this.add.text(x + CARD_PADDING_X, y + 12, entry.definition.name, {
-        fontFamily: 'sans-serif',
-        fontSize: '18px',
-        fontStyle: 'bold',
-        color: '#ffffff',
-      }),
-    );
+    const nameText = this.add.text(x + CARD_PADDING_X, y + 12, entry.definition.name, {
+      fontFamily: 'sans-serif',
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    });
+    this.cardLayer.add(nameText);
+
+    // マップ名の右へバッジを並べる(激ムズ表示 → クリア済み表示の順)
+    let badgeX = x + CARD_PADDING_X + nameText.width + BADGE_GAP;
+    const addBadge = (label: string, color: string): void => {
+      const badge = this.add
+        .text(badgeX, y + 17, label, {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          fontStyle: 'bold',
+          color,
+        })
+        .setOrigin(0, 0);
+      this.cardLayer.add(badge);
+      badgeX += badge.width + BADGE_GAP;
+    };
+    if (isExtra) {
+      addBadge('💀 激ムズ', '#ff9a6a');
+    }
+    // クリア済みのマップには実績としてクリア回数を出す(2 回目以降は「×N」を添える)
+    const record = clearRecordOf(this.clearProgress, entry.id);
+    if (record) {
+      const count = record.clearCount > 1 ? ` ×${record.clearCount}` : '';
+      const night = record.nightCleared ? '(夜戦)' : '';
+      addBadge(`★ クリア済み${night}${count}`, '#8affc0');
+    }
 
     // サイズ表記(横×縦)
     this.cardLayer.add(
@@ -666,7 +746,7 @@ export class MapSelectScene extends Phaser.Scene {
       card.setFillStyle(0x263255);
     });
     card.on(Phaser.Input.Events.POINTER_OUT, () => {
-      card.setStrokeStyle(2, 0x3a4a6a);
+      card.setStrokeStyle(2, baseStroke);
       card.setFillStyle(0x1f2740);
     });
     card.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
@@ -726,7 +806,7 @@ export class MapSelectScene extends Phaser.Scene {
   };
 
   /** 指定マップで再開できる中断データがあれば返す。なければ null */
-  private savedDataFor(entry: MapEntry): SaveData | null {
+  private savedDataFor(entry: ResolvedMapEntry): SaveData | null {
     const save = this.suspendData;
     if (save && matchesMap(save, entry.id, entry.definition)) {
       return save;
@@ -738,7 +818,7 @@ export class MapSelectScene extends Phaser.Scene {
    * マップが選ばれたときの処理。
    * 中断データがあれば再開するか確認し、なければそのまま新規ゲームを始める。
    */
-  private selectMap(entry: MapEntry): void {
+  private selectMap(entry: ResolvedMapEntry): void {
     const save = this.savedDataFor(entry);
     if (!save) {
       this.startGame(entry);
@@ -768,7 +848,7 @@ export class MapSelectScene extends Phaser.Scene {
    * 再開時の戦闘モード・対戦相手は中断データに保存されたものを使い、
    * 新規開始時はこの画面で選んでいるものを使う。
    */
-  private startGame(entry: MapEntry, save?: SaveData): void {
+  private startGame(entry: ResolvedMapEntry, save?: SaveData): void {
     this.scene.start('MainScene', {
       map: entry.definition,
       mapId: entry.id,

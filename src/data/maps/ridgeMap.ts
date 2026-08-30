@@ -54,7 +54,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const RIDGE_MAP: MapDefinition = {
-  name: '逆転稜線マップ 01',
+  name: '逆転稜線マップ',
   terrain: [
     // 北の森ルート(row 0〜5)。col 6〜13 が森で埋まっており装輪車両は通れない。
     // (9,1)・(10,4) は中央の中立都市。森に囲まれた守りやすい前線拠点になる。

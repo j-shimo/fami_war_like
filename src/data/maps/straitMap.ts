@@ -67,7 +67,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const STRAIT_MAP: MapDefinition = {
-  name: '海空回廊マップ 01',
+  name: '海空回廊マップ',
   terrain: [
     // 北の大陸(row 0〜4)。row 2 が東西を貫く街道で、中央 (12,2) に中立空港がある。
     '..f.c..f..m..mm...c..f..c.',

@@ -69,7 +69,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const INNER_SEA_MAP: MapDefinition = {
-  name: '優勢内海マップ 01',
+  name: '優勢内海マップ',
   terrain: [
     // 北の街道ルート(row 0〜3)。row 2 の街道が col 2〜13 を貫く速攻ルートで、
     // row 0 の山列と row 3 の山が col 6〜9 を狭い回廊にする。

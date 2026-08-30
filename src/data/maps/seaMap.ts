@@ -24,7 +24,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const SEA_MAP: MapDefinition = {
-  name: '沿岸対角マップ 01',
+  name: '沿岸対角マップ',
   terrain: [
     '~~~~~~............FH',
     '~~~~~~~...........AF',

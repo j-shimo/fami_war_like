@@ -85,7 +85,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const LONG_ISLAND_MAP: MapDefinition = {
-  name: '長島街道マップ 01',
+  name: '長島街道マップ',
   terrain: [
     // row 0: 北の外洋。島は row 1〜8 に収まり、盤面の外周はすべて海になる。
     '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~',

@@ -36,6 +36,8 @@ import {
   type RestoredState,
   type SaveData,
 } from '@/core/save/SaveData';
+import { recordMapClear, readClearProgress } from '@/core/progress/ClearProgress';
+import { becameUnlocked } from '@/core/progress/MapUnlock';
 import { clearSuspendData, writeSuspendData } from '@/core/save/SaveStorage';
 import {
   readEnemyAnimationMode,
@@ -52,7 +54,7 @@ import {
   type VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
 import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
-import { DEFAULT_MAP_ENTRY } from '@/data/maps';
+import { DEFAULT_MAP_ENTRY, MAP_LIST } from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { getTerrainData } from '@/data/terrainData';
 import {
@@ -2733,15 +2735,35 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     this.gameOver = true;
+    // 勝利したマップはクリア済みとして記録する(記録は次回以降の選択画面と
+    // 激ムズマップの解放判定に使う)。敗北したときは何も記録しない。
+    const unlocked = result.outcome === 'player_victory' ? this.recordClear() : false;
     // 戦闘 BGM を止め、勝敗に応じたジングルを鳴らす
     this.audio.stopBgm();
     this.audio.playSfx(result.outcome === 'player_victory' ? 'victory' : 'lose');
     this.resetSelection();
-    this.showResultOverlay(result);
+    this.showResultOverlay(result, unlocked);
   }
 
-  /** 勝敗結果を画面中央のオーバーレイとして表示する */
-  private showResultOverlay(result: VictoryResult): void {
+  /**
+   * 勝利したマップのクリアを記録する。
+   * 今回のクリアで激ムズマップが解放された場合は true を返す
+   * (結果画面でその旨を知らせるために使う)。
+   */
+  private recordClear(): boolean {
+    const before = readClearProgress();
+    const after = recordMapClear({
+      mapId: this.mapId,
+      nightBattle: this.nightBattle,
+    });
+    return becameUnlocked(MAP_LIST, before, after);
+  }
+
+  /**
+   * 勝敗結果を画面中央のオーバーレイとして表示する。
+   * unlocked が true(今回のクリアで激ムズマップが解放された)なら、その知らせも添える。
+   */
+  private showResultOverlay(result: VictoryResult, unlocked = false): void {
     const isVictory = result.outcome === 'player_victory';
     const message = formatResultMessage(result);
 
@@ -2773,6 +2795,19 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
+
+    // 今回のクリアで激ムズマップが解放されたことを知らせる
+    if (unlocked) {
+      this.add
+        .text(centerX, centerY + 54, '激ムズマップが解放されました！', {
+          fontFamily: 'sans-serif',
+          fontSize: '16px',
+          fontStyle: 'bold',
+          color: '#ff9a6a',
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0);
+    }
 
     // マップ選択画面へ戻るボタン(もう一度別のマップを遊べるようにする)
     const btnWidth = 220;
