@@ -28,4 +28,21 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
   it('既定マップは一覧の先頭である', () => {
     expect(DEFAULT_MAP_ENTRY).toBe(MAP_LIST[0]);
   });
+
+  it('マップ名の末尾に連番が付いていない', () => {
+    for (const entry of MAP_LIST) {
+      expect(entry.definition.name).not.toMatch(/[0-9]+$/);
+    }
+  });
+
+  it('すべてのマップに区分が解決されている', () => {
+    for (const entry of MAP_LIST) {
+      expect(['normal', 'test', 'extra']).toContain(entry.category);
+    }
+  });
+
+  it('テストマップは解放条件の集計対象外(test 区分)である', () => {
+    const test = MAP_LIST.find((entry) => entry.id === 'test');
+    expect(test?.category).toBe('test');
+  });
 });

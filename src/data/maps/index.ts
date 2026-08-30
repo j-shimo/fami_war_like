@@ -5,6 +5,7 @@ import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import { LONG_ISLAND_MAP } from '@/data/maps/longIslandMap';
+import { DEFAULT_MAP_CATEGORY, type MapCategory } from '@/data/maps/mapCategory';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
@@ -19,57 +20,81 @@ export interface MapEntry {
   readonly definition: MapDefinition;
   /** 選択画面に表示する 1 行説明 */
   readonly description: string;
+  /**
+   * マップの区分。省略時は通常マップ(normal)として扱う。
+   * 通常マップをすべてクリアすると激ムズマップ(extra)が選択画面に現れる。
+   * テストマップ(test)は解放条件の集計対象外。
+   */
+  readonly category?: MapCategory;
 }
 
-/** 選択可能なマップの一覧(表示順) */
-export const MAP_LIST: readonly MapEntry[] = [
-  {
-    id: 'capture',
-    definition: CAPTURE_MAP,
-    description: '中央の拠点を奪い合う横長マップ。占領テンポで戦力差をつける。',
-  },
-  {
-    id: 'test',
-    definition: TEST_MAP,
-    description: '上下に陣地を構える標準サイズのマップ。基本の遊び方を試せる。',
-  },
-  {
-    id: 'sea',
-    definition: SEA_MAP,
-    description:
-      '海が盤面を分断する 20x20 の対角マップ。地上は細い地峡に渋滞し、海を越える飛行ユニットと島の中立空港が主導権を握る。',
-  },
-  {
-    id: 'island',
-    definition: ISLAND_MAP,
-    description:
-      '海で本土が完全に分断された 20x24 の南北マップ。資金 0 から都市を集めて艦隊を整え、輸送艦で小島と敵本土へ渡る。後手の敵軍は都市が 2 個多い。',
-  },
-  {
-    id: 'ridge',
-    definition: RIDGE_MAP,
-    description:
-      '収入 4000 の自軍と 10000 の敵軍で始まる 20x16 の地上戦マップ。中央の稜線が北の森ルート(装輪車両は通行不可)と南の道路ルートに戦場を分ける。拠点近くの中立都市 8 個を取り切れば収入で追いつける。',
-  },
-  {
-    id: 'strait',
-    definition: STRAIT_MAP,
-    description:
-      '中央を海峡が貫く 26x14 の横長マップ。北と南の大陸をつなぐ陸路は両軍の陣地だけで、戦線を渡せるのは海峡を進む艦隊と空を飛ぶ航空機のみ。中央の双子空港島と海峡の中立港が争点。後手の敵軍は陣地の隣に都市が 2 個多い。',
-  },
-  {
-    id: 'longIsland',
-    definition: LONG_ISLAND_MAP,
-    description:
-      '海に囲まれた細長い島を、一本の街道が端から端まで貫く 40x10 の横長マップ。島を断ち切る中央の山地帯を車両が越えられるのは幅 1 マスの峠道と北の森の間道だけで、その両端の麓には中立空港 2 個と中立港 4 個が並ぶ。西は森と九十九折りで守りやすく、東は平地で速く攻められる非対称の島。初期資金 0・両軍とも本拠地 1・工場 2・空港 2・港 1 から始まり、後手の敵軍は中立都市が 3 個・中立空港が 1 個多い。',
-  },
-  {
-    id: 'innerSea',
-    definition: INNER_SEA_MAP,
-    description:
-      '収入 13000 の自軍と 4000 の敵軍で始まる 16x12 の地上戦マップ。前線工場から偵察車が 2 ターンで敵陣へ届く狭い盤面で、中央のレンズ型の内海が戦場を北の街道ルートと南の森ルート(装輪車両は通行不可)に完全に分断する。中立拠点はすべて自軍から遠く、うち 4 個は敵軍が 1 ターンで届く位置にある。',
-  },
-];
+/** 区分の解決済みマップエントリ(解放判定・表示はこちらを使う) */
+export interface ResolvedMapEntry extends MapEntry {
+  readonly category: MapCategory;
+}
+
+/** エントリの区分を解決する(未指定なら既定の区分にする) */
+export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
+  return { ...entry, category: entry.category ?? DEFAULT_MAP_CATEGORY };
+}
+
+/**
+ * 選択可能なマップの一覧(表示順)。
+ * 激ムズマップ(category: 'extra')はここへ登録しても、通常マップをすべてクリアするまで
+ * 選択画面には並ばない(判定は src/core/progress/MapUnlock.ts)。
+ */
+export const MAP_LIST: readonly ResolvedMapEntry[] = (
+  [
+    {
+      id: 'capture',
+      definition: CAPTURE_MAP,
+      description: '中央の拠点を奪い合う横長マップ。占領テンポで戦力差をつける。',
+    },
+    {
+      id: 'test',
+      definition: TEST_MAP,
+      description: '上下に陣地を構える標準サイズのマップ。基本の遊び方を試せる。',
+      // 動作確認用のマップなので、激ムズマップの解放条件には数えない
+      category: 'test',
+    },
+    {
+      id: 'sea',
+      definition: SEA_MAP,
+      description:
+        '海が盤面を分断する 20x20 の対角マップ。地上は細い地峡に渋滞し、海を越える飛行ユニットと島の中立空港が主導権を握る。',
+    },
+    {
+      id: 'island',
+      definition: ISLAND_MAP,
+      description:
+        '海で本土が完全に分断された 20x24 の南北マップ。資金 0 から都市を集めて艦隊を整え、輸送艦で小島と敵本土へ渡る。後手の敵軍は都市が 2 個多い。',
+    },
+    {
+      id: 'ridge',
+      definition: RIDGE_MAP,
+      description:
+        '収入 4000 の自軍と 10000 の敵軍で始まる 20x16 の地上戦マップ。中央の稜線が北の森ルート(装輪車両は通行不可)と南の道路ルートに戦場を分ける。拠点近くの中立都市 8 個を取り切れば収入で追いつける。',
+    },
+    {
+      id: 'strait',
+      definition: STRAIT_MAP,
+      description:
+        '中央を海峡が貫く 26x14 の横長マップ。北と南の大陸をつなぐ陸路は両軍の陣地だけで、戦線を渡せるのは海峡を進む艦隊と空を飛ぶ航空機のみ。中央の双子空港島と海峡の中立港が争点。後手の敵軍は陣地の隣に都市が 2 個多い。',
+    },
+    {
+      id: 'longIsland',
+      definition: LONG_ISLAND_MAP,
+      description:
+        '海に囲まれた細長い島を、一本の街道が端から端まで貫く 40x10 の横長マップ。島を断ち切る中央の山地帯を車両が越えられるのは幅 1 マスの峠道と北の森の間道だけで、その両端の麓には中立空港 2 個と中立港 4 個が並ぶ。西は森と九十九折りで守りやすく、東は平地で速く攻められる非対称の島。初期資金 0・両軍とも本拠地 1・工場 2・空港 2・港 1 から始まり、後手の敵軍は中立都市が 3 個・中立空港が 1 個多い。',
+    },
+    {
+      id: 'innerSea',
+      definition: INNER_SEA_MAP,
+      description:
+        '収入 13000 の自軍と 4000 の敵軍で始まる 16x12 の地上戦マップ。前線工場から偵察車が 2 ターンで敵陣へ届く狭い盤面で、中央のレンズ型の内海が戦場を北の街道ルートと南の森ルート(装輪車両は通行不可)に完全に分断する。中立拠点はすべて自軍から遠く、うち 4 個は敵軍が 1 ターンで届く位置にある。',
+    },
+  ] as const satisfies readonly MapEntry[]
+).map(resolveMapEntry);
 
 /** 選択画面の初期選択に使う先頭マップ */
-export const DEFAULT_MAP_ENTRY: MapEntry = MAP_LIST[0];
+export const DEFAULT_MAP_ENTRY: ResolvedMapEntry = MAP_LIST[0];

@@ -52,6 +52,7 @@ src/
     battle/
     economy/
     map/
+    progress/
     turn/
     units/
   data/      // ユニット・地形・マップのJSONデータ定義
@@ -311,6 +312,8 @@ tests/       // Vitestによるロジックのテスト
 - [x] 敵の行動アニメを追加する(ゲーム中の情報メニューに「敵の行動アニメ」を置き、「しっかり(戦闘アニメーション後に開放。現状は選べない)/簡単/超速」を切り替える。「簡単」では敵軍の選択→移動→攻撃・占領・生産を、カメラを寄せながら1行動ずつ描画する。夜戦の暗い範囲での行動は写さない。1行動ずつの実行は `EnemyAi.runSteps()`、見せ方の判定と演出のタイミングは `src/rendering/enemyActionSequence.ts`、設定の保存は `src/core/settings/SettingsStorage.ts`、選択UIは `EnemyAnimationWindow`。あわせて情報メニューから未実装の「地形効果」を外した)
 - [x] 空港のないマップでは対空自走砲・対空ロケット砲を生産できないようにする(飛行ユニットしか攻撃できない 2 種を、飛行ユニットが出てこないマップの生産一覧から外す。敵軍AIも同じ制限を受けるため、相手が見えていないターンに無駄づかいしなくなる。判定は `MapManager.hasAirport` と `ProductionManager.mapContext()`。盤面に飛行ユニットがいる場合と、歩兵・車両も撃てる対空戦車は制限しない)
 - [x] 重戦車の装甲を強化する(対空戦車は重戦車を攻撃できなくし(相性表を10→0)、偵察車・輸送車から重戦車への基礎ダメージを10→5に引き下げる。これにより「重戦車が対空戦車を殴ったときだけ反撃が封じられる」特例(`COUNTER_SUPPRESSED_DEFENDERS`)は不要になったため削除し、反撃の可否は相性表の向きだけで決まるようにした)
+- [x] マップのクリア状況を保持し、激ムズマップの解放条件にする(勝利で決着したマップを localStorage(`gridwars:clear`)へクリア済みとして記録し、マップ選択画面のカードに「★ クリア済み」を表示する。テストマップを除く全マップをクリアすると、区分 `extra` のマップ(激ムズマップ)が一覧に現れる。記録は `src/core/progress/ClearProgress.ts`、解放判定は `src/core/progress/MapUnlock.ts`、マップの区分は `src/data/maps/mapCategory.ts`。詳細は `docs/GameDesign.md`「クリア状況と激ムズマップ」)
+- 激ムズマップを作る(解放先となる高難度マップ。`MAP_LIST` へ `category: 'extra'` で登録する)
 - ステージ開始・終了演出を追加する
 
 ### サウンドの実装方針

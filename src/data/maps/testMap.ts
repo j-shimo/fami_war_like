@@ -4,7 +4,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const TEST_MAP: MapDefinition = {
-  name: 'テストマップ 01',
+  name: 'テストマップ',
   terrain: [
     '..AHFc....',
     '..f.....f.',

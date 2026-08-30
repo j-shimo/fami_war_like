@@ -42,7 +42,7 @@
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 export const ISLAND_MAP: MapDefinition = {
-  name: '分断列島マップ 01',
+  name: '分断列島マップ',
   terrain: [
     // 自軍本土(上)。row 4 の港は row 5〜7 の湾の奥にあり、湾は row 8 の外洋へ抜ける。
     // b は海岸。南西 (1,4)・西 (2,5)・南東 (17,4) が上陸地点、湾内の (10,5) は
