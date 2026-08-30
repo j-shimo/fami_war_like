@@ -23,7 +23,7 @@ import {
   UNIT_TYPES,
   type UnitType,
 } from '@/core/units/UnitType';
-import { getBaseDamage, suppressesCounterattack } from '@/data/damageTable';
+import { getBaseDamage } from '@/data/damageTable';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { canRepairAt, getTerrainData } from '@/data/terrainData';
 import { getUnitData, isProducibleAt } from '@/data/unitData';
@@ -201,12 +201,13 @@ describe('戦車 3 種の相性', () => {
     expect(getBaseDamage('mediumTank', 'antiAirTank')).toBeGreaterThanOrEqual(70);
     expect(getBaseDamage('heavyTank', 'artillery')).toBe(80);
     expect(getBaseDamage('heavyTank', 'antiAirTank')).toBeGreaterThanOrEqual(80);
-    // 対空戦車から見れば戦車はいずれも不利な相手
+    // 対空戦車から見れば戦車はいずれも不利な相手(重戦車にいたっては攻撃できない)
     for (const tank of TANK_UNIT_TYPES) {
       expect(getBaseDamage('antiAirTank', tank)).toBeLessThan(
         getBaseDamage(tank, 'antiAirTank'),
       );
     }
+    expect(getBaseDamage('antiAirTank', 'heavyTank')).toBe(0);
   });
 
   it('水上艦には 軽1割・中1〜2割・重2割で、潜水艦は攻撃できない', () => {
@@ -225,17 +226,19 @@ describe('戦車 3 種の相性', () => {
   });
 });
 
-describe('重戦車は対空戦車の反撃を受けない', () => {
+describe('重戦車は対空戦車から攻撃を受けない', () => {
   const FLAT_MAP: MapDefinition = { name: 'flat', terrain: ['rrr', 'rrr', 'rrr'] };
 
-  it('相性表では攻撃できるが、反撃だけが封じられている', () => {
-    expect(getBaseDamage('heavyTank', 'antiAirTank')).toBeGreaterThan(0);
-    // 対空戦車から重戦車への攻撃自体はできる(自分から仕掛ければ通る)
-    expect(getBaseDamage('antiAirTank', 'heavyTank')).toBeGreaterThan(0);
-    expect(suppressesCounterattack('heavyTank', 'antiAirTank')).toBe(true);
-    // 逆向き・他の戦車では封じられない
-    expect(suppressesCounterattack('antiAirTank', 'heavyTank')).toBe(false);
-    expect(suppressesCounterattack('mediumTank', 'antiAirTank')).toBe(false);
+  it('相性表は一方通行(重戦車 → 対空戦車は通るが、逆向きは攻撃できない)', () => {
+    expect(getBaseDamage('heavyTank', 'antiAirTank')).toBeGreaterThanOrEqual(80);
+    // 対空戦車から重戦車へは攻撃できない(基礎ダメージ 0 = 攻撃対象にならない)
+    expect(getBaseDamage('antiAirTank', 'heavyTank')).toBe(0);
+    expect(
+      canAttackUnit(makeUnit('antiAirTank', 'player'), makeUnit('heavyTank', 'enemy')),
+    ).toBe(false);
+    // 軽戦車・中戦車には引き続き攻撃できる
+    expect(getBaseDamage('antiAirTank', 'lightTank')).toBeGreaterThan(0);
+    expect(getBaseDamage('antiAirTank', 'mediumTank')).toBeGreaterThan(0);
   });
 
   it('隣接して攻撃しても反撃ダメージが 0 になる(実行・予測とも)', () => {
@@ -262,7 +265,7 @@ describe('重戦車は対空戦車の反撃を受けない', () => {
     expect(heavy.currentHp).toBe(heavy.maxHp);
   });
 
-  it('対空戦車から重戦車を攻撃したときは、重戦車が反撃する', () => {
+  it('対空戦車は隣接した重戦車を攻撃対象にできない', () => {
     const map = MapManager.fromDefinition(FLAT_MAP);
     const units = UnitManager.fromPlacements(
       [
@@ -274,8 +277,9 @@ describe('重戦車は対空戦車の反撃を受けない', () => {
     const antiAir = units.getUnitAt(gridPosition(0, 0))!;
     const heavy = units.getUnitAt(gridPosition(1, 0))!;
 
-    const result = new BattleManager(map, units).attack(antiAir, heavy);
-    expect(result.counterDamage).toBeGreaterThan(0);
+    // 射程内にいても攻撃対象の一覧に出てこない
+    expect(findAttackableTargets(antiAir, units)).not.toContain(heavy);
+    expect(() => new BattleManager(map, units).attack(antiAir, heavy)).toThrow();
   });
 
   it('中戦車が攻撃した場合は、これまでどおり対空戦車が反撃する', () => {
@@ -294,6 +298,44 @@ describe('重戦車は対空戦車の反撃を受けない', () => {
     const result = new BattleManager(map, units).attack(medium, antiAir);
     expect(result.defenderDefeated).toBe(false);
     expect(result.counterDamage).toBeGreaterThan(0);
+  });
+});
+
+describe('重戦車は軽装甲の車両からほとんどダメージを受けない', () => {
+  it('偵察車・輸送車からの被ダメージは 5', () => {
+    expect(getBaseDamage('recon', 'heavyTank')).toBe(5);
+    expect(getBaseDamage('transportVehicle', 'heavyTank')).toBe(5);
+    // 軽戦車・中戦車への 1〜2 割よりもさらに通らない
+    for (const attacker of ['recon', 'transportVehicle'] as const) {
+      expect(getBaseDamage(attacker, 'heavyTank')).toBeLessThan(
+        getBaseDamage(attacker, 'mediumTank'),
+      );
+    }
+  });
+
+  it('反対向きの重戦車 → 偵察車・輸送車は 8〜9 割のまま', () => {
+    expect(getBaseDamage('heavyTank', 'recon')).toBe(85);
+    expect(getBaseDamage('heavyTank', 'transportVehicle')).toBe(85);
+  });
+
+  it('軽装甲の車両(偵察車・輸送車・対空戦車)から見て、地上ユニットで最も通らない相手', () => {
+    const otherGround = GROUND_UNIT_TYPES.filter((t) => t !== 'heavyTank');
+    for (const attacker of ['recon', 'transportVehicle', 'antiAirTank'] as const) {
+      const vsHeavy = getBaseDamage(attacker, 'heavyTank');
+      for (const defender of otherGround) {
+        expect(vsHeavy).toBeLessThan(getBaseDamage(attacker, defender));
+      }
+    }
+  });
+
+  it('どの攻撃側から見ても、戦車は装甲が厚いほど通らない(軽 >= 中 >= 重)', () => {
+    for (const attacker of UNIT_TYPES) {
+      const [vsLight, vsMedium, vsHeavy] = TANK_UNIT_TYPES.map((tank) =>
+        getBaseDamage(attacker, tank),
+      );
+      expect(vsLight).toBeGreaterThanOrEqual(vsMedium);
+      expect(vsMedium).toBeGreaterThanOrEqual(vsHeavy);
+    }
   });
 });
 

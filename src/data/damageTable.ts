@@ -19,6 +19,8 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 戦車 3 種(軽・中・重): 装甲と火力が軽 < 中 < 重の順に上がり、上位の戦車には
  *   正面から撃ち勝てない。いずれも近接攻撃のみで、ヘリ系には 1〜2 割しか通らず、
  *   潜水艦は攻撃できない。
+ * - 重戦車の正面装甲: 対空戦車の機関砲では抜けないため、対空戦車は重戦車を攻撃できない(0)。
+ *   偵察車・輸送車の機関銃も 5 しか通らない。軽装甲の車両にとっては手の出せない相手。
  * - 自走砲(artillery): 射程 2〜3 の間接攻撃。地上ユニットに広く効く。
  * - ロケット砲(rocketArtillery): 射程 3〜5 の間接攻撃。地上ユニットへの火力は高いが、
  *   飛行ユニットには攻撃できない(0)。対空ロケット砲と並んで地上ユニットの中で最も打たれ弱く、
@@ -33,11 +35,12 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
  * - 対空 3 種(antiAirTank・antiAirArtillery・antiAirRocketArtillery): 固定翼機
  *   (戦闘機・爆撃機・攻撃機)を撃てる地上ユニットはこの 3 種だけ(海上では戦艦のみ)。
- *   対空戦車は歩兵・車両も撃てるが、
+ *   対空戦車は歩兵・車両も撃てるが、重戦車だけは攻撃できない(0)。
  *   対空自走砲(射程 2〜3)・対空ロケット砲(射程 3〜5)は飛行ユニット以外を攻撃できない(0)。
  * - 防御力(被ダメージの列)は、対空自走砲が自走砲と、対空ロケット砲がロケット砲と同じ値になる。
- * - 偵察車(recon): 近接攻撃のみの軽装甲車両。対歩兵は 6〜7 割だが、戦車系(1〜2 割)と
- *   ヘリ系(1〜2 割、特に戦闘ヘリ)には不利で、海上ユニットには攻撃できない(0)。
+ * - 偵察車(recon): 近接攻撃のみの軽装甲車両。対歩兵は 6〜7 割だが、戦車系(軽・中戦車は
+ *   1〜2 割、重戦車は 5)とヘリ系(1〜2 割、特に戦闘ヘリ)には不利で、
+ *   海上ユニットには攻撃できない(0)。
  * - 輸送車(transportVehicle): 歩兵を 1 体運ぶ地上の輸送ユニット。相性は偵察車と同じ
  *   (攻撃側の行・防御側の列とも偵察車と同じ値)。
  * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
@@ -139,7 +142,8 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       // ヘリ系は 1〜2 割。戦闘ヘリには若干有利(戦闘ヘリ側の 45 に対して 20)。
       attackHelicopter: 20,
       transportHelicopter: 20,
-      // 対空戦車には 8〜9 割。加えて反撃を受けない(COUNTER_SUPPRESSED_DEFENDERS)。
+      // 対空戦車には 8〜9 割。対空戦車の側は重戦車を攻撃できない(0)ため、
+      // 殴り返されることなく一方的に叩ける。
       antiAirTank: 85,
       antiAirArtillery: 80,
       antiAirRocketArtillery: 95,
@@ -338,10 +342,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
     },
     antiAirTank: {
       infantry: 80,
-      // 戦車には不利。装甲が厚くなるほど通らない(軽 20 → 中 15 → 重 10)。
+      // 戦車には不利。装甲が厚くなるほど通らない(軽 20 → 中 15)。
+      // 重戦車の正面装甲は機関砲では抜けないため、そもそも攻撃できない(0)。
       lightTank: 20,
       mediumTank: 15,
-      heavyTank: 10,
+      heavyTank: 0,
       artillery: 45,
       rocketArtillery: 85,
       // 固定翼機を撃てる 3 種の対空ユニットのひとつ。射程 1 のかわりに火力が高い。
@@ -421,10 +426,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
     recon: {
       // 対歩兵は 6〜7 割。機関銃で歩兵を蹴散らす偵察車の主な攻撃対象。
       infantry: 65,
-      // 戦車系(軽・中・重戦車、自走砲、対空戦車)には不利。装甲を抜けず 1〜2 割しか通らない。
+      // 戦車系(軽・中戦車、自走砲、対空戦車)には不利。装甲を抜けず 1〜2 割しか通らない。
+      // 装甲がもっとも厚い重戦車には 5 しか通らない。
       lightTank: 20,
       mediumTank: 15,
-      heavyTank: 10,
+      heavyTank: 5,
       artillery: 20,
       // 装甲の薄いロケット砲だけは、偵察車の機関銃でも 7 割を削れる。
       rocketArtillery: 70,
@@ -451,10 +457,11 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
     transportVehicle: {
       // 対歩兵は 6〜7 割。自衛用の機関銃が最も効く相手。
       infantry: 65,
-      // 戦車系(軽・中・重戦車、自走砲、対空戦車)には不利。装甲を抜けず 1〜2 割しか通らない。
+      // 戦車系(軽・中戦車、自走砲、対空戦車)には不利。装甲を抜けず 1〜2 割しか通らない。
+      // 装甲がもっとも厚い重戦車には 5 しか通らない。
       lightTank: 20,
       mediumTank: 15,
-      heavyTank: 10,
+      heavyTank: 5,
       artillery: 20,
       // 装甲の薄いロケット砲だけは、機関銃でも 7 割を削れる。
       rocketArtillery: 70,
@@ -579,21 +586,6 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
     },
   };
 
-/**
- * 反撃を封じる組み合わせ。
- * COUNTER_SUPPRESSED_DEFENDERS[攻撃側] = その攻撃側に殴られると反撃できない防御側の一覧。
- *
- * 相性表の 0(そもそも攻撃できない)とは別のルールで、「攻撃はできるが、
- * この相手に殴られたときだけは撃ち返せない」ことを表す。
- * 重戦車の正面装甲は対空戦車の機関砲では抜けない、という位置づけ。
- * 詳細は docs/UnitSpec.md「反撃ルール」を参照。
- */
-export const COUNTER_SUPPRESSED_DEFENDERS: Readonly<
-  Partial<Record<UnitType, readonly UnitType[]>>
-> = {
-  heavyTank: ['antiAirTank'],
-};
-
 /** 攻撃側・防御側の種別から基礎ダメージ(0-100)を返す */
 export function getBaseDamage(attacker: UnitType, defender: UnitType): number {
   return BASE_DAMAGE[attacker][defender];
@@ -603,16 +595,10 @@ export function getBaseDamage(attacker: UnitType, defender: UnitType): number {
  * 攻撃側が防御側の種別を攻撃対象にできるか。
  * 基礎ダメージが 1 以上の組み合わせだけを「攻撃できる」とみなす。
  * 戦艦から潜水艦、護衛艦から水上艦などの「撃てない相手」はここで弾く。
+ *
+ * 攻撃できるかどうかは向きごとに決まる。たとえば重戦車 → 対空戦車は 85 で攻撃できるが、
+ * 対空戦車 → 重戦車は 0 なので攻撃できず、重戦車が殴ったときの反撃も起きない。
  */
 export function canDamage(attacker: UnitType, defender: UnitType): boolean {
   return getBaseDamage(attacker, defender) > 0;
-}
-
-/**
- * この攻撃側に攻撃されたとき、防御側の反撃が封じられるか。
- * true の組み合わせでは、隣接した直接攻撃であっても反撃が発生しない
- * (例: 重戦車 → 対空戦車)。
- */
-export function suppressesCounterattack(attacker: UnitType, defender: UnitType): boolean {
-  return COUNTER_SUPPRESSED_DEFENDERS[attacker]?.includes(defender) ?? false;
 }
