@@ -14,7 +14,11 @@ import {
   readClearProgress,
   type ClearProgress,
 } from '@/core/progress/ClearProgress';
-import { remainingRequiredMaps, visibleMaps } from '@/core/progress/MapUnlock';
+import {
+  extraMapsForSide,
+  remainingRequiredMaps,
+  visibleMaps,
+} from '@/core/progress/MapUnlock';
 import {
   DEFAULT_GAME_MODE,
   gameModeSummary,
@@ -128,6 +132,8 @@ interface CardLayout {
  * 「はい」なら中断データから再開し、「いいえ」なら中断データを破棄して新規に開始する。
  * 担当サイド・操作の設定(モード選択画面で選ぶ)は見出しの左に表示し、
  * 左上の「戻る」でモード選択画面へ戻って選び直せる。
+ * クリア状況(カードの「★ クリア済み」・激ムズマップの解放)は担当サイドごとに分かれており、
+ * 選んでいるサイドのぶんだけを反映する。対人戦ではクリア記録に残らないため、これらは表示しない。
  */
 export class MapSelectScene extends Phaser.Scene {
   /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
@@ -178,9 +184,12 @@ export class MapSelectScene extends Phaser.Scene {
   private confirmWindow: ConfirmWindow | null = null;
   /** 画面表示時点の中断データ(なければ null)。カードの「中断データあり」表示にも使う */
   private suspendData: SaveData | null = null;
-  /** 画面表示時点のクリア状況。カードの「クリア済み」表示と激ムズマップの解放判定に使う */
+  /**
+   * 画面表示時点のクリア状況。カードの「クリア済み」表示と激ムズマップの解放判定に使う。
+   * 記録は担当サイド(1P側 / 2P側)ごとに分かれているため、参照するときは選んでいるサイドを渡す。
+   */
   private clearProgress: ClearProgress = emptyClearProgress();
-  /** この画面に並べるマップ(激ムズマップは解放されるまで含まれない) */
+  /** この画面に並べるマップ(別サイド向けのマップと、未解放の激ムズマップは含まれない) */
   private entries: readonly ResolvedMapEntry[] = [];
   /** カードをまとめて動かすためのコンテナ(これを上下に動かしてスクロールする) */
   private cardLayer!: Phaser.GameObjects.Container;
@@ -221,11 +230,11 @@ export class MapSelectScene extends Phaser.Scene {
     // 保存済みの中断データを読み込む(壊れていた場合は null になり、新規開始の扱いになる)
     this.suspendData = readSuspendData();
     // クリア状況を読み込み、並べるマップを決める。
-    // 激ムズマップは通常マップをすべてクリアするまで一覧に出さない。
+    // 激ムズマップは、選んでいるサイドで通常マップをすべてクリアするまで一覧に出さない。
     this.clearProgress = readClearProgress();
     // モード選択画面で選んだ遊び方(担当サイド・操作の設定)を読み込む
     this.mode = readGameMode();
-    this.entries = visibleMaps(this.groupMaps(), this.clearProgress);
+    this.entries = visibleMaps(this.groupMaps(), this.clearProgress, this.mode.side);
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
@@ -343,18 +352,31 @@ export class MapSelectScene extends Phaser.Scene {
 
   /**
    * 一覧の末尾に出す、激ムズマップの解放条件のヒント文を返す。
-   * 激ムズマップが未登録のとき、またはすでに解放済み(一覧に並んでいる)ときは null を返す。
+   * 選んでいるサイド向けの激ムズマップが未登録のとき、
+   * またはそのサイドですでに解放済み(一覧に並んでいる)ときは null を返す。
+   * 対人戦ではクリア状況を出さないため、ヒントも出さない。
    */
   private unlockHintText(): string | null {
-    const entries = this.groupMaps();
-    if (!entries.some((entry) => entry.category === 'extra')) {
+    if (!this.showsClearProgress()) {
       return null;
     }
-    const remaining = remainingRequiredMaps(entries, this.clearProgress);
+    const entries = this.groupMaps();
+    if (extraMapsForSide(entries, this.mode.side).length === 0) {
+      return null;
+    }
+    const remaining = remainingRequiredMaps(entries, this.clearProgress, this.mode.side);
     if (remaining.length === 0) {
       return null;
     }
     return `あと ${remaining.length} マップをクリアすると、激ムズマップが現れる…`;
+  }
+
+  /**
+   * クリア状況(カードの「★ クリア済み」・解放条件のヒント)を表示するか。
+   * 対人戦は勝ってもクリア記録に残らないため、クリア状況は出さない。
+   */
+  private showsClearProgress(): boolean {
+    return this.mode.versus !== 'human';
   }
 
   /**
@@ -837,8 +859,11 @@ export class MapSelectScene extends Phaser.Scene {
     if (isExtra) {
       addBadge('💀 激ムズ', '#ff9a6a');
     }
-    // クリア済みのマップには実績としてクリア回数を出す(2 回目以降は「×N」を添える)
-    const record = clearRecordOf(this.clearProgress, entry.id);
+    // クリア済みのマップには実績としてクリア回数を出す(2 回目以降は「×N」を添える)。
+    // クリア記録は担当サイドごとに分かれているため、選んでいるサイドのぶんだけを見る。
+    const record = this.showsClearProgress()
+      ? clearRecordOf(this.clearProgress, this.mode.side, entry.id)
+      : null;
     if (record) {
       const count = record.clearCount > 1 ? ` ×${record.clearCount}` : '';
       const night = record.nightCleared ? '(夜戦)' : '';
