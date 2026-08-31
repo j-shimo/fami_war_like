@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 /**
  * 起動時に最初に走るシーン。
- * MVP以降でアセットの事前読み込みを担う。今はメインシーンへ遷移するだけ。
+ * MVP以降でアセットの事前読み込みを担う。今はモード選択画面へ遷移するだけ。
  */
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -14,6 +14,6 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.scene.start('MapSelectScene');
+    this.scene.start('ModeSelectScene');
   }
 }

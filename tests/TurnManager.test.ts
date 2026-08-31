@@ -61,4 +61,34 @@ describe('TurnManager', () => {
     turn.endTurn(); // → 自軍手番開始:自軍がリセットされる
     expect(units.getUnitsByArmy('player').every((u) => !u.hasActed)).toBe(true);
   });
+  it('先手に敵軍を指定すると敵軍から始まり、敵軍へ戻るときにターン数が増える(2P側の後手番)', () => {
+    const units = UnitManager.fromPlacements(PLACEMENTS);
+    const turn = new TurnManager(units, undefined, 'enemy');
+
+    expect(turn.currentArmy).toBe('enemy');
+    expect(turn.turnNumber).toBe(1);
+
+    turn.endTurn();
+    // 後手のプレイヤー(自軍)へ。まだ 1 巡していないためターン数は据え置き
+    expect(turn.currentArmy).toBe('player');
+    expect(turn.turnNumber).toBe(1);
+
+    turn.endTurn();
+    // 先手へ戻ったのでターン数が増える
+    expect(turn.currentArmy).toBe('enemy');
+    expect(turn.turnNumber).toBe(2);
+  });
+
+  it('先手に敵軍を指定した状態でも、保存されたターン状態から復元できる', () => {
+    const units = UnitManager.fromPlacements(PLACEMENTS);
+    const turn = new TurnManager(
+      units,
+      { turnNumber: 4, currentArmy: 'player' },
+      'enemy',
+    );
+
+    expect(turn.state).toEqual({ turnNumber: 4, currentArmy: 'player' });
+    turn.endTurn();
+    expect(turn.state).toEqual({ turnNumber: 5, currentArmy: 'enemy' });
+  });
 });

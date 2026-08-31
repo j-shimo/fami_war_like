@@ -2,9 +2,10 @@
 
 import type { Unit } from '@/core/units/Unit';
 import { armyLabel } from '@/ui/terrainInfo';
+import type { ArmyLabelOptions } from '@/ui/turnInfo';
 
-/** formatUnitInfo の表示オプション */
-export interface UnitInfoOptions {
+/** formatUnitInfo の表示オプション(軍勢の呼び分けの設定も受け取る) */
+export interface UnitInfoOptions extends ArmyLabelOptions {
   /**
    * 夜戦かどうか。夜戦のときだけ視界の行を表示する
    * (昼戦ではマップ全体が明るく視界を参照しないため、行数を増やさない)。
@@ -48,7 +49,7 @@ function carriedLabel(unit: Unit): string {
 export function formatUnitInfo(unit: Unit, options: UnitInfoOptions = {}): string[] {
   const lines = [
     `ユニット: ${unit.unitName}`,
-    `所属: ${armyLabel(unit.armyType)}`,
+    `所属: ${armyLabel(unit.armyType, options)}`,
     `HP: ${unit.currentHp}/${unit.maxHp}`,
     `移動力: ${unit.movement}`,
     `射程: ${rangeLabel(unit)}`,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EconomyManager } from '@/core/economy/EconomyManager';
+import { emptyBattleStats } from '@/core/stats/BattleStats';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import {
@@ -34,6 +35,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...game,
     });
     const map = MapManager.fromDefinition(TEST_MAP);
@@ -58,6 +61,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...game,
     });
     const map = MapManager.fromDefinition(TEST_MAP);
@@ -82,6 +87,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...game,
     });
     const map = MapManager.fromDefinition(TEST_MAP);
@@ -110,6 +117,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...game,
     });
     const map = MapManager.fromDefinition(TEST_MAP);
@@ -134,6 +143,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...game,
     });
     const map = MapManager.fromDefinition(TEST_MAP);
@@ -155,6 +166,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
         mapId: 'test',
         nightBattle: false,
         aiCharacterId: 'instructor',
+        playerSide: '1p',
+        versusMode: 'cpu',
         ...game,
       }),
       cols: 3,
@@ -170,12 +183,16 @@ describe('夜戦モードの保存', () => {
       mapId: 'test',
       nightBattle: true,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     const day = createSaveData({
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(night.nightBattle).toBe(true);
@@ -190,6 +207,8 @@ describe('対戦相手の保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'vanguard',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(save.aiCharacterId).toBe('vanguard');
@@ -205,6 +224,8 @@ describe('isSaveData(中断データの検証)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(isSaveData(save)).toBe(true);
@@ -217,6 +238,8 @@ describe('isSaveData(中断データの検証)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(isSaveData({ ...save, version: SAVE_VERSION + 1 })).toBe(false);
@@ -243,6 +266,8 @@ describe('matchesMap(中断データとマップの照合)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(matchesMap(save, 'test', TEST_MAP)).toBe(true);
@@ -253,11 +278,103 @@ describe('matchesMap(中断データとマップの照合)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
       ...setupGame(),
     });
     expect(matchesMap(save, 'capture', TEST_MAP)).toBe(false);
     expect(
       matchesMap(save, 'test', { ...TEST_MAP, terrain: ['...', '...', '...'] }),
     ).toBe(false);
+  });
+});
+describe('モード選択の内容の保存', () => {
+  it('担当サイド・操作の設定を書き出し、再開時に同じ条件で続けられる', () => {
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '2p',
+      versusMode: 'human',
+      ...setupGame(),
+    });
+    expect(save.playerSide).toBe('2p');
+    expect(save.versusMode).toBe('human');
+    expect(isSaveData(JSON.parse(JSON.stringify(save)))).toBe(true);
+    // 担当サイド・操作の設定が欠けている(対応前の形式の)データは復元できない
+    expect(isSaveData({ ...save, playerSide: undefined })).toBe(false);
+    expect(isSaveData({ ...save, versusMode: 'ai' })).toBe(false);
+  });
+
+  it('2P側(後手番)の中断データは、復元後も敵軍が先手のままになる', () => {
+    const game = setupGame();
+    // 2P側は敵軍が先手。自軍(後手)の手番で中断した状況を作る
+    const turn = new TurnManager(game.units, undefined, 'enemy');
+    turn.endTurn();
+
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '2p',
+      versusMode: 'cpu',
+      ...game,
+      turn,
+    });
+    const restored = restoreGameState(save, MapManager.fromDefinition(TEST_MAP));
+
+    expect(restored.turn.state).toEqual({ turnNumber: 1, currentArmy: 'player' });
+    restored.turn.endTurn();
+    // 先手(敵軍)へ戻るタイミングでターン数が増える
+    expect(restored.turn.state).toEqual({ turnNumber: 2, currentArmy: 'enemy' });
+  });
+});
+
+describe('戦績の保存', () => {
+  it('ここまでの戦績を書き出し、再開時に引き継げる', () => {
+    const stats = {
+      turns: 9,
+      player: {
+        attacks: 5,
+        defeated: 4,
+        lost: 1,
+        produced: 7,
+        spent: 42000,
+        captured: 3,
+      },
+      enemy: {
+        attacks: 6,
+        defeated: 1,
+        lost: 4,
+        produced: 8,
+        spent: 51000,
+        captured: 2,
+      },
+    };
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
+      stats,
+      ...setupGame(),
+    });
+    expect(save.stats).toEqual(stats);
+    expect(isSaveData(JSON.parse(JSON.stringify(save)))).toBe(true);
+    // 戦績が欠けている(対応前の形式の)データは復元できない
+    expect(isSaveData({ ...save, stats: undefined })).toBe(false);
+  });
+
+  it('戦績を渡さなければ 0 件から数え始めた状態で保存する', () => {
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
+      ...setupGame(),
+    });
+    expect(save.stats).toEqual(emptyBattleStats());
   });
 });

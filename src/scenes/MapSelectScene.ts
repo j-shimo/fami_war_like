@@ -15,7 +15,15 @@ import {
   type ClearProgress,
 } from '@/core/progress/ClearProgress';
 import { remainingRequiredMaps, visibleMaps } from '@/core/progress/MapUnlock';
-import { MAP_LIST, type ResolvedMapEntry } from '@/data/maps';
+import {
+  DEFAULT_GAME_MODE,
+  gameModeSummary,
+  mapGroupLabel,
+  type GameMode,
+  type MapGroup,
+} from '@/core/mode/GameMode';
+import { readGameMode } from '@/core/settings/SettingsStorage';
+import { MAP_LIST, mapsInGroup, type ResolvedMapEntry } from '@/data/maps';
 import { AiCharacterWindow } from '@/rendering/AiCharacterWindow';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
@@ -46,6 +54,12 @@ const EXTRA_STROKE_COLOR = 0xd0704a;
 
 /** ホイール 1 ノッチあたりのスクロール量(px) */
 const WHEEL_SCROLL_STEP = 0.5;
+
+/** モード選択画面へ戻るボタンの寸法と位置(左上) */
+const BACK_BUTTON_WIDTH = 74;
+const BACK_BUTTON_HEIGHT = 30;
+const BACK_BUTTON_X = 12;
+const BACK_BUTTON_CENTER_Y = 24;
 
 /** 戦闘モード(通常戦・夜戦)を選ぶボタンの寸法と縦位置 */
 const MODE_BUTTON_WIDTH = 96;
@@ -85,6 +99,13 @@ const MODE_HINT: Readonly<Record<'normal' | 'night', string>> = {
   night: '夜戦: 視界の外は暗く、敵ユニットが見えません',
 };
 
+/** まだマップを 1 枚も用意していない区分に出す案内 */
+const EMPTY_GROUP_HINT: Readonly<Record<MapGroup, string>> = {
+  standard: 'マップがありません',
+  new: '新マップは準備中です',
+  four: '4Pマップは準備中です',
+};
+
 /** カード 1 枚ぶんの配置情報(縦位置と高さは説明文の行数によってマップごとに変わる) */
 interface CardLayout {
   readonly entry: ResolvedMapEntry;
@@ -95,8 +116,8 @@ interface CardLayout {
 }
 
 /**
- * インゲームの前段階に表示するマップ選択画面。
- * 登録済みマップ(MAP_LIST)をカードとして縦に並べ、
+ * モード選択画面から入るマップ選択画面。
+ * モード選択画面で選んだマップ区分(通常 / 新 / 4P)のマップをカードとして縦に並べ、
  * クリックすると選んだマップを MainScene へ渡してゲームを開始する。
  * 見出しの下では戦闘モード(通常戦 / 夜戦)と対戦相手(敵指揮官)を選べる。
  * 夜戦を選ぶと、自軍の視界の外が暗くなり敵ユニットが見えない状態でゲームを始める
@@ -105,6 +126,8 @@ interface CardLayout {
  * (詳細は docs/GameDesign.md「敵AI」を参照)。
  * 選んだマップの中断データが残っている場合は、再開するかどうかを確認ダイアログで尋ね、
  * 「はい」なら中断データから再開し、「いいえ」なら中断データを破棄して新規に開始する。
+ * 担当サイド・操作の設定(モード選択画面で選ぶ)は見出しの左に表示し、
+ * 左上の「戻る」でモード選択画面へ戻って選び直せる。
  */
 export class MapSelectScene extends Phaser.Scene {
   /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
@@ -120,6 +143,17 @@ export class MapSelectScene extends Phaser.Scene {
    * 直前に選ばれた対戦相手。戦闘モードと同じく、ゲームから戻ってきても選択を保つ。
    */
   private static lastAiCharacterId: string = DEFAULT_AI_CHARACTER.id;
+
+  /**
+   * 直前に開いていたマップ区分。ゲームやゲーム説明から戻ってきたときに
+   * 同じ区分の一覧へ戻すため、シーンをまたいで残るクラス変数として持つ。
+   */
+  private static lastGroup: MapGroup = 'standard';
+
+  /** この画面に並べるマップ区分(モード選択画面から渡される) */
+  private group: MapGroup = MapSelectScene.lastGroup;
+  /** モード選択画面で選んだ遊び方(担当サイド・操作の設定) */
+  private mode: GameMode = DEFAULT_GAME_MODE;
 
   /** 現在選んでいる戦闘モードが夜戦かどうか */
   private nightBattle = MapSelectScene.lastNightBattle;
@@ -172,13 +206,26 @@ export class MapSelectScene extends Phaser.Scene {
     super('MapSelectScene');
   }
 
+  /**
+   * モード選択画面から、どの区分のマップ一覧を出すかを受け取る。
+   * インゲームやゲーム説明から戻ってきたときは指定が無いため、直前の区分をそのまま使う。
+   */
+  init(data: { group?: MapGroup } = {}): void {
+    if (data.group) {
+      MapSelectScene.lastGroup = data.group;
+    }
+    this.group = MapSelectScene.lastGroup;
+  }
+
   create(): void {
     // 保存済みの中断データを読み込む(壊れていた場合は null になり、新規開始の扱いになる)
     this.suspendData = readSuspendData();
     // クリア状況を読み込み、並べるマップを決める。
     // 激ムズマップは通常マップをすべてクリアするまで一覧に出さない。
     this.clearProgress = readClearProgress();
-    this.entries = visibleMaps(MAP_LIST, this.clearProgress);
+    // モード選択画面で選んだ遊び方(担当サイド・操作の設定)を読み込む
+    this.mode = readGameMode();
+    this.entries = visibleMaps(this.groupMaps(), this.clearProgress);
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
@@ -196,7 +243,7 @@ export class MapSelectScene extends Phaser.Scene {
 
     // タイトル
     this.add
-      .text(width / 2, 26, 'マップを選択', {
+      .text(width / 2, 26, `${mapGroupLabel(this.group)}を選択`, {
         fontFamily: 'sans-serif',
         fontSize: '28px',
         fontStyle: 'bold',
@@ -211,11 +258,20 @@ export class MapSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // 左上にモード選択画面へ戻るボタン、その下に選んでいる遊び方を出す
+    this.createBackButton();
+    this.createModeSummary();
+
     // 戦闘モード(通常戦 / 夜戦)の選択
     this.createModeSelector(width);
 
-    // 対戦相手(敵指揮官)の選択。指揮官ごとに敵軍AIの思考パターンが変わる
-    this.createCharacterSelector(width);
+    // 対戦相手(敵指揮官)の選択。指揮官ごとに敵軍AIの思考パターンが変わる。
+    // 対人戦では AI と戦わないため、指揮官は選ばせずその旨だけを出す。
+    if (this.mode.versus === 'human') {
+      this.createVersusHumanNotice(width);
+    } else {
+      this.createCharacterSelector(width);
+    }
 
     // ゲーム説明ボタン(右上)。押すとゲームの流れを紹介する GuideScene を開く
     this.createGuideButton(width);
@@ -258,6 +314,22 @@ export class MapSelectScene extends Phaser.Scene {
       );
     }
 
+    // まだマップを用意していない区分(新マップ・4Pマップ)では、その旨を中央に出す
+    if (this.entries.length === 0) {
+      this.add
+        .text(
+          width / 2,
+          CARD_TOP + this.viewportHeight / 2,
+          EMPTY_GROUP_HINT[this.group],
+          {
+            fontFamily: 'sans-serif',
+            fontSize: '15px',
+            color: '#8a8aa0',
+          },
+        )
+        .setOrigin(0.5);
+    }
+
     this.scrollbar = this.add.graphics();
     this.drawScrollbar(width);
     this.setupScrollInput(width);
@@ -274,10 +346,11 @@ export class MapSelectScene extends Phaser.Scene {
    * 激ムズマップが未登録のとき、またはすでに解放済み(一覧に並んでいる)ときは null を返す。
    */
   private unlockHintText(): string | null {
-    if (!MAP_LIST.some((entry) => entry.category === 'extra')) {
+    const entries = this.groupMaps();
+    if (!entries.some((entry) => entry.category === 'extra')) {
       return null;
     }
-    const remaining = remainingRequiredMaps(MAP_LIST, this.clearProgress);
+    const remaining = remainingRequiredMaps(entries, this.clearProgress);
     if (remaining.length === 0) {
       return null;
     }
@@ -607,6 +680,73 @@ export class MapSelectScene extends Phaser.Scene {
     );
   }
 
+  /** この画面に出す対象(選んでいる区分のマップ)を返す */
+  private groupMaps(): readonly ResolvedMapEntry[] {
+    return mapsInGroup(MAP_LIST, this.group);
+  }
+
+  /** モード選択画面へ戻るボタンを左上に置く */
+  private createBackButton(): void {
+    const cx = BACK_BUTTON_X + BACK_BUTTON_WIDTH / 2;
+    const button = this.add
+      .rectangle(
+        cx,
+        BACK_BUTTON_CENTER_Y,
+        BACK_BUTTON_WIDTH,
+        BACK_BUTTON_HEIGHT,
+        0x1f2740,
+      )
+      .setStrokeStyle(2, 0x3a4a6a)
+      // スクロールしてきたカードにクリックを奪われないよう手前に置く
+      .setDepth(HEADER_DEPTH)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(cx, BACK_BUTTON_CENTER_Y, '← 戻る', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#8ad0ff',
+      })
+      .setOrigin(0.5)
+      .setDepth(HEADER_DEPTH);
+
+    button.on(Phaser.Input.Events.POINTER_OVER, () => {
+      button.setStrokeStyle(2, 0x8ad0ff);
+      button.setFillStyle(0x263255);
+    });
+    button.on(Phaser.Input.Events.POINTER_OUT, () => {
+      button.setStrokeStyle(2, 0x3a4a6a);
+      button.setFillStyle(0x1f2740);
+    });
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      this.scene.start('ModeSelectScene');
+    });
+  }
+
+  /** モード選択画面で選んだ遊び方(担当サイド・操作の設定)を左上に表示する */
+  private createModeSummary(): void {
+    this.add
+      .text(BACK_BUTTON_X, 50, gameModeSummary(this.mode), {
+        fontFamily: 'sans-serif',
+        fontSize: '12px',
+        color: '#ffd479',
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(HEADER_DEPTH);
+  }
+
+  /** 対人戦のときに、対戦相手(敵指揮官)の代わりに出す案内 */
+  private createVersusHumanNotice(width: number): void {
+    this.add
+      .text(width / 2, CHARACTER_ROW_CENTER_Y, '対戦相手: もう 1 人のプレイヤー', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        color: '#c8c8d8',
+      })
+      .setOrigin(0.5)
+      .setDepth(HEADER_DEPTH);
+  }
+
   /** ゲームの流れを説明する画面(GuideScene)へ移動するボタンを右上に置く */
   private createGuideButton(width: number): void {
     const w = 108;
@@ -845,7 +985,7 @@ export class MapSelectScene extends Phaser.Scene {
 
   /**
    * 選んだマップでゲームを開始する。save を渡すとその中断データから再開する。
-   * 再開時の戦闘モード・対戦相手は中断データに保存されたものを使い、
+   * 再開時の戦闘モード・対戦相手・モード選択の内容は中断データに保存されたものを使い、
    * 新規開始時はこの画面で選んでいるものを使う。
    */
   private startGame(entry: ResolvedMapEntry, save?: SaveData): void {
@@ -854,6 +994,9 @@ export class MapSelectScene extends Phaser.Scene {
       mapId: entry.id,
       nightBattle: save ? save.nightBattle : this.nightBattle,
       aiCharacterId: save ? save.aiCharacterId : this.aiCharacterId,
+      // 担当サイド・操作の設定も、再開時は中断データに保存されたものを使う
+      playerSide: save ? save.playerSide : this.mode.side,
+      versusMode: save ? save.versusMode : this.mode.versus,
       save,
     });
   }

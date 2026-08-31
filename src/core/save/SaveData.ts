@@ -7,6 +7,18 @@ import { gridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
 import { EconomyManager, type EconomyArmy } from '@/core/economy/EconomyManager';
+import {
+  firstArmy,
+  isPlayerSide,
+  isVersusMode,
+  type PlayerSide,
+  type VersusMode,
+} from '@/core/mode/GameMode';
+import {
+  emptyBattleStats,
+  isBattleStats,
+  type BattleStats,
+} from '@/core/stats/BattleStats';
 import { TurnManager, type TurnArmy } from '@/core/turn/TurnManager';
 import { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
@@ -19,7 +31,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 6;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -53,6 +65,13 @@ export interface SaveData {
   readonly nightBattle: boolean;
   /** 対戦していた敵指揮官の識別子(AiCharacter.id)。再開時に同じ思考パターンで続ける */
   readonly aiCharacterId: string;
+  /**
+   * 担当していたプレイヤーサイド(1P側 / 2P側)。
+   * 2P側は盤面の自軍・敵軍を入れ替えて後手番で始めるため、再開時にも同じ条件で続ける。
+   */
+  readonly playerSide: PlayerSide;
+  /** 操作の設定(対 CPU / 対人戦)。再開時にも同じ操作で続ける */
+  readonly versusMode: VersusMode;
   /** 保存時刻(エポックミリ秒。表示用) */
   readonly savedAt: number;
   /** 保存時のマップの横マス数・縦マス数(復元時の整合性チェックに使う) */
@@ -69,6 +88,11 @@ export interface SaveData {
   readonly tiles: readonly SavedTile[];
   /** 盤面上の生存ユニット */
   readonly units: readonly SavedUnit[];
+  /**
+   * ここまでの戦績(撃破数・生産数・占領数など)。
+   * 再開後もこの数から数え続け、エンディングでは通算の戦績を表示する。
+   */
+  readonly stats: BattleStats;
 }
 
 /** createSaveData に渡す、保存対象のゲーム状態 */
@@ -78,10 +102,16 @@ export interface SaveSource {
   readonly nightBattle: boolean;
   /** 対戦している敵指揮官の識別子(AiCharacter.id) */
   readonly aiCharacterId: string;
+  /** 担当しているプレイヤーサイド(1P側 / 2P側) */
+  readonly playerSide: PlayerSide;
+  /** 操作の設定(対 CPU / 対人戦) */
+  readonly versusMode: VersusMode;
   readonly map: MapManager;
   readonly units: UnitManager;
   readonly turn: TurnManager;
   readonly economy: EconomyManager;
+  /** ここまでの戦績(省略時は 0 件から数え始めた状態として保存する) */
+  readonly stats?: BattleStats;
   /** 保存時刻(省略時は現在時刻) */
   readonly savedAt?: number;
 }
@@ -146,6 +176,8 @@ export function createSaveData(source: SaveSource): SaveData {
     mapId: source.mapId,
     nightBattle: source.nightBattle,
     aiCharacterId: source.aiCharacterId,
+    playerSide: source.playerSide,
+    versusMode: source.versusMode,
     savedAt: source.savedAt ?? Date.now(),
     cols: source.map.cols,
     rows: source.map.rows,
@@ -158,6 +190,7 @@ export function createSaveData(source: SaveSource): SaveData {
     spawnCounter: source.units.spawnCounter,
     tiles,
     units: source.units.getAllUnits().map(toSavedUnit),
+    stats: source.stats ?? emptyBattleStats(),
   };
 }
 
@@ -189,11 +222,13 @@ export function restoreGameState(save: SaveData, map: MapManager): RestoredState
     spawnCounter: save.spawnCounter,
     map,
   });
-  // 復元時は手番開始処理(行動済みのリセット)を行わず、保存時点の行動済み状態を保つ
-  const turn = new TurnManager(units, {
-    turnNumber: save.turnNumber,
-    currentArmy: save.currentArmy,
-  });
+  // 復元時は手番開始処理(行動済みのリセット)を行わず、保存時点の行動済み状態を保つ。
+  // 先手は担当サイドで決まる(2P側は後手番)ため、保存時のサイドから復元する。
+  const turn = new TurnManager(
+    units,
+    { turnNumber: save.turnNumber, currentArmy: save.currentArmy },
+    firstArmy(save.playerSide),
+  );
   const economy = new EconomyManager();
   economy.setFunds('player', save.funds.player);
   economy.setFunds('enemy', save.funds.enemy);
@@ -288,6 +323,9 @@ export function isSaveData(value: unknown): value is SaveData {
   if (typeof value.aiCharacterId !== 'string') {
     return false;
   }
+  if (!isPlayerSide(value.playerSide) || !isVersusMode(value.versusMode)) {
+    return false;
+  }
   if (!isInteger(value.cols) || !isInteger(value.rows)) {
     return false;
   }
@@ -305,6 +343,9 @@ export function isSaveData(value: unknown): value is SaveData {
     return false;
   }
   if (!Array.isArray(value.tiles) || !value.tiles.every(isSavedTile)) {
+    return false;
+  }
+  if (!isBattleStats(value.stats)) {
     return false;
   }
   return Array.isArray(value.units) && value.units.every(isSavedUnit);

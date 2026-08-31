@@ -1,6 +1,7 @@
 // 選択可能なマップの一覧。マップ選択画面(MapSelectScene)から参照する。
 // 新しいマップを追加したら、この一覧に登録すれば選択画面に並ぶ。
 
+import { DEFAULT_MAP_GROUP, type MapGroup } from '@/core/mode/GameMode';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
@@ -27,16 +28,26 @@ export interface MapEntry {
    * テストマップ(test)は解放条件の集計対象外。
    */
   readonly category?: MapCategory;
+  /**
+   * どのマップ選択画面に並べるか。省略時は通常マップ(standard)として扱う。
+   * モード選択画面の「通常マップ / 新マップ / 4Pマップ」の入口に対応する。
+   */
+  readonly group?: MapGroup;
 }
 
 /** 区分の解決済みマップエントリ(解放判定・表示はこちらを使う) */
 export interface ResolvedMapEntry extends MapEntry {
   readonly category: MapCategory;
+  readonly group: MapGroup;
 }
 
 /** エントリの区分を解決する(未指定なら既定の区分にする) */
 export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
-  return { ...entry, category: entry.category ?? DEFAULT_MAP_CATEGORY };
+  return {
+    ...entry,
+    category: entry.category ?? DEFAULT_MAP_CATEGORY,
+    group: entry.group ?? DEFAULT_MAP_GROUP,
+  };
 }
 
 /**
@@ -103,6 +114,24 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
     },
   ] as const satisfies readonly MapEntry[]
 ).map(resolveMapEntry);
+
+/** 指定した区分のマップだけを取り出す(マップ選択画面はこの結果を並べる) */
+export function mapsInGroup(
+  entries: readonly ResolvedMapEntry[],
+  group: MapGroup,
+): readonly ResolvedMapEntry[] {
+  return entries.filter((entry) => entry.group === group);
+}
+
+/**
+ * 通常マップ(standard)の一覧。
+ * 激ムズマップの解放条件は通常マップのクリア状況だけで判定する
+ * (新マップ・4Pマップは解放条件に含めない)。
+ */
+export const STANDARD_MAP_LIST: readonly ResolvedMapEntry[] = mapsInGroup(
+  MAP_LIST,
+  'standard',
+);
 
 /** 選択画面の初期選択に使う先頭マップ */
 export const DEFAULT_MAP_ENTRY: ResolvedMapEntry = MAP_LIST[0];

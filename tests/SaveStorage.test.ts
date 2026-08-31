@@ -52,6 +52,8 @@ function makeSaveData(): SaveData {
     mapId: 'test',
     nightBattle: false,
     aiCharacterId: 'instructor',
+    playerSide: '1p',
+    versusMode: 'cpu',
     map,
     units,
     turn: new TurnManager(units),

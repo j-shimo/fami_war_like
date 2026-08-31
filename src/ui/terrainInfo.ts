@@ -3,17 +3,15 @@
 import type { ArmyType } from '@/core/map/TerrainType';
 import { INITIAL_CAPTURE_HP, type TileData } from '@/core/map/TileData';
 import { getTerrainData } from '@/data/terrainData';
+import { armyLabel as turnArmyLabel, type ArmyLabelOptions } from '@/ui/turnInfo';
 
-/** 所有軍の表示名 */
-export function armyLabel(owner: ArmyType): string {
-  switch (owner) {
-    case 'player':
-      return '自軍';
-    case 'enemy':
-      return '敵軍';
-    case 'neutral':
-      return '中立';
-  }
+/**
+ * 所有軍の表示名。
+ * 対人戦では「自軍 / 敵軍」ではなく先手・後手で「1P / 2P」と呼び分ける
+ * (呼び分けの規則は ui/turnInfo の armyLabel を参照)。
+ */
+export function armyLabel(owner: ArmyType, options: ArmyLabelOptions = {}): string {
+  return owner === 'neutral' ? '中立' : turnArmyLabel(owner, options);
 }
 
 /** 移動コスト値の表示テキスト(進入不可は「×」) */
@@ -25,15 +23,15 @@ function moveCostLabel(cost: number | null): string {
  * 占領耐久値の表示テキスト。占領が進行中のときは、
  * どの軍が占領を進めているのかも併せて示す(自軍・敵軍の占領値は別管理)。
  */
-export function captureHpLabel(tile: TileData): string {
+export function captureHpLabel(tile: TileData, options: ArmyLabelOptions = {}): string {
   if (tile.captureArmy !== null && tile.captureHp < INITIAL_CAPTURE_HP) {
-    return `占領耐久: ${tile.captureHp} (${armyLabel(tile.captureArmy)}が占領中)`;
+    return `占領耐久: ${tile.captureHp} (${armyLabel(tile.captureArmy, options)}が占領中)`;
   }
   return `占領耐久: ${tile.captureHp}`;
 }
 
-/** formatTerrainInfo の表示オプション */
-export interface TerrainInfoOptions {
+/** formatTerrainInfo の表示オプション(軍勢の呼び分けの設定も受け取る) */
+export interface TerrainInfoOptions extends ArmyLabelOptions {
   /**
    * 簡略表示。座標・移動コストを省いて行数を減らす。
    * 同じマスにユニットがいてユニット情報と併記する場合に使い、
@@ -71,8 +69,8 @@ export function formatTerrainInfo(
   }
 
   if (data.canCapture) {
-    lines.push(`所有: ${armyLabel(tile.owner)}`);
-    lines.push(captureHpLabel(tile));
+    lines.push(`所有: ${armyLabel(tile.owner, options)}`);
+    lines.push(captureHpLabel(tile, options));
     lines.push(`生産: ${data.canProduce ? '可' : '不可'}`);
   }
 
