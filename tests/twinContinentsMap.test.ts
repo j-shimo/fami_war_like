@@ -73,9 +73,29 @@ const BRIDGES: readonly (readonly GridPosition[])[] = BRIDGE_ROWS.map((row) =>
   STRAIT_COLS.map((col) => ({ col, row })),
 );
 
-/** 海峡に浮かぶ 2 島(北の島・南の島)の代表マス */
-const NORTH_ISLAND: GridPosition = { col: 20, row: 4 };
-const SOUTH_ISLAND: GridPosition = { col: 20, row: 20 };
+/** 北の橋・南の橋で、実際に海の上を渡る区間(両岸の岬に挟まれた col 19〜22 の 4 マス) */
+const OUTER_BRIDGE_SEA_COLS = [19, 20, 21, 22];
+/** 北の橋・南の橋の両岸から海峡へ張り出した岬(橋を短くしている陸地) */
+const CAPES: readonly GridPosition[] = [
+  { col: 18, row: 7 },
+  { col: 23, row: 7 },
+  { col: 18, row: 9 },
+  { col: 23, row: 9 },
+  { col: 18, row: 16 },
+  { col: 23, row: 16 },
+  { col: 18, row: 18 },
+  { col: 23, row: 18 },
+];
+
+/** 盤面の上下の端に浮かぶ 2 島(北の島・南の島)の代表マス */
+const NORTH_ISLAND: GridPosition = { col: 20, row: 2 };
+const SOUTH_ISLAND: GridPosition = { col: 20, row: 23 };
+
+/** 東の島で北岸沿いを走る街道のうち、海に近い区間(row 4 の東進と col 39 の南下) */
+const COASTAL_ROAD: readonly GridPosition[] = [
+  ...[32, 33, 34, 35, 36, 37, 38, 39].map((col) => ({ col, row: 4 })),
+  ...[5, 6, 7, 8, 9, 10].map((row) => ({ col: 39, row })),
+];
 
 /** 東の島で 3 ルートが 1 本に合流する地点 */
 const JUNCTION: GridPosition = { col: 29, row: 12 };
@@ -92,8 +112,7 @@ const OFF_ROAD_ENEMY_CITIES: readonly GridPosition[] = [
   { col: 26, row: 3 },
   { col: 30, row: 4 },
   { col: 34, row: 6 },
-  { col: 37, row: 3 },
-  { col: 38, row: 7 },
+  { col: 36, row: 8 },
   { col: 26, row: 21 },
   { col: 33, row: 21 },
   { col: 37, row: 20 },
@@ -218,6 +237,34 @@ describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
     expect(new Set(straitRoads.map((pos) => pos.row))).toEqual(new Set(BRIDGE_ROWS));
   });
 
+  it('北と南の橋は両岸の岬に挟まれ、海の上を渡るのは 4 マスだけ', () => {
+    const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
+    const isSea = (pos: GridPosition): boolean => map.getTile(pos)?.terrainType === 'sea';
+    // 岬(col 18・col 23)は陸で、橋の袂を支えている
+    for (const pos of CAPES) {
+      expect(isSea(pos)).toBe(false);
+      expect(map.getMoveCost(pos, 'infantry')).not.toBeNull();
+    }
+    for (const row of [8, 17]) {
+      // 橋の下が海なのは col 19〜22 の 4 マス。両端の col 18・col 23 は岬の上を走る
+      const overSea = STRAIT_COLS.filter((col) =>
+        [
+          { col, row: row - 1 },
+          { col, row: row + 1 },
+        ].every((pos) => isSea(pos)),
+      );
+      expect(overSea).toEqual(OUTER_BRIDGE_SEA_COLS);
+    }
+    // 中央の橋はさらに短く、海の上を渡るのは col 20〜21 の 2 マス
+    const centerOverSea = STRAIT_COLS.filter((col) =>
+      [
+        { col, row: 11 },
+        { col, row: 13 },
+      ].every((pos) => isSea(pos)),
+    );
+    expect(centerOverSea).toEqual([20, 21]);
+  });
+
   it('海峡は北口と南口だけが外洋につながり、橋に挟まれた水域は内海になる', () => {
     const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
     const onSea = passable(map, 'sea');
@@ -226,24 +273,28 @@ describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
     for (const pos of collect(map, (tile) => tile.terrainType === 'port')) {
       expect(ocean.has(key(pos))).toBe(true);
     }
-    // 橋と橋に挟まれた水域(row 9〜10・15〜16)は外洋から切り離されている
+    // 橋と橋に挟まれた水域(row 9〜11・13〜16)は外洋から切り離されている
     const inner = collect(map, (tile) => onSea(tile.position)).filter(
       (pos) => !ocean.has(key(pos)),
     );
-    expect(inner).toHaveLength(30);
+    expect(inner).toHaveLength(26);
     for (const pos of inner) {
       expect(isStrait(pos)).toBe(true);
       expect(pos.row > 8 && pos.row < 17).toBe(true);
     }
   });
 
-  it('海峡の 2 島は橋とつながっておらず、輸送でしか渡れない中立拠点を持つ', () => {
+  it('盤面の上下の 2 島は橋とつながっておらず、輸送でしか渡れない中立拠点を持つ', () => {
     const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
     const onLand = passable(map, 'infantry');
     for (const start of [NORTH_ISLAND, SOUTH_ISLAND]) {
       const island = floodFill(map, start, onLand);
-      // 4x4 の独立した島で、どちらの本島ともつながっていない
-      expect(island.size).toBe(16);
+      // 盤面の端に張り付いた横長(5x3)の独立した島で、どちらの本島ともつながっていない
+      expect(island.size).toBe(15);
+      expect(
+        Math.max(...[...island].map((k) => Number(k.split(',')[1]))) -
+          Math.min(...[...island].map((k) => Number(k.split(',')[1]))),
+      ).toBe(2);
       expect(island.has(key(PLAYER_HQ))).toBe(false);
       expect(island.has(key(ENEMY_HQ))).toBe(false);
 
@@ -251,11 +302,11 @@ describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
         const [col, row] = k.split(',').map(Number);
         return map.getTile({ col, row });
       });
-      // 中立都市 3・中立空港 1・中立港 1 と、上陸用の海岸 1 マスを持つ
+      // 中立都市 3・中立空港 1・中立港 1 と、東西の端に上陸用の海岸を 1 マスずつ持つ
       expect(tiles.filter((tile) => tile?.terrainType === 'city')).toHaveLength(3);
       expect(tiles.filter((tile) => tile?.terrainType === 'airport')).toHaveLength(1);
       expect(tiles.filter((tile) => tile?.terrainType === 'port')).toHaveLength(1);
-      expect(tiles.filter((tile) => tile?.terrainType === 'beach')).toHaveLength(1);
+      expect(tiles.filter((tile) => tile?.terrainType === 'beach')).toHaveLength(2);
       for (const tile of tiles) {
         if (tile && getTerrainData(tile.terrainType).canCapture) {
           expect(tile.owner).toBe('neutral');
@@ -362,6 +413,59 @@ describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
     }
   });
 
+  it('東の島の街道は合流点から北岸沿いを回って敵陣地へ入る', () => {
+    const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
+    const isRoad = (pos: GridPosition): boolean =>
+      map.getTile(pos)?.terrainType === 'road';
+    const onSea = passable(map, 'sea');
+    // 海までの距離(海上ユニットからどれだけ近いか)を幅優先で測る
+    const seaDistance = (from: GridPosition): number => {
+      const seen = new Set([key(from)]);
+      let frontier: GridPosition[] = [from];
+      for (let distance = 0; distance < 10; distance += 1) {
+        const next: GridPosition[] = [];
+        for (const pos of frontier) {
+          if (onSea(pos)) return distance;
+          for (const around of neighbors(pos)) {
+            if (!map.isInBounds(around) || seen.has(key(around))) continue;
+            seen.add(key(around));
+            next.push(around);
+          }
+        }
+        frontier = next;
+      }
+      return Infinity;
+    };
+    for (const pos of COASTAL_ROAD) {
+      expect(isRoad(pos)).toBe(true);
+      // 街道は海から 3 マス以内。戦艦(射程 3〜6)の射程に入る位置を通る
+      expect(seaDistance(pos)).toBeLessThanOrEqual(3);
+    }
+    // 合流点から敵陣地までの道路は、この北岸ルートを通らないとつながらない
+    const closed = new Set(COASTAL_ROAD.map(key));
+    const detour = (pos: GridPosition): boolean => isRoad(pos) && !closed.has(key(pos));
+    expect(floodFill(map, JUNCTION, detour).has(key({ col: 38, row: 13 }))).toBe(false);
+  });
+
+  it('東の島は内陸を山の背骨が塞ぎ、地上部隊は北岸か南岸を回るしかない', () => {
+    const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
+    // 内陸(row 6〜15)だけを通って敵陣地へ抜けることはできない
+    const inland = (pos: GridPosition): boolean =>
+      passable(map, 'vehicle')(pos) && pos.row >= 6 && pos.row <= 15;
+    for (const row of BRIDGE_ROWS) {
+      if (row < 6 || row > 15) continue;
+      expect(floodFill(map, { col: 24, row }, inland).has(key(ENEMY_HQ))).toBe(false);
+    }
+    // 北岸(row 5 以北)を通れば、南回りを封じられていても敵陣地へたどり着ける
+    const northOnly = (pos: GridPosition): boolean =>
+      passable(map, 'vehicle')(pos) && pos.row < 16;
+    expect(floodFill(map, { col: 24, row: 8 }, northOnly).has(key(ENEMY_HQ))).toBe(true);
+    // 南回り(row 16 以南)だけでも同じくたどり着ける
+    const southOnly = (pos: GridPosition): boolean =>
+      passable(map, 'vehicle')(pos) && pos.row > 5;
+    expect(floodFill(map, { col: 24, row: 8 }, southOnly).has(key(ENEMY_HQ))).toBe(true);
+  });
+
   it('東の島の都市は道路から離れた場所にも点在する', () => {
     const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
     const isRoad = (pos: GridPosition): boolean =>
@@ -374,7 +478,7 @@ describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
       (pos) => !neighbors(pos).some((next) => isRoad(next)),
     );
     expect(new Set(offRoad.map(key))).toEqual(new Set(OFF_ROAD_ENEMY_CITIES.map(key)));
-    expect(offRoad).toHaveLength(8);
+    expect(offRoad).toHaveLength(7);
   });
 
   it('西の島は山・森・平地をバランスよく持ち、東の島は平地が多い', () => {
