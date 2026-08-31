@@ -38,6 +38,11 @@ import {
 } from '@/core/mode/GameMode';
 import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
 import {
+  BattleStatsRecorder,
+  emptyBattleStats,
+  type BattleStats,
+} from '@/core/stats/BattleStats';
+import {
   createSaveData,
   restoreGameState,
   type RestoredState,
@@ -61,7 +66,7 @@ import {
   type VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
 import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
-import { DEFAULT_MAP_ENTRY, STANDARD_MAP_LIST } from '@/data/maps';
+import { DEFAULT_MAP_ENTRY, MAP_LIST, STANDARD_MAP_LIST } from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { swapMapSides } from '@/data/maps/sideSwap';
 import { getTerrainData } from '@/data/terrainData';
@@ -395,6 +400,10 @@ export class MainScene extends Phaser.Scene {
   private playerSide: PlayerSide = DEFAULT_GAME_MODE.side;
   /** 操作の設定(モード選択画面で選ぶ)。対人戦では敵軍AIを動かさない */
   private versusMode: VersusMode = DEFAULT_GAME_MODE.versus;
+  /** このゲームの戦績(撃破数・生産数・占領数など)を数える記録係 */
+  private stats = new BattleStatsRecorder();
+  /** 中断データから引き継ぐ戦績(新規ゲームなら null) */
+  private resumedStats: BattleStats | null = null;
   /**
    * 自軍から見た現在の視界。夜戦では明るいマスと発見済みの敵を保持する。
    * 昼戦ではすべてが見える視界になるため、判定を分岐せずにそのまま使える。
@@ -453,6 +462,7 @@ export class MainScene extends Phaser.Scene {
     this.mapDef = swapsSides(this.playerSide) ? swapMapSides(definition) : definition;
     this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
     this.resumeSave = data.save ?? null;
+    this.resumedStats = data.save?.stats ?? null;
     this.nightBattle = data.nightBattle ?? false;
     // 未知の識別子(古い中断データなど)の場合は既定の指揮官にフォールバックする
     this.aiCharacter = getAiCharacter(data.aiCharacterId);
@@ -493,6 +503,12 @@ export class MainScene extends Phaser.Scene {
     this.production = new ProductionManager(this.map, this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
     this.victory = new VictoryConditionChecker(this.map, this.units);
+    // 戦績は中断データにも保存する。再開時は保存されていた数から数え続ける
+    // (中断データを復元できなかったときは新規ゲーム扱いなので 0 から数え直す)
+    this.stats = new BattleStatsRecorder(
+      (restored && this.resumedStats) || emptyBattleStats(),
+    );
+    this.resumedStats = null;
     this.ai = new EnemyAi({
       map: this.map,
       units: this.units,
@@ -1276,6 +1292,8 @@ export class MainScene extends Phaser.Scene {
 
   /** 手番の見出しを現在のターン状態に合わせて更新する */
   private updateTurnText(): void {
+    // 戦績のターン数は「決着した時点のターン数」なので、手番が進むたびに控え直す
+    this.stats.setTurns(this.turn.turnNumber);
     this.turnText.setText(
       formatTurnBanner(this.turn.state, {
         ...this.armyLabelOptions(),
@@ -1442,6 +1460,8 @@ export class MainScene extends Phaser.Scene {
    * 盤面を最新の状態へ描き直し、行動サマリを表示して勝敗を判定する。
    */
   private finishEnemyTurn(actions: readonly AiAction[]): void {
+    // 敵軍AIが実行した行動を戦績へ数える(自軍と同じ項目を敵軍側へ足す)
+    this.recordEnemyActions(actions);
     // 占領で所有者が、移動・撃破でユニット配置が変わるため再描画する
     this.drawTerrain();
     this.drawUnits();
@@ -1451,6 +1471,26 @@ export class MainScene extends Phaser.Scene {
     );
     // 敵軍の占領・撃破で勝敗が決していないか判定する
     this.checkGameEnd();
+  }
+
+  /** 敵軍AIの行動一覧から、攻撃・占領・生産を戦績へ数える */
+  private recordEnemyActions(actions: readonly AiAction[]): void {
+    for (const action of actions) {
+      switch (action.kind) {
+        case 'attack':
+          this.stats.recordAttack(action.result);
+          break;
+        case 'capture':
+          this.stats.recordCapture(action.result);
+          break;
+        case 'produce':
+          this.stats.recordProduction(action.result);
+          break;
+        default:
+          // 移動・待機・輸送は戦績に数えない
+          break;
+      }
+    }
   }
 
   /**
@@ -2081,6 +2121,7 @@ export class MainScene extends Phaser.Scene {
         aiCharacterId: this.aiCharacter.id,
         playerSide: this.playerSide,
         versusMode: this.versusMode,
+        stats: this.stats.snapshot(),
         map: this.map,
         units: this.units,
         turn: this.turn,
@@ -2695,6 +2736,7 @@ export class MainScene extends Phaser.Scene {
     const attackerPos = { ...attacker.position };
     const targetPos = { ...target.position };
     const result = this.battle.attack(attacker, target);
+    this.stats.recordAttack(result);
     this.resetSelection();
     this.infoText.setText(this.buildBattleLog(result));
     // 盤面の反映と勝敗判定は演出の終わりまで待つ
@@ -2794,6 +2836,7 @@ export class MainScene extends Phaser.Scene {
   /** 指定ユニットで拠点を占領し、結果を表示する */
   private executeCapture(unit: Unit, tile: TileData): void {
     const result = this.capture.capture(unit, tile);
+    this.stats.recordCapture(result);
     this.audio.playSfx('capture');
     this.commandUnit = null;
     this.resetSelection();
@@ -2823,11 +2866,21 @@ export class MainScene extends Phaser.Scene {
       result.outcome === 'player_victory' && this.versusMode === 'cpu'
         ? this.recordClear()
         : false;
+    // 激ムズマップを対 CPU で勝ち切ったときだけ、結果画面からエンディングへ進める
+    const ending =
+      result.outcome === 'player_victory' &&
+      this.versusMode === 'cpu' &&
+      this.isExtraMap();
     // 戦闘 BGM を止め、勝敗に応じたジングルを鳴らす
     this.audio.stopBgm();
     this.audio.playSfx(result.outcome === 'player_victory' ? 'victory' : 'lose');
     this.resetSelection();
-    this.showResultOverlay(result, unlocked);
+    this.showResultOverlay(result, unlocked, ending);
+  }
+
+  /** 遊んでいるマップが激ムズマップ(区分 extra)かどうか */
+  private isExtraMap(): boolean {
+    return MAP_LIST.find((entry) => entry.id === this.mapId)?.category === 'extra';
   }
 
   /**
@@ -2847,8 +2900,13 @@ export class MainScene extends Phaser.Scene {
   /**
    * 勝敗結果を画面中央のオーバーレイとして表示する。
    * unlocked が true(今回のクリアで激ムズマップが解放された)なら、その知らせも添える。
+   * ending が true(激ムズマップを対 CPU で勝利した)なら、ボタンでエンディングへ進む。
    */
-  private showResultOverlay(result: VictoryResult, unlocked = false): void {
+  private showResultOverlay(
+    result: VictoryResult,
+    unlocked = false,
+    ending = false,
+  ): void {
     const isVictory = result.outcome === 'player_victory';
     const message = formatResultMessage(result, this.armyLabelOptions());
 
@@ -2894,7 +2952,8 @@ export class MainScene extends Phaser.Scene {
         .setScrollFactor(0);
     }
 
-    // マップ選択画面へ戻るボタン(もう一度別のマップを遊べるようにする)
+    // マップ選択画面へ戻るボタン(もう一度別のマップを遊べるようにする)。
+    // エンディングへ進む場合は、そちらへ移るボタンにする
     const btnWidth = 220;
     const btnHeight = 44;
     const btnX = centerX - btnWidth / 2;
@@ -2906,15 +2965,30 @@ export class MainScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x8ad0ff)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(centerX, btnY + btnHeight / 2, 'マップ選択へ戻る', {
-        fontFamily: 'sans-serif',
-        fontSize: '16px',
-        color: '#ffffff',
-      })
+      .text(
+        centerX,
+        btnY + btnHeight / 2,
+        ending ? 'エンディングへ ▶' : 'マップ選択へ戻る',
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '16px',
+          color: '#ffffff',
+        },
+      )
       .setOrigin(0.5)
       .setScrollFactor(0);
     button.on(Phaser.Input.Events.POINTER_DOWN, () => {
       this.audio.stopBgm();
+      if (ending) {
+        // 戦績と対戦相手を渡し、音量・ミュートの設定も引き継ぐ
+        this.scene.start('EndingScene', {
+          stats: this.stats.snapshot(),
+          commander: aiCharacterLabel(this.aiCharacter),
+          muted: this.audio.isMuted,
+          volume: this.audio.volume,
+        });
+        return;
+      }
       this.scene.start('MapSelectScene');
     });
   }
@@ -3001,6 +3075,7 @@ export class MainScene extends Phaser.Scene {
       return;
     }
     const result = this.production.produce(army, tile, unitType);
+    this.stats.recordProduction(result);
     this.audio.playSfx('produce');
     this.resetSelection();
     this.updateEconomyText();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EconomyManager } from '@/core/economy/EconomyManager';
+import { emptyBattleStats } from '@/core/stats/BattleStats';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import {
@@ -326,5 +327,54 @@ describe('モード選択の内容の保存', () => {
     restored.turn.endTurn();
     // 先手(敵軍)へ戻るタイミングでターン数が増える
     expect(restored.turn.state).toEqual({ turnNumber: 2, currentArmy: 'enemy' });
+  });
+});
+
+describe('戦績の保存', () => {
+  it('ここまでの戦績を書き出し、再開時に引き継げる', () => {
+    const stats = {
+      turns: 9,
+      player: {
+        attacks: 5,
+        defeated: 4,
+        lost: 1,
+        produced: 7,
+        spent: 42000,
+        captured: 3,
+      },
+      enemy: {
+        attacks: 6,
+        defeated: 1,
+        lost: 4,
+        produced: 8,
+        spent: 51000,
+        captured: 2,
+      },
+    };
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
+      stats,
+      ...setupGame(),
+    });
+    expect(save.stats).toEqual(stats);
+    expect(isSaveData(JSON.parse(JSON.stringify(save)))).toBe(true);
+    // 戦績が欠けている(対応前の形式の)データは復元できない
+    expect(isSaveData({ ...save, stats: undefined })).toBe(false);
+  });
+
+  it('戦績を渡さなければ 0 件から数え始めた状態で保存する', () => {
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerSide: '1p',
+      versusMode: 'cpu',
+      ...setupGame(),
+    });
+    expect(save.stats).toEqual(emptyBattleStats());
   });
 });

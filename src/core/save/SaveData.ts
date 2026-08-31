@@ -14,6 +14,11 @@ import {
   type PlayerSide,
   type VersusMode,
 } from '@/core/mode/GameMode';
+import {
+  emptyBattleStats,
+  isBattleStats,
+  type BattleStats,
+} from '@/core/stats/BattleStats';
 import { TurnManager, type TurnArmy } from '@/core/turn/TurnManager';
 import { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
@@ -26,7 +31,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -83,6 +88,11 @@ export interface SaveData {
   readonly tiles: readonly SavedTile[];
   /** 盤面上の生存ユニット */
   readonly units: readonly SavedUnit[];
+  /**
+   * ここまでの戦績(撃破数・生産数・占領数など)。
+   * 再開後もこの数から数え続け、エンディングでは通算の戦績を表示する。
+   */
+  readonly stats: BattleStats;
 }
 
 /** createSaveData に渡す、保存対象のゲーム状態 */
@@ -100,6 +110,8 @@ export interface SaveSource {
   readonly units: UnitManager;
   readonly turn: TurnManager;
   readonly economy: EconomyManager;
+  /** ここまでの戦績(省略時は 0 件から数え始めた状態として保存する) */
+  readonly stats?: BattleStats;
   /** 保存時刻(省略時は現在時刻) */
   readonly savedAt?: number;
 }
@@ -178,6 +190,7 @@ export function createSaveData(source: SaveSource): SaveData {
     spawnCounter: source.units.spawnCounter,
     tiles,
     units: source.units.getAllUnits().map(toSavedUnit),
+    stats: source.stats ?? emptyBattleStats(),
   };
 }
 
@@ -330,6 +343,9 @@ export function isSaveData(value: unknown): value is SaveData {
     return false;
   }
   if (!Array.isArray(value.tiles) || !value.tiles.every(isSavedTile)) {
+    return false;
+  }
+  if (!isBattleStats(value.stats)) {
     return false;
   }
   return Array.isArray(value.units) && value.units.every(isSavedUnit);

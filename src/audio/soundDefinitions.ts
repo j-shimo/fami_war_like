@@ -204,8 +204,11 @@ export interface BgmTrack {
   readonly channels: readonly BgmChannel[];
 }
 
-/** BGM の種類。手番の軍勢で曲調を切り替える */
-export type BgmName = 'playerBattle' | 'enemyBattle';
+/**
+ * BGM の種類。戦闘中は手番の軍勢で曲調を切り替え、
+ * エンディング(激ムズマップのクリア後)では専用の曲を流す。
+ */
+export type BgmName = 'playerBattle' | 'enemyBattle' | 'ending';
 
 /** BGM ノートを簡潔に書くヘルパ */
 function n(note: string | null, beats: number): BgmNote {
@@ -302,10 +305,56 @@ const ENEMY_BATTLE: BgmTrack = {
   ],
 };
 
+/**
+ * エンディングのBGM。ハ長調・ゆっくりめの落ち着いたループ。
+ * 戦闘BGMより遅いテンポで、旋律(square)と低音(triangle)ともに 32 拍で一巡する。
+ */
+const ENDING: BgmTrack = {
+  bpm: 96,
+  channels: [
+    {
+      wave: 'square',
+      volume: 0.14,
+      notes: [
+        n('C5', 2),
+        n('E5', 2),
+        n('G5', 2),
+        n('E5', 2),
+        n('F5', 2),
+        n('A5', 2),
+        n('G5', 4),
+        n('E5', 2),
+        n('G5', 2),
+        n('C6', 2),
+        n('B5', 2),
+        n('A5', 2),
+        n('F5', 2),
+        n('G5', 2),
+        n('C5', 2),
+      ],
+    },
+    {
+      wave: 'triangle',
+      volume: 0.2,
+      notes: [
+        n('C3', 4),
+        n('A2', 4),
+        n('F2', 4),
+        n('G2', 4),
+        n('C3', 4),
+        n('A2', 4),
+        n('F2', 4),
+        n('G2', 4),
+      ],
+    },
+  ],
+};
+
 /** BGM トラックの定義集 */
 export const BGM_TRACKS: Record<BgmName, BgmTrack> = {
   playerBattle: PLAYER_BATTLE,
   enemyBattle: ENEMY_BATTLE,
+  ending: ENDING,
 };
 
 /** 拍数をテンポに応じた秒数へ変換する */
