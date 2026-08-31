@@ -24,4 +24,17 @@ describe('turnInfo', () => {
       formatTurnBanner({ turnNumber: 2, currentArmy: 'player' }, { nightBattle: false }),
     ).toBe('第2ターン / 自軍');
   });
+  it('対人戦では先手を 1P、後手を 2P と呼ぶ', () => {
+    expect(armyLabel('player', { versus: 'human' })).toBe('1P');
+    expect(armyLabel('enemy', { versus: 'human' })).toBe('2P');
+    expect(armyLabel('player', { versus: 'cpu' })).toBe('自軍');
+    expect(
+      formatTurnBanner({ turnNumber: 2, currentArmy: 'enemy' }, { versus: 'human' }),
+    ).toBe('第2ターン / 2P');
+  });
+
+  it('対人戦で 2P側を選ぶと、先手(1P)は敵軍(赤)になる', () => {
+    expect(armyLabel('enemy', { versus: 'human', side: '2p' })).toBe('1P');
+    expect(armyLabel('player', { versus: 'human', side: '2p' })).toBe('2P');
+  });
 });

@@ -29,6 +29,13 @@ import {
   type MovementRange,
   type MovePathResult,
 } from '@/core/movement/MovementRange';
+import {
+  DEFAULT_GAME_MODE,
+  firstArmy,
+  swapsSides,
+  type PlayerSide,
+  type VersusMode,
+} from '@/core/mode/GameMode';
 import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
 import {
   createSaveData,
@@ -44,7 +51,7 @@ import {
   writeEnemyAnimationMode,
 } from '@/core/settings/SettingsStorage';
 import { enemyAnimationModeLabel, type EnemyAnimationMode } from '@/data/enemyAnimation';
-import { TurnManager } from '@/core/turn/TurnManager';
+import { TurnManager, type TurnArmy } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { mergedHp } from '@/core/units/merge';
 import { UnitManager } from '@/core/units/UnitManager';
@@ -54,8 +61,9 @@ import {
   type VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
 import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
-import { DEFAULT_MAP_ENTRY, MAP_LIST } from '@/data/maps';
+import { DEFAULT_MAP_ENTRY, STANDARD_MAP_LIST } from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+import { swapMapSides } from '@/data/maps/sideSwap';
 import { getTerrainData } from '@/data/terrainData';
 import {
   formatCaptureLog,
@@ -88,7 +96,7 @@ import {
 import { BattleEffects, DAMAGE_COLOR } from '@/rendering/battleEffects';
 import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
-import { formatTurnBanner } from '@/ui/turnInfo';
+import { armyLabel, formatTurnBanner, type ArmyLabelOptions } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
 import { computeRoadLinks } from '@/rendering/roadLinks';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
@@ -245,6 +253,9 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  *   タッチ端末では右クリックの代わりに長押し(その場で一定時間押し続ける)で同じメニューを出す。
  * 中断: 情報メニューの「中断」を選ぶと確認ダイアログを出し、「はい」で今の盤面を中断データとして
  *   保存してマップ選択画面へ戻る。中断データはマップ選択画面から再開できる。
+ * モード選択: モード選択画面で選んだ内容(担当サイド・操作の設定)に従って開始する。
+ *   2P側では盤面の自軍・敵軍を入れ替え、敵軍(元の 1P 側)を先手にして後手番で戦う。
+ *   対人戦(プレイヤー vs プレイヤー)では敵軍AIを動かさず、両陣営とも人間が交代で操作する。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -380,6 +391,10 @@ export class MainScene extends Phaser.Scene {
   private nightBattle = false;
   /** 対戦している敵指揮官(マップ選択画面で選ぶ)。思考パターンはここから決まる */
   private aiCharacter: AiCharacter = DEFAULT_AI_CHARACTER;
+  /** 担当するプレイヤーサイド(モード選択画面で選ぶ)。2P側は盤面を入れ替えて後手番になる */
+  private playerSide: PlayerSide = DEFAULT_GAME_MODE.side;
+  /** 操作の設定(モード選択画面で選ぶ)。対人戦では敵軍AIを動かさない */
+  private versusMode: VersusMode = DEFAULT_GAME_MODE.versus;
   /**
    * 自軍から見た現在の視界。夜戦では明るいマスと発見済みの敵を保持する。
    * 昼戦ではすべてが見える視界になるため、判定を分岐せずにそのまま使える。
@@ -418,7 +433,8 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * マップ選択画面から遊ぶマップ・戦闘モード・対戦相手を受け取る(未指定なら既定値)。
+   * マップ選択画面から遊ぶマップ・戦闘モード・対戦相手・モード選択の内容を受け取る
+   * (未指定なら既定値)。2P側のときはここでマップ定義の自軍・敵軍を入れ替える。
    * 中断データから再開する場合は save も渡され、create() で盤面を復元する。
    */
   init(data: {
@@ -426,9 +442,15 @@ export class MainScene extends Phaser.Scene {
     mapId?: string;
     nightBattle?: boolean;
     aiCharacterId?: string;
+    playerSide?: PlayerSide;
+    versusMode?: VersusMode;
     save?: SaveData;
   }): void {
-    this.mapDef = data.map ?? DEFAULT_MAP_ENTRY.definition;
+    this.playerSide = data.playerSide ?? DEFAULT_GAME_MODE.side;
+    this.versusMode = data.versusMode ?? DEFAULT_GAME_MODE.versus;
+    const definition = data.map ?? DEFAULT_MAP_ENTRY.definition;
+    // 2P側では拠点の所有者とユニットの所属を入れ替え、これまで敵軍だった側を担当する
+    this.mapDef = swapsSides(this.playerSide) ? swapMapSides(definition) : definition;
     this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
     this.resumeSave = data.save ?? null;
     this.nightBattle = data.nightBattle ?? false;
@@ -461,7 +483,10 @@ export class MainScene extends Phaser.Scene {
     this.scale.resize(this.gameWidth, this.gameHeight);
     this.setupCamera();
     this.battle = new BattleManager(this.map, this.units);
-    this.turn = restored?.turn ?? new TurnManager(this.units);
+    // 2P側は後手番。入れ替え後の敵軍(元の 1P 側)を先手にする
+    this.turn =
+      restored?.turn ??
+      new TurnManager(this.units, undefined, firstArmy(this.playerSide));
     this.economy =
       restored?.economy ?? new EconomyManager({ initialFunds: this.mapDef.initialFunds });
     this.capture = new CaptureSystem();
@@ -519,8 +544,38 @@ export class MainScene extends Phaser.Scene {
     // 開始時は自軍の本拠地へカメラを寄せ、どこから始めるか分かりやすくする
     this.focusPlayerHeadquarters();
 
-    // 開始演出として自軍第1ターンのバナーを表示する
+    if (this.shouldRunAi()) {
+      // 2P側(後手番)では敵軍AIの手番から始まる。開始バナーは敵軍ターンの演出側で出す
+      this.runEnemyTurn(() => this.startPlayerTurn());
+      return;
+    }
+
+    // 開始演出として先手の第1ターンのバナーを表示する
     this.showTurnStartBanner();
+  }
+
+  /**
+   * いま手番を持っているのが敵軍AIかどうか。
+   * 対人戦では AI を動かさないため、常に false を返す。
+   */
+  private shouldRunAi(): boolean {
+    return this.versusMode === 'cpu' && this.turn.currentArmy === 'enemy';
+  }
+
+  /**
+   * 情報パネル・バナーで軍勢をどう呼ぶかの設定。
+   * 対人戦では「自軍 / 敵軍」ではなく先手・後手で「1P / 2P」と呼び分ける。
+   */
+  private armyLabelOptions(): ArmyLabelOptions {
+    return { versus: this.versusMode, side: this.playerSide };
+  }
+
+  /**
+   * 盤面を見ている側の軍勢。夜戦の視界(暗幕)の基準に使う。
+   * 対 CPU ではプレイヤーが操作する自軍で固定し、対人戦では手番側から見た視界にする。
+   */
+  private viewArmy(): TurnArmy {
+    return this.versusMode === 'human' ? this.turn.currentArmy : 'player';
   }
 
   /**
@@ -554,9 +609,10 @@ export class MainScene extends Phaser.Scene {
   private focusPlayerHeadquarters(): void {
     let target: TileData | undefined;
     let fallback: TileData | undefined;
+    const army = this.viewArmy();
 
     this.map.forEachTile((tile) => {
-      if (tile.owner !== 'player') {
+      if (tile.owner !== army) {
         return;
       }
       if (tile.terrainType === 'headquarters' && target === undefined) {
@@ -607,12 +663,18 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 自軍から見た視界を計算し直し、暗幕を描き直す。
+   * 盤面を見ている側から見た視界を計算し直し、暗幕を描き直す。
    * ユニットの移動・撃破・生産や拠点の占領で明るい範囲が変わるため、
    * 盤面を描き直す drawUnits() の冒頭から必ず呼ぶ。
+   * 対人戦では手番が移るたびに、その手番側から見た視界へ切り替わる。
    */
   private refreshVisibility(): void {
-    this.visibility = computeVisibility(this.map, this.units, 'player', this.nightBattle);
+    this.visibility = computeVisibility(
+      this.map,
+      this.units,
+      this.viewArmy(),
+      this.nightBattle,
+    );
     this.drawFog();
   }
 
@@ -1140,7 +1202,7 @@ export class MainScene extends Phaser.Scene {
     // 手番開始のジングルを鳴らし、手番に応じた BGM へ切り替える
     this.audio.playSfx(army === 'player' ? 'turnPlayer' : 'turnEnemy');
     this.updateBattleBgm();
-    const label = army === 'player' ? '自軍ターン' : '敵軍ターン';
+    const label = `${armyLabel(army, this.armyLabelOptions())}ターン`;
     const bannerHeight = 72;
     // マップのスクロールに追従せず、常にビューポート中央へ表示する
     const centerY = this.viewHeight / 2;
@@ -1215,7 +1277,10 @@ export class MainScene extends Phaser.Scene {
   /** 手番の見出しを現在のターン状態に合わせて更新する */
   private updateTurnText(): void {
     this.turnText.setText(
-      formatTurnBanner(this.turn.state, { nightBattle: this.nightBattle }),
+      formatTurnBanner(this.turn.state, {
+        ...this.armyLabelOptions(),
+        nightBattle: this.nightBattle,
+      }),
     );
   }
 
@@ -1225,7 +1290,9 @@ export class MainScene extends Phaser.Scene {
    */
   private updateEconomyText(): void {
     const army = this.turn.currentArmy;
-    this.fundsText.setText(formatFunds(army, this.economy.getFunds(army)));
+    this.fundsText.setText(
+      formatFunds(army, this.economy.getFunds(army), this.armyLabelOptions()),
+    );
     this.incomeText.setText(
       formatIncome(
         this.economy.getIncome(army, this.map),
@@ -1235,8 +1302,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 自軍のターンを終了する。
-   * 敵軍へ手番を移して敵軍AIを自動実行し、決着しなければ自軍へ手番を戻す。
+   * 現在の手番を終了する。
+   * 対 CPU では敵軍へ手番を移して敵軍AIを自動実行し、決着しなければ自軍へ手番を戻す。
+   * 対人戦では AI を動かさず、そのまま相手プレイヤーの手番を始める。
    * 手番が移るたびに、その軍の収入計上と拠点上ユニットの修理を行う。
    *
    * 「敵の行動アニメ」が「簡単」以上のときは敵軍の行動を 1 つずつ演出するため、
@@ -1249,13 +1317,24 @@ export class MainScene extends Phaser.Scene {
     }
     this.clearSelection();
 
-    // 自軍 → 敵軍。敵軍の開始時経済処理(収入・修理)を行う。
+    // 次の軍勢へ手番を移し、その軍の開始時経済処理(収入・修理)を行う。
     this.turn.endTurn();
-    this.runTurnStartEconomy();
-    // 演出しながら進める場合は、敵軍の手番であることが見出しと資金表示に出る
+    const repairs = this.runTurnStartEconomy();
+    // 演出しながら進める場合は、相手の手番であることが見出しと資金表示に出る
     this.updateTurnText();
     this.updateEconomyText();
     this.drawUnits();
+
+    if (!this.shouldRunAi()) {
+      // 対人戦では AI を動かさず、そのままもう一方のプレイヤーの手番を始める
+      this.drawTerrain();
+      if (repairs.length > 0) {
+        this.audio.playSfx('repair');
+        this.infoText.setText(formatRepairLog(repairs));
+      }
+      this.showTurnStartBanner();
+      return;
+    }
 
     // 敵軍AIを実行する。占領・撃破で勝敗が決したらそこで止める。
     this.runEnemyTurn(() => this.startPlayerTurn());
@@ -2000,6 +2079,8 @@ export class MainScene extends Phaser.Scene {
         mapId: this.mapId,
         nightBattle: this.nightBattle,
         aiCharacterId: this.aiCharacter.id,
+        playerSide: this.playerSide,
+        versusMode: this.versusMode,
         map: this.map,
         units: this.units,
         turn: this.turn,
@@ -2737,7 +2818,11 @@ export class MainScene extends Phaser.Scene {
     this.gameOver = true;
     // 勝利したマップはクリア済みとして記録する(記録は次回以降の選択画面と
     // 激ムズマップの解放判定に使う)。敗北したときは何も記録しない。
-    const unlocked = result.outcome === 'player_victory' ? this.recordClear() : false;
+    // 対人戦は CPU との対戦ではないため、勝っても記録しない。
+    const unlocked =
+      result.outcome === 'player_victory' && this.versusMode === 'cpu'
+        ? this.recordClear()
+        : false;
     // 戦闘 BGM を止め、勝敗に応じたジングルを鳴らす
     this.audio.stopBgm();
     this.audio.playSfx(result.outcome === 'player_victory' ? 'victory' : 'lose');
@@ -2756,7 +2841,7 @@ export class MainScene extends Phaser.Scene {
       mapId: this.mapId,
       nightBattle: this.nightBattle,
     });
-    return becameUnlocked(MAP_LIST, before, after);
+    return becameUnlocked(STANDARD_MAP_LIST, before, after);
   }
 
   /**
@@ -2765,7 +2850,7 @@ export class MainScene extends Phaser.Scene {
    */
   private showResultOverlay(result: VictoryResult, unlocked = false): void {
     const isVictory = result.outcome === 'player_victory';
-    const message = formatResultMessage(result);
+    const message = formatResultMessage(result, this.armyLabelOptions());
 
     // 画面全体を暗くする半透明オーバーレイ(マップスクロールに追従せず画面へ固定する)
     const overlay = this.add.graphics().setScrollFactor(0);
@@ -2873,7 +2958,7 @@ export class MainScene extends Phaser.Scene {
       viewWidth: this.viewWidth,
       viewHeight: this.viewHeight,
       items,
-      fundsLabel: formatFunds(army, this.economy.getFunds(army)),
+      fundsLabel: formatFunds(army, this.economy.getFunds(army), this.armyLabelOptions()),
       tokenColor: UNIT_BODY_COLOR[army],
       onSelect: (unitType) => this.handleProductionSelect(unitType),
       onClose: () => this.handleProductionWindowClose(),
@@ -3057,14 +3142,15 @@ export class MainScene extends Phaser.Scene {
       // 隠れてしまうため、地形情報は簡略表示にして重要な行を残す
       return [
         ...formatUnitInfo(unit, {
+          ...this.armyLabelOptions(),
           nightBattle: this.nightBattle,
           vision: unitVision(unit, this.map),
         }),
         '',
-        ...formatTerrainInfo(tile, { compact: true }),
+        ...formatTerrainInfo(tile, { ...this.armyLabelOptions(), compact: true }),
       ];
     }
-    return formatTerrainInfo(tile);
+    return formatTerrainInfo(tile, this.armyLabelOptions());
   }
 
   /**

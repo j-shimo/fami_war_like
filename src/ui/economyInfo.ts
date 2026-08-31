@@ -6,6 +6,7 @@ import type { EconomyArmy } from '@/core/economy/EconomyManager';
 import type { ProductionResult } from '@/core/economy/ProductionManager';
 import type { RepairResult } from '@/core/economy/RepairManager';
 import { armyLabel } from '@/ui/terrainInfo';
+import type { ArmyLabelOptions } from '@/ui/turnInfo';
 import {
   getUnitData,
   producibleUnitTypesAt,
@@ -14,9 +15,16 @@ import {
 import type { TerrainType } from '@/core/map/TerrainType';
 import type { UnitType } from '@/core/units/UnitType';
 
-/** 資金額を「資金(自軍): 12000」の形式に整形する */
-export function formatFunds(army: EconomyArmy, amount: number): string {
-  return `資金(${armyLabel(army)}): ${amount}`;
+/**
+ * 資金額を「資金(自軍): 12000」の形式に整形する。
+ * 対人戦では軍勢の呼び名が「1P / 2P」に変わる(options で呼び分けを渡す)。
+ */
+export function formatFunds(
+  army: EconomyArmy,
+  amount: number,
+  options: ArmyLabelOptions = {},
+): string {
+  return `資金(${armyLabel(army, options)}): ${amount}`;
 }
 
 /**

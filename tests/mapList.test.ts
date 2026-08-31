@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MapManager } from '@/core/map/MapManager';
 import { UnitManager } from '@/core/units/UnitManager';
-import { DEFAULT_MAP_ENTRY, MAP_LIST } from '@/data/maps';
+import { DEFAULT_MAP_ENTRY, MAP_LIST, mapsInGroup, STANDARD_MAP_LIST } from '@/data/maps';
 
 describe('MAP_LIST(マップ選択の一覧)', () => {
   it('少なくとも 1 枚のマップが登録されている', () => {
@@ -44,5 +44,25 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
   it('テストマップは解放条件の集計対象外(test 区分)である', () => {
     const test = MAP_LIST.find((entry) => entry.id === 'test');
     expect(test?.category).toBe('test');
+  });
+  it('すべてのマップにマップ区分が解決されている', () => {
+    for (const entry of MAP_LIST) {
+      expect(['standard', 'new', 'four']).toContain(entry.group);
+    }
+  });
+
+  it('mapsInGroup は指定した区分のマップだけを返す', () => {
+    expect(mapsInGroup(MAP_LIST, 'standard')).toEqual(STANDARD_MAP_LIST);
+    for (const entry of mapsInGroup(MAP_LIST, 'new')) {
+      expect(entry.group).toBe('new');
+    }
+    for (const entry of mapsInGroup(MAP_LIST, 'four')) {
+      expect(entry.group).toBe('four');
+    }
+  });
+
+  it('激ムズマップの解放条件に使う通常マップの一覧は空ではない', () => {
+    expect(STANDARD_MAP_LIST.length).toBeGreaterThan(0);
+    expect(STANDARD_MAP_LIST.some((entry) => entry.category === 'normal')).toBe(true);
   });
 });

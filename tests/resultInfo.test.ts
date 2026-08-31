@@ -51,4 +51,27 @@ describe('resultInfo', () => {
     const result: VictoryResult = { outcome: 'ongoing', reason: null };
     expect(() => formatResultMessage(result)).toThrow();
   });
+  it('対人戦では、どちらの陣営が勝ったかを見出しにする', () => {
+    expect(
+      formatResultMessage(
+        { outcome: 'player_victory', reason: 'enemy_hq_captured' },
+        { versus: 'human' },
+      ),
+    ).toEqual({ title: '1P の勝利！', detail: '2Pの本拠地が占領された' });
+    expect(
+      formatResultMessage(
+        { outcome: 'player_defeat', reason: 'player_annihilated' },
+        { versus: 'human' },
+      ),
+    ).toEqual({ title: '2P の勝利！', detail: '1Pが全滅した' });
+  });
+
+  it('対人戦で 2P側を選ぶと、先手(1P)が敵軍(赤)側になる', () => {
+    expect(
+      formatResultMessage(
+        { outcome: 'player_victory', reason: 'enemy_annihilated' },
+        { versus: 'human', side: '2p' },
+      ),
+    ).toEqual({ title: '2P の勝利！', detail: '1Pが全滅した' });
+  });
 });
