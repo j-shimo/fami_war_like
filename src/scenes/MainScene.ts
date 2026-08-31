@@ -2860,7 +2860,8 @@ export class MainScene extends Phaser.Scene {
     }
     this.gameOver = true;
     // 勝利したマップはクリア済みとして記録する(記録は次回以降の選択画面と
-    // 激ムズマップの解放判定に使う)。敗北したときは何も記録しない。
+    // 激ムズマップの解放判定に使う)。記録は担当サイド(1P側 / 2P側)ごとに分けて持つ。
+    // 敗北したときは何も記録しない。
     // 対人戦は CPU との対戦ではないため、勝っても記録しない。
     const unlocked =
       result.outcome === 'player_victory' && this.versusMode === 'cpu'
@@ -2884,17 +2885,18 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 勝利したマップのクリアを記録する。
-   * 今回のクリアで激ムズマップが解放された場合は true を返す
+   * 勝利したマップのクリアを、担当していたサイドの記録として残す。
+   * 今回のクリアで、そのサイドの激ムズマップが解放された場合は true を返す
    * (結果画面でその旨を知らせるために使う)。
    */
   private recordClear(): boolean {
     const before = readClearProgress();
     const after = recordMapClear({
       mapId: this.mapId,
+      side: this.playerSide,
       nightBattle: this.nightBattle,
     });
-    return becameUnlocked(STANDARD_MAP_LIST, before, after);
+    return becameUnlocked(STANDARD_MAP_LIST, before, after, this.playerSide);
   }
 
   /**

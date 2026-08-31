@@ -1,7 +1,7 @@
 // 選択可能なマップの一覧。マップ選択画面(MapSelectScene)から参照する。
 // 新しいマップを追加したら、この一覧に登録すれば選択画面に並ぶ。
 
-import { DEFAULT_MAP_GROUP, type MapGroup } from '@/core/mode/GameMode';
+import { DEFAULT_MAP_GROUP, type MapGroup, type PlayerSide } from '@/core/mode/GameMode';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
@@ -33,6 +33,12 @@ export interface MapEntry {
    * モード選択画面の「通常マップ / 新マップ / 4Pマップ」の入口に対応する。
    */
   readonly group?: MapGroup;
+  /**
+   * このマップを出す担当サイド。省略時は 1P側・2P側のどちらでも出す。
+   * 激ムズマップはサイドごとに別のマップを用意するため、この指定で出し分ける
+   * (判定は src/core/progress/MapUnlock.ts)。
+   */
+  readonly side?: PlayerSide;
 }
 
 /** 区分の解決済みマップエントリ(解放判定・表示はこちらを使う) */
@@ -54,6 +60,8 @@ export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
  * 選択可能なマップの一覧(表示順)。
  * 激ムズマップ(category: 'extra')はここへ登録しても、通常マップをすべてクリアするまで
  * 選択画面には並ばない(判定は src/core/progress/MapUnlock.ts)。
+ * 激ムズマップは担当サイドごとに別のマップを用意するため、side でどちらのサイドに出すかを指定する
+ * (2P側の激ムズマップは今後追加する)。
  */
 export const MAP_LIST: readonly ResolvedMapEntry[] = (
   [
@@ -111,6 +119,8 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       description:
         '中央の海峡が東西に断ち切る 42x26 の激ムズマップ。自軍は陣地 8 拠点・都市 0 個・収入 8000 の裸一貫、敵軍は東の島 21 拠点を占領済みの収入 29000 で、戦闘機・爆撃機を含む 10 体を配置して待ち構える。西の島の中立拠点 22 個を取り切るまで、海峡に架かる 3 本の橋を渡らせずに守り切れるかが勝負。海峡に浮かぶ 2 島の中立空港・中立港は輸送艦か輸送ヘリでしか取れない。',
       category: 'extra',
+      // 1P側の激ムズマップ(2P側には別のマップを用意する)
+      side: '1p',
     },
   ] as const satisfies readonly MapEntry[]
 ).map(resolveMapEntry);

@@ -61,6 +61,22 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
     }
   });
 
+  it('激ムズマップには担当サイドを指定している(サイドごとに別のマップを出すため)', () => {
+    const extras = MAP_LIST.filter((entry) => entry.category === 'extra');
+    expect(extras.length).toBeGreaterThan(0);
+    for (const entry of extras) {
+      expect(['1p', '2p']).toContain(entry.side);
+    }
+    // 双大陸マップは1P側の激ムズマップ(2P側には別のマップを用意する)
+    expect(MAP_LIST.find((entry) => entry.id === 'twinContinents')?.side).toBe('1p');
+  });
+
+  it('通常マップ・テストマップはサイドを限定しない(どちらのサイドでも遊べる)', () => {
+    for (const entry of MAP_LIST.filter((entry) => entry.category !== 'extra')) {
+      expect(entry.side).toBeUndefined();
+    }
+  });
+
   it('激ムズマップの解放条件に使う通常マップの一覧は空ではない', () => {
     expect(STANDARD_MAP_LIST.length).toBeGreaterThan(0);
     expect(STANDARD_MAP_LIST.some((entry) => entry.category === 'normal')).toBe(true);
