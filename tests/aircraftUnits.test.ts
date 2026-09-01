@@ -141,10 +141,19 @@ describe('戦闘機の相性', () => {
 });
 
 describe('爆撃機の相性', () => {
-  it('地上ユニット全てに 8〜9 割', () => {
-    for (const ground of GROUND_UNIT_TYPES) {
+  it('地上ユニット全てに 8〜9 割(研究所で手に入る新型戦車を除く)', () => {
+    // 新型戦車は重戦車以上の装甲を持つ特別なユニットなので、この 8〜9 割の枠から外れる
+    for (const ground of GROUND_UNIT_TYPES.filter((type) => type !== 'newTank')) {
       expect(getBaseDamage('bomber', ground)).toBeGreaterThanOrEqual(80);
       expect(getBaseDamage('bomber', ground)).toBeLessThanOrEqual(90);
+    }
+  });
+
+  it('新型戦車にだけは 8 割に届かない(地上ユニットで最も硬い相手)', () => {
+    const vsNewTank = getBaseDamage('bomber', 'newTank');
+    expect(vsNewTank).toBeLessThan(80);
+    for (const ground of GROUND_UNIT_TYPES.filter((type) => type !== 'newTank')) {
+      expect(vsNewTank).toBeLessThan(getBaseDamage('bomber', ground));
     }
   });
 

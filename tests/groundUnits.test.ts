@@ -319,7 +319,10 @@ describe('重戦車は軽装甲の車両からほとんどダメージを受け�
   });
 
   it('軽装甲の車両(偵察車・輸送車・対空戦車)から見て、地上ユニットで最も通らない相手', () => {
-    const otherGround = GROUND_UNIT_TYPES.filter((t) => t !== 'heavyTank');
+    // 新型戦車(研究所の占領でのみ手に入る)は重戦車以上の装甲を持つため比較から外す
+    const otherGround = GROUND_UNIT_TYPES.filter(
+      (t) => t !== 'heavyTank' && t !== 'newTank',
+    );
     for (const attacker of ['recon', 'transportVehicle', 'antiAirTank'] as const) {
       const vsHeavy = getBaseDamage(attacker, 'heavyTank');
       for (const defender of otherGround) {

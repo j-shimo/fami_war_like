@@ -6,13 +6,16 @@ import {
   becameUnlocked,
   extraMapsForSide,
   isExtraUnlocked,
+  isNewGroupUnlocked,
+  isRequiredCleared,
   mapsForSide,
+  remainingForNewGroup,
   remainingRequiredMaps,
   unlockRequiredMaps,
   visibleMaps,
   type UnlockableMap,
 } from '@/core/progress/MapUnlock';
-import { MAP_LIST } from '@/data/maps';
+import { MAP_LIST, STANDARD_MAP_LIST } from '@/data/maps';
 
 /**
  * テスト用のマップ一覧(通常 2 枚・テスト 1 枚・激ムズ 2 枚)。
@@ -165,5 +168,50 @@ describe('MapUnlock(激ムズマップの解放判定)', () => {
         '2p',
       ).some((entry) => entry.id === 'twinContinents'),
     ).toBe(false);
+  });
+});
+
+describe('MapUnlock(新マップの解放判定)', () => {
+  it('通常マップをすべてクリアするまで新マップは解放されない', () => {
+    expect(isNewGroupUnlocked(ENTRIES, emptyClearProgress())).toBe(false);
+    expect(isNewGroupUnlocked(ENTRIES, clearedProgress('1p', 'alpha'))).toBe(false);
+    // テストマップだけをクリアしても解放条件には数えない
+    expect(isNewGroupUnlocked(ENTRIES, clearedProgress('1p', 'test'))).toBe(false);
+  });
+
+  it('1P側・2P側のどちらかで通常マップを全クリアすれば解放される', () => {
+    expect(isNewGroupUnlocked(ENTRIES, clearedProgress('1p', 'alpha', 'beta'))).toBe(
+      true,
+    );
+    expect(isNewGroupUnlocked(ENTRIES, clearedProgress('2p', 'alpha', 'beta'))).toBe(
+      true,
+    );
+  });
+
+  it('サイドをまたいで 1 枚ずつクリアしただけでは解放されない', () => {
+    const mixed = addClear(clearedProgress('1p', 'alpha'), {
+      mapId: 'beta',
+      side: '2p',
+      nightBattle: false,
+    });
+    expect(isRequiredCleared(ENTRIES, mixed, '1p')).toBe(false);
+    expect(isRequiredCleared(ENTRIES, mixed, '2p')).toBe(false);
+    expect(isNewGroupUnlocked(ENTRIES, mixed)).toBe(false);
+  });
+
+  it('解放までの残り枚数は、進んでいるほうのサイドで数える', () => {
+    expect(remainingForNewGroup(ENTRIES, emptyClearProgress())).toBe(2);
+    expect(remainingForNewGroup(ENTRIES, clearedProgress('2p', 'alpha'))).toBe(1);
+    // 解放済みなら残りは 0
+    expect(remainingForNewGroup(ENTRIES, clearedProgress('2p', 'alpha', 'beta'))).toBe(0);
+  });
+
+  it('実際のマップ一覧でも、通常マップを全クリアすると新マップが解放される', () => {
+    const required = unlockRequiredMaps(STANDARD_MAP_LIST, '1p');
+    expect(required.length).toBeGreaterThan(0);
+    expect(isNewGroupUnlocked(STANDARD_MAP_LIST, emptyClearProgress())).toBe(false);
+
+    const progress = clearedProgress('2p', ...required.map((entry) => entry.id));
+    expect(isNewGroupUnlocked(STANDARD_MAP_LIST, progress)).toBe(true);
   });
 });

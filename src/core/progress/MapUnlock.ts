@@ -1,9 +1,11 @@
-// 激ムズマップ(extra)の解放条件を判定する。Phaser には依存しない純粋なロジック。
+// 激ムズマップ(extra)と新マップ(区分 new)の解放条件を判定する。Phaser には依存しない純粋なロジック。
 // テストマップ(test)を除く通常マップ(normal)をすべてクリアすると、
 // 激ムズマップがマップ選択画面に現れる。
 // 判定は担当サイド(1P側 / 2P側)ごとに独立して行い、それぞれのサイドでのクリア状況だけを見る。
 // 激ムズマップはサイドを限定でき(MapEntry.side)、限定されたマップはそのサイドでしか
 // 一覧に出さず、そのサイドの解放判定にだけ関わる。
+// 新マップは「1P側・2P側のどちらかで通常マップをすべてクリアする」と解放され、
+// モード選択画面の入口が開く(サイドごとに分けず、どちらかで達成すればよい)。
 // docs/GameDesign.md「クリア状況と激ムズマップ」を参照。
 
 import type { PlayerSide } from '@/core/mode/GameMode';
@@ -54,11 +56,26 @@ export function remainingRequiredMaps<T extends UnlockableMap>(
 }
 
 /**
+ * 指定サイドで、解放に必要な通常マップをすべてクリアしているかを判定する。
+ * 通常マップが 1 枚も無い場合は解放条件を満たしようがないため false を返す
+ * (テストマップだけの状態で解放されてしまうのを防ぐ)。
+ */
+export function isRequiredCleared(
+  entries: readonly UnlockableMap[],
+  progress: ClearProgress,
+  side: PlayerSide,
+): boolean {
+  const required = unlockRequiredMaps(entries, side);
+  if (required.length === 0) {
+    return false;
+  }
+  return required.every((entry) => isMapCleared(progress, side, entry.id));
+}
+
+/**
  * 指定サイドで激ムズマップが解放されているかを判定する。
  * そのサイドの解放に必要な通常マップをすべてクリアしていれば true。
- * 通常マップが 1 枚も無い場合は解放条件を満たしようがないため false を返す
- * (テストマップだけの状態で激ムズマップが出てしまうのを防ぐ)。
- * そのサイド向けの激ムズマップが 1 枚も無い場合も false を返す
+ * そのサイド向けの激ムズマップが 1 枚も無い場合は false を返す
  * (出すものが無いのに「解放された」と扱わないため)。
  */
 export function isExtraUnlocked(
@@ -69,11 +86,41 @@ export function isExtraUnlocked(
   if (extraMapsForSide(entries, side).length === 0) {
     return false;
   }
-  const required = unlockRequiredMaps(entries, side);
-  if (required.length === 0) {
-    return false;
+  return isRequiredCleared(entries, progress, side);
+}
+
+/**
+ * 新マップの区分が解放されているかを判定する。
+ * 激ムズマップと違い、こちらは担当サイドを問わず
+ * 「1P側・2P側のどちらかで通常マップをすべてクリアしていれば解放」とする
+ * (どちらのサイドで遊んでいても、いちど解いた人には新マップを開く)。
+ */
+export function isNewGroupUnlocked(
+  entries: readonly UnlockableMap[],
+  progress: ClearProgress,
+): boolean {
+  return (
+    isRequiredCleared(entries, progress, '1p') ||
+    isRequiredCleared(entries, progress, '2p')
+  );
+}
+
+/**
+ * 新マップの解放まで、あと何枚の通常マップをクリアする必要があるかを返す。
+ * 解放は 1P側・2P側のどちらかで達成すればよいため、残り枚数が少ないほうのサイドを見る。
+ * すでに解放されている場合は 0 を返す。
+ */
+export function remainingForNewGroup(
+  entries: readonly UnlockableMap[],
+  progress: ClearProgress,
+): number {
+  if (isNewGroupUnlocked(entries, progress)) {
+    return 0;
   }
-  return required.every((entry) => isMapCleared(progress, side, entry.id));
+  return Math.min(
+    remainingRequiredMaps(entries, progress, '1p').length,
+    remainingRequiredMaps(entries, progress, '2p').length,
+  );
 }
 
 /**

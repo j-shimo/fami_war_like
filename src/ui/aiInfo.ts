@@ -5,6 +5,7 @@
 // 「敵の行動アニメ」で 1 行動ずつ見せるときの実況(formatEnemyActionLog)の 2 つを持つ。
 
 import type { AiAction } from '@/core/ai/EnemyAi';
+import { formatCaptureLog } from '@/ui/economyInfo';
 
 /** formatEnemyTurnSummary の表示オプション */
 export interface EnemyTurnSummaryOptions {
@@ -119,10 +120,8 @@ export function formatEnemyActionLog(
       break;
     }
     case 'capture':
-      lines.push('占領', `${action.result.unit.unitName} が占領`);
-      lines.push(
-        action.result.captured ? '占領完了' : `残り耐久: ${action.result.remainingHp}`,
-      );
+      // 占領で進化した場合も含め、表示は占領結果の整形(economyInfo)と同じ形にそろえる
+      lines.push(...formatCaptureLog(action.result));
       break;
     case 'move':
       lines.push('移動', action.unit.unitName);

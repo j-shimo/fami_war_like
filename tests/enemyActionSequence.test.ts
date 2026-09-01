@@ -206,6 +206,8 @@ describe('buildEnemyActionView', () => {
         remainingHp: 10,
         captured: false,
         reset: false,
+        evolvedFrom: null,
+        evolvedTo: null,
       },
     };
     expect(buildEnemyActionView(capture, sightOf([2])).shown).toBe(true);

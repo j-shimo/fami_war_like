@@ -21,6 +21,9 @@ import type { UnitType } from '@/core/units/UnitType';
  *   潜水艦は攻撃できない。
  * - 重戦車の正面装甲: 対空戦車の機関砲では抜けないため、対空戦車は重戦車を攻撃できない(0)。
  *   偵察車・輸送車の機関銃も 5 しか通らない。軽装甲の車両にとっては手の出せない相手。
+ * - 新型戦車(newTank): 研究所の占領でのみ手に入る特別な戦車。与ダメージは重戦車とまったく同じで、
+ *   被ダメージはどの攻撃側から見ても重戦車以下(地上ユニットで最も硬い)。
+ *   対空戦車が攻撃できない(0)点も重戦車と同じ。
  * - 自走砲(artillery): 射程 2〜3 の間接攻撃。地上ユニットに広く効く。
  * - ロケット砲(rocketArtillery): 射程 3〜5 の間接攻撃。地上ユニットへの火力は高いが、
  *   飛行ユニットには攻撃できない(0)。対空ロケット砲と並んで地上ユニットの中で最も打たれ弱く、
@@ -56,6 +59,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 15,
       mediumTank: 10,
       heavyTank: 5,
+      newTank: 5,
       artillery: 25,
       rocketArtillery: 50,
       // 固定翼機(戦闘機・爆撃機・攻撃機)は、対空ユニット以外の地上ユニットからは攻撃できない。
@@ -82,6 +86,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       // 装甲の厚い中戦車・重戦車には正面から撃ち勝てない(相手からの被弾のほうが大きい)。
       mediumTank: 40,
       heavyTank: 25,
+      newTank: 15,
       // 自走砲・対空戦車には 6 割で有利。
       artillery: 60,
       rocketArtillery: 80,
@@ -110,6 +115,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       mediumTank: 55,
       // 重戦車には不利。
       heavyTank: 40,
+      newTank: 30,
       artillery: 75,
       rocketArtillery: 90,
       fighter: 0,
@@ -134,6 +140,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 80,
       mediumTank: 65,
       heavyTank: 50,
+      newTank: 40,
       artillery: 80,
       rocketArtillery: 95,
       fighter: 0,
@@ -154,11 +161,41 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       transportShip: 20,
       submarine: 0,
     },
+    /**
+     * 新型戦車: 攻撃力は重戦車と同等(重戦車の行と同じ値)で、装甲は重戦車以上。
+     * 生産できず、中立の研究所を最初に占領した歩兵の進化でのみ手に入る特別な 1 台。
+     */
+    newTank: {
+      // 与ダメージは重戦車と同じ。軽戦車と同じ移動力 6 でこの火力を前線へ運べる。
+      infantry: 85,
+      lightTank: 80,
+      mediumTank: 65,
+      heavyTank: 50,
+      // 同じ新型戦車どうしの撃ち合いは、厚い装甲のぶん重戦車どうし(50)より削り合いが鈍い。
+      newTank: 40,
+      artillery: 80,
+      rocketArtillery: 95,
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
+      attackHelicopter: 20,
+      transportHelicopter: 20,
+      antiAirTank: 85,
+      antiAirArtillery: 80,
+      antiAirRocketArtillery: 95,
+      recon: 85,
+      transportVehicle: 85,
+      battleship: 20,
+      escortShip: 20,
+      transportShip: 20,
+      submarine: 0,
+    },
     artillery: {
       infantry: 70,
       lightTank: 65,
       mediumTank: 60,
       heavyTank: 50,
+      newTank: 40,
       artillery: 55,
       rocketArtillery: 75,
       fighter: 0,
@@ -183,6 +220,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 80,
       mediumTank: 65,
       heavyTank: 45,
+      newTank: 35,
       artillery: 65,
       rocketArtillery: 90,
       fighter: 0,
@@ -213,6 +251,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       // 同じ戦闘機同士は五分の空中戦になる。
@@ -244,6 +283,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 85,
       mediumTank: 85,
       heavyTank: 80,
+      newTank: 65,
       artillery: 85,
       rocketArtillery: 90,
       // 飛行ユニットには攻撃できない(自衛の空対空装備を持たない)。
@@ -274,6 +314,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 85,
       mediumTank: 75,
       heavyTank: 55,
+      newTank: 45,
       artillery: 70,
       rocketArtillery: 90,
       // 戦闘機には 3〜4 割で不利。爆撃機・ヘリ系には有利。
@@ -299,6 +340,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 65,
       mediumTank: 55,
       heavyTank: 45,
+      newTank: 35,
       artillery: 50,
       rocketArtillery: 85,
       // 固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。
@@ -323,6 +365,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       fighter: 0,
@@ -347,6 +390,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 20,
       mediumTank: 15,
       heavyTank: 0,
+      newTank: 0,
       artillery: 45,
       rocketArtillery: 85,
       // 固定翼機を撃てる 3 種の対空ユニットのひとつ。射程 1 のかわりに火力が高い。
@@ -376,6 +420,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       // 飛行ユニット全てに 6〜7 割。火力は対空戦車に劣るが、射程 2〜3 で先に撃てる。
@@ -405,6 +450,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       // 高速の戦闘機は捉えにくく 7〜8 割。それ以外の飛行ユニットには 8〜9 割。
@@ -431,6 +477,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 20,
       mediumTank: 15,
       heavyTank: 5,
+      newTank: 5,
       artillery: 20,
       // 装甲の薄いロケット砲だけは、偵察車の機関銃でも 7 割を削れる。
       rocketArtillery: 70,
@@ -462,6 +509,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 20,
       mediumTank: 15,
       heavyTank: 5,
+      newTank: 5,
       artillery: 20,
       // 装甲の薄いロケット砲だけは、機関銃でも 7 割を削れる。
       rocketArtillery: 70,
@@ -489,6 +537,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 85,
       mediumTank: 80,
       heavyTank: 75,
+      newTank: 60,
       artillery: 75,
       rocketArtillery: 90,
       // 飛行ユニットを撃てる唯一の海上ユニット。速い固定翼機ほど捉えにくく、
@@ -519,6 +568,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       // 近接対空の護衛役だが、狙えるのはヘリ系まで。
@@ -543,6 +593,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       fighter: 0,
@@ -566,6 +617,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       lightTank: 0,
       mediumTank: 0,
       heavyTank: 0,
+      newTank: 0,
       artillery: 0,
       rocketArtillery: 0,
       fighter: 0,

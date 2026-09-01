@@ -16,6 +16,8 @@ import {
 } from '@/core/progress/ClearProgress';
 import {
   extraMapsForSide,
+  isNewGroupUnlocked,
+  remainingForNewGroup,
   remainingRequiredMaps,
   visibleMaps,
 } from '@/core/progress/MapUnlock';
@@ -27,7 +29,12 @@ import {
   type MapGroup,
 } from '@/core/mode/GameMode';
 import { readGameMode } from '@/core/settings/SettingsStorage';
-import { MAP_LIST, mapsInGroup, type ResolvedMapEntry } from '@/data/maps';
+import {
+  MAP_LIST,
+  STANDARD_MAP_LIST,
+  mapsInGroup,
+  type ResolvedMapEntry,
+} from '@/data/maps';
 import { AiCharacterWindow } from '@/rendering/AiCharacterWindow';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
@@ -234,7 +241,10 @@ export class MapSelectScene extends Phaser.Scene {
     this.clearProgress = readClearProgress();
     // モード選択画面で選んだ遊び方(担当サイド・操作の設定)を読み込む
     this.mode = readGameMode();
-    this.entries = visibleMaps(this.groupMaps(), this.clearProgress, this.mode.side);
+    // 新マップは通常マップをすべてクリアするまで開かない(未解放ならカードを並べない)
+    this.entries = this.isGroupUnlocked()
+      ? visibleMaps(this.groupMaps(), this.clearProgress, this.mode.side)
+      : [];
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
@@ -323,19 +333,15 @@ export class MapSelectScene extends Phaser.Scene {
       );
     }
 
-    // まだマップを用意していない区分(新マップ・4Pマップ)では、その旨を中央に出す
+    // まだマップを用意していない区分(新マップ・4Pマップ)や、
+    // 未解放の区分では、その旨を中央に出す
     if (this.entries.length === 0) {
       this.add
-        .text(
-          width / 2,
-          CARD_TOP + this.viewportHeight / 2,
-          EMPTY_GROUP_HINT[this.group],
-          {
-            fontFamily: 'sans-serif',
-            fontSize: '15px',
-            color: '#8a8aa0',
-          },
-        )
+        .text(width / 2, CARD_TOP + this.viewportHeight / 2, this.emptyHintText(), {
+          fontFamily: 'sans-serif',
+          fontSize: '15px',
+          color: '#8a8aa0',
+        })
         .setOrigin(0.5);
     }
 
@@ -700,6 +706,27 @@ export class MapSelectScene extends Phaser.Scene {
       SCROLLBAR_WIDTH,
       metrics.thumbHeight,
     );
+  }
+
+  /**
+   * この画面の区分が解放されているか。
+   * 新マップは通常マップをすべてクリアするまで開かない
+   * (1P側・2P側のどちらかで達成すればよい)。それ以外の区分は常に開いている。
+   */
+  private isGroupUnlocked(): boolean {
+    if (this.group !== 'new') {
+      return true;
+    }
+    return isNewGroupUnlocked(STANDARD_MAP_LIST, this.clearProgress);
+  }
+
+  /** カードが 1 枚も並ばないときに中央へ出す案内文(未解放なら解放条件を示す) */
+  private emptyHintText(): string {
+    if (!this.isGroupUnlocked()) {
+      const remaining = remainingForNewGroup(STANDARD_MAP_LIST, this.clearProgress);
+      return `通常マップをあと ${remaining} マップクリアすると解放されます`;
+    }
+    return EMPTY_GROUP_HINT[this.group];
   }
 
   /** この画面に出す対象(選んでいる区分のマップ)を返す */

@@ -128,6 +128,26 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     mountainVisionBonus: 0,
     nightStealth: false,
   },
+  newTank: {
+    unitType: 'newTank',
+    unitName: '新型戦車',
+    maxHp: 10,
+    // 軽戦車と同じ機動力(移動力 6)を、重戦車以上の装甲のまま実現した試作戦車。
+    movement: 6,
+    movementType: 'vehicle',
+    minAttackRange: 1,
+    maxAttackRange: 1,
+    // 生産はできない(研究所の占領による進化でのみ手に入る)ため、
+    // このコストは修理費の計算と戦力の目安にだけ使う。重戦車(18000)より高い。
+    cost: 22000,
+    canCapture: false,
+    capacity: 0,
+    carriableTypes: [],
+    // 重戦車(1)と違い、観測装置を備えるため標準の視界 2 を持つ
+    vision: DEFAULT_VISION,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
   artillery: {
     unitType: 'artillery',
     unitName: '自走砲',
@@ -425,7 +445,26 @@ export function getUnitData(unitType: UnitType): UnitData {
 }
 
 /**
+ * 中立の研究所を占領したときに進化するユニット種別の対応表。
+ * 研究所を最初に占領した歩兵だけが新型戦車へ進化する(一覧に無い種別は進化しない)。
+ * 進化は「中立の研究所を占領したとき」の 1 回だけで、いったん所有者が決まった研究所を
+ * 奪い返しても進化は起きない(docs/GameDesign.md「研究所」を参照)。
+ */
+export const LABORATORY_EVOLUTION: Readonly<Partial<Record<UnitType, UnitType>>> = {
+  infantry: 'newTank',
+};
+
+/**
+ * unitType が中立の研究所を占領したときに進化する種別を返す。進化しないなら null。
+ */
+export function laboratoryEvolutionOf(unitType: UnitType): UnitType | null {
+  return LABORATORY_EVOLUTION[unitType] ?? null;
+}
+
+/**
  * 生産拠点(地形)ごとに生産できるユニット種別の一覧(生産メニューの表示順)。
+ * 新型戦車は生産できないため、どの拠点の一覧にも含めない
+ * (研究所の占領で歩兵が進化したときにだけ手に入る)。
  * 工場・本拠地では地上ユニット(対空自走砲・対空ロケット砲を含む)、
  * 空港では飛行ユニット(ヘリ系と固定翼機)、港では海上ユニットを生産する。
  * 生産できない地形(都市など)は一覧に含めない。

@@ -67,9 +67,30 @@ export function listProductionItems(
   });
 }
 
+/**
+ * 占領を行ったユニットの表示名を返す。
+ * 中立の研究所を占領して進化した場合は、進化で書き換わる前(歩兵)の名前を使う。
+ */
+function captureActorName(result: CaptureResult): string {
+  return result.evolvedFrom
+    ? getUnitData(result.evolvedFrom).unitName
+    : result.unit.unitName;
+}
+
+/**
+ * 占領による進化を伝える 1 行(「歩兵 が 新型戦車 に進化!」)を返す。
+ * 進化していなければ null。
+ */
+export function captureEvolutionLine(result: CaptureResult): string | null {
+  if (!result.evolvedTo) {
+    return null;
+  }
+  return `${captureActorName(result)} が ${getUnitData(result.evolvedTo).unitName} に進化!`;
+}
+
 /** 占領結果を情報パネル用の複数行テキストに整形する */
 export function formatCaptureLog(result: CaptureResult): string[] {
-  const lines = ['占領', `${result.unit.unitName} が占領`];
+  const lines = ['占領', `${captureActorName(result)} が占領`];
   // 別の軍が進めていた占領を初期値へ戻してから占領した場合はその旨を示す
   if (result.reset) {
     lines.push('耐久をリセット');
@@ -78,6 +99,11 @@ export function formatCaptureLog(result: CaptureResult): string[] {
     lines.push('占領完了');
   } else {
     lines.push(`残り耐久: ${result.remainingHp}`);
+  }
+  // 中立の研究所を占領し切ったときは、その場で進化したことを併せて伝える
+  const evolution = captureEvolutionLine(result);
+  if (evolution !== null) {
+    lines.push(evolution);
   }
   return lines;
 }
