@@ -9,9 +9,15 @@ import {
   type PlayerSide,
   type VersusMode,
 } from '@/core/mode/GameMode';
+import {
+  emptyClearProgress,
+  readClearProgress,
+  type ClearProgress,
+} from '@/core/progress/ClearProgress';
+import { isNewGroupUnlocked, remainingForNewGroup } from '@/core/progress/MapUnlock';
 import { readGameMode, writeGameMode } from '@/core/settings/SettingsStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
-import { MAP_LIST, mapsInGroup } from '@/data/maps';
+import { MAP_LIST, STANDARD_MAP_LIST, mapsInGroup } from '@/data/maps';
 
 /** 切替ボタン(担当サイド・操作の設定)の寸法と間隔 */
 const TOGGLE_HEIGHT = 30;
@@ -63,6 +69,11 @@ interface MapMenuItem {
   readonly caption: string;
 }
 
+/** 未解放の入口に出す色(枠・文字) */
+const LOCKED_STROKE = 0x2a3350;
+const LOCKED_TITLE_COLOR = '#8a8aa0';
+const LOCKED_CAPTION_COLOR = '#ff9a6a';
+
 /** 並べる入口(通常マップ → 新マップ → 4Pマップ) */
 const MAP_MENU: readonly MapMenuItem[] = [
   {
@@ -97,12 +108,17 @@ interface ToggleButton<T> {
  * - 操作の設定: プレイヤー vs CPU か、プレイヤー vs プレイヤー(交代で操作)か
  * - マップ区分: 通常マップ / 新マップ / 4Pマップ のどの一覧へ進むか
  *
+ * 新マップの入口は、通常マップをすべてクリアするまで「未解放」として開かない
+ * (1P側・2P側のどちらかでクリアしていれば解放される)。
+ *
  * 選んだ担当サイド・操作の設定はゲーム設定として保存し、次回の起動時にも引き継ぐ。
  * 詳細は docs/GameDesign.md「モード選択」を参照。
  */
 export class ModeSelectScene extends Phaser.Scene {
   /** 現在選んでいる遊び方(担当サイド・操作の設定) */
   private mode: GameMode = DEFAULT_GAME_MODE;
+  /** 画面表示時点のクリア状況(新マップの解放判定に使う) */
+  private clearProgress: ClearProgress = emptyClearProgress();
   private sideButtons: ToggleButton<PlayerSide>[] = [];
   private versusButtons: ToggleButton<VersusMode>[] = [];
   private sideHint!: Phaser.GameObjects.Text;
@@ -119,6 +135,8 @@ export class ModeSelectScene extends Phaser.Scene {
     const height = DEFAULT_DIMENSIONS.gameHeight;
 
     this.mode = readGameMode();
+    // 新マップの入口を開くかどうかの判定に使う(通常マップのクリア状況)
+    this.clearProgress = readClearProgress();
     this.sideButtons = [];
     this.versusButtons = [];
 
@@ -214,48 +232,70 @@ export class ModeSelectScene extends Phaser.Scene {
 
     MAP_MENU.forEach((item, index) => {
       const y = MENU_TOP + index * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP);
+      // 未解放の区分(新マップ)は解放条件を示し、押しても先へ進めない
+      const unlocked = this.isGroupUnlocked(item.group);
       // まだ 1 枚も用意していない区分は、進んだ先が空であることを先に伝える
-      const ready = mapsInGroup(MAP_LIST, item.group).length > 0;
+      const ready = unlocked && mapsInGroup(MAP_LIST, item.group).length > 0;
+      const open = unlocked && ready;
+      const caption = unlocked ? (ready ? item.caption : '準備中') : this.lockedCaption();
 
       const button = this.add
         .rectangle(left, y, MENU_BUTTON_WIDTH, MENU_BUTTON_HEIGHT, UNSELECTED_FILL)
         .setOrigin(0, 0)
-        .setStrokeStyle(2, ready ? UNSELECTED_STROKE : 0x2a3350)
-        .setInteractive({ useHandCursor: true });
+        .setStrokeStyle(2, open ? UNSELECTED_STROKE : LOCKED_STROKE)
+        .setInteractive({ useHandCursor: open });
 
       this.add
-        .text(left + 16, y + 14, item.title, {
+        .text(left + 16, y + 14, unlocked ? item.title : `${item.title}(未解放)`, {
           fontFamily: 'sans-serif',
           fontSize: '17px',
           fontStyle: 'bold',
-          color: ready ? '#ffffff' : '#8a8aa0',
+          color: open ? '#ffffff' : LOCKED_TITLE_COLOR,
         })
         .setOrigin(0, 0);
       this.add
-        .text(
-          left + MENU_BUTTON_WIDTH - 16,
-          y + MENU_BUTTON_HEIGHT / 2,
-          ready ? item.caption : '準備中',
-          {
-            fontFamily: 'sans-serif',
-            fontSize: '12px',
-            color: ready ? '#c8c8d8' : '#ff9a6a',
-          },
-        )
+        .text(left + MENU_BUTTON_WIDTH - 16, y + MENU_BUTTON_HEIGHT / 2, caption, {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          color: open ? '#c8c8d8' : LOCKED_CAPTION_COLOR,
+        })
         .setOrigin(1, 0.5);
+
+      if (!open) {
+        // 未解放・準備中の入口は押しても何も起きない(見た目も変えない)
+        return;
+      }
 
       button.on(Phaser.Input.Events.POINTER_OVER, () => {
         button.setStrokeStyle(2, SELECTED_STROKE);
         button.setFillStyle(0x263255);
       });
       button.on(Phaser.Input.Events.POINTER_OUT, () => {
-        button.setStrokeStyle(2, ready ? UNSELECTED_STROKE : 0x2a3350);
+        button.setStrokeStyle(2, UNSELECTED_STROKE);
         button.setFillStyle(UNSELECTED_FILL);
       });
       button.on(Phaser.Input.Events.POINTER_DOWN, () => {
         this.scene.start('MapSelectScene', { group: item.group });
       });
     });
+  }
+
+  /**
+   * その区分の入口を開いてよいか。
+   * 新マップは通常マップをすべてクリアするまで開かない
+   * (判定は 1P側・2P側のどちらかで達成すればよい)。
+   */
+  private isGroupUnlocked(group: MapGroup): boolean {
+    if (group !== 'new') {
+      return true;
+    }
+    return isNewGroupUnlocked(STANDARD_MAP_LIST, this.clearProgress);
+  }
+
+  /** 未解放の入口に出す解放条件の案内文 */
+  private lockedCaption(): string {
+    const remaining = remainingForNewGroup(STANDARD_MAP_LIST, this.clearProgress);
+    return `通常マップをあと ${remaining} マップクリアすると解放`;
   }
 
   /** ボタン列全体を中央へ寄せたときの、左端の X 座標を返す */

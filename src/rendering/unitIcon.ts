@@ -4,7 +4,7 @@
 // 姿を描き分ける。
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
-// 戦車 3 種(軽・中・重)は共通の車体シルエットを大きさで描き分ける。
+// 戦車 3 種(軽・中・重)と新型戦車は共通の車体シルエットを大きさで描き分ける。
 
 import Phaser from 'phaser';
 
@@ -100,6 +100,30 @@ function drawHeavyTank(ctx: UnitIconContext): void {
     ],
     true,
   );
+}
+
+/**
+ * 新型戦車: 重戦車より大きな車体に、傾斜した複合装甲と長い砲身を重ねたシルエット。
+ * 車体上の観測装置(センサーポッド)で、進化した特別な 1 台だと分かるようにする。
+ */
+function drawNewTank(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  drawTankBody(ctx, 1.18, 0.18);
+  g.fillStyle(color, alpha);
+  // 車体前面の傾斜複合装甲(重戦車より前へ張り出す)
+  g.fillPoints(
+    [
+      { x: cx + r * 0.4, y: cy - r * 0.22 },
+      { x: cx + r * 0.82, y: cy + r * 0.04 },
+      { x: cx + r * 0.82, y: cy + r * 0.32 },
+      { x: cx + r * 0.4, y: cy + r * 0.32 },
+    ],
+    true,
+  );
+  // 砲塔上の観測装置(小さな箱とアンテナ)
+  g.fillRect(cx - r * 0.34, cy - r * 0.56, r * 0.2, r * 0.16);
+  g.lineStyle(Math.max(1.5, r * 0.07), color, alpha);
+  g.lineBetween(cx - r * 0.24, cy - r * 0.56, cx - r * 0.34, cy - r * 0.86);
 }
 
 /** ロケット砲: 装輪車体の上に、斜め上を向いた多連装ロケット発射機を載せたシルエット */
@@ -490,6 +514,9 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'heavyTank':
       drawHeavyTank(ctx);
+      break;
+    case 'newTank':
+      drawNewTank(ctx);
       break;
     case 'artillery':
       drawArtillery(ctx);

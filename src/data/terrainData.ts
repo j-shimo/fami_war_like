@@ -129,6 +129,18 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
     color: 0x9a9aa8,
   },
+  laboratory: {
+    terrainType: 'laboratory',
+    terrainName: '研究所',
+    // 防御・移動コスト・修理は都市とまったく同じ拠点として扱う
+    defense: 2,
+    canCapture: true,
+    canProduce: false,
+    canRepair: true,
+    moveCost: { infantry: 1, vehicle: 1, wheeled: 1, air: 1, sea: IMPASSABLE },
+    // 都市(灰)と見分けられるよう、研究施設らしい青みがかった色にする
+    color: 0x7f8fb0,
+  },
   factory: {
     terrainType: 'factory',
     terrainName: '工場',
@@ -180,13 +192,15 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
 /**
  * 修理拠点(地形)ごとに、そこで修理できるユニットの移動タイプ。
  * 修理拠点はユニットの移動タイプで分かれており、地上ユニット(歩兵・装軌車両・装輪車両)は
- * 都市・工場・本拠地、飛行ユニットは空港、海上ユニットは港でのみ修理できる。
+ * 都市・研究所・工場・本拠地、飛行ユニットは空港、海上ユニットは港でのみ修理できる。
  * 一覧に無い地形(平地など)では修理できない。詳細は docs/GameDesign.md「修理」を参照。
  */
 export const REPAIRABLE_MOVEMENT_TYPES_BY_TERRAIN: Readonly<
   Partial<Record<TerrainType, readonly MovementType[]>>
 > = {
   city: ['infantry', 'vehicle', 'wheeled'],
+  // 研究所は都市と同等の拠点なので、修理できる移動タイプも都市と同じ
+  laboratory: ['infantry', 'vehicle', 'wheeled'],
   factory: ['infantry', 'vehicle', 'wheeled'],
   headquarters: ['infantry', 'vehicle', 'wheeled'],
   airport: ['air'],

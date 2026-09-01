@@ -96,6 +96,8 @@ describe('BattleStatsRecorder(戦績の集計)', () => {
       remainingHp: 10,
       captured: false,
       reset: false,
+      evolvedFrom: null,
+      evolvedTo: null,
     };
     recorder.recordCapture(progress);
     expect(recorder.snapshot().player.captured).toBe(0);

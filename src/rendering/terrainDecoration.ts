@@ -23,7 +23,7 @@ export interface TerrainDecorationContext {
   /** 道路の接続方向。terrainType が 'road' のときのみ使う */
   readonly roadLinks?: RoadLinks;
   /**
-   * 所有者を示す色。拠点(都市・工場・本拠地)の旗に使う。
+   * 所有者を示す色。拠点(都市・研究所・工場・本拠地)の旗に使う。
    * 中立や非拠点では省略できる。
    */
   readonly ownerColor?: number;
@@ -320,6 +320,56 @@ function drawCity(ctx: TerrainDecorationContext): void {
   drawOwnerFlag(ctx, flagX, y + size * 0.16, y + size * 0.04);
 }
 
+/**
+ * 研究所: ドーム屋根の研究棟とアンテナ・実験用フラスコを描く。
+ * 都市と同じ防御・移動コストを持つ拠点だが、一目で見分けられるよう
+ * 白い建屋と丸いドームで「研究施設」らしいシルエットにする。
+ */
+function drawLaboratory(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size } = ctx;
+  const wall = 0xdfe4ec;
+  const shade = 0xa9b1c0;
+  const dome = 0xb7cbe4;
+  const glass = 0x6fa8d8;
+  const ground = y + size * 0.86;
+
+  // 研究棟(横に広い低層の建屋)
+  const bodyL = x + size * 0.16;
+  const bodyR = x + size * 0.84;
+  const bodyT = y + size * 0.5;
+  g.fillStyle(wall, 1);
+  g.fillRect(bodyL, bodyT, bodyR - bodyL, ground - bodyT);
+  g.fillStyle(shade, 1);
+  g.fillRect(bodyR - 3, bodyT, 3, ground - bodyT);
+
+  // 建屋の窓(横一列の実験室の明かり)
+  g.fillStyle(glass, 1);
+  for (let wx = bodyL + 3; wx <= bodyR - 6; wx += 6) {
+    g.fillRect(wx, bodyT + size * 0.1, 3.5, 3.5);
+  }
+
+  // 中央のドーム屋根(観測ドーム)
+  const domeCx = x + size * 0.5;
+  const domeR = size * 0.2;
+  g.fillStyle(dome, 1);
+  g.fillCircle(domeCx, bodyT, domeR);
+  // ドームの下半分は建屋に隠れる(建屋の色で塗りつぶして半球に見せる)
+  g.fillStyle(wall, 1);
+  g.fillRect(domeCx - domeR, bodyT, domeR * 2, domeR);
+  // ドームのスリット
+  g.lineStyle(1.5, shade, 1);
+  g.lineBetween(domeCx, bodyT - domeR, domeCx, bodyT);
+
+  // 右手のアンテナ(研究施設の目印)
+  g.lineStyle(1.5, 0x4a505c, 1);
+  g.lineBetween(x + size * 0.76, bodyT, x + size * 0.76, y + size * 0.28);
+  g.lineStyle(1, 0x4a505c, 1);
+  g.lineBetween(x + size * 0.7, y + size * 0.32, x + size * 0.82, y + size * 0.32);
+
+  // 左上に所有者旗
+  drawOwnerFlag(ctx, x + size * 0.24, bodyT, y + size * 0.22);
+}
+
 /** 工場: 煙突・のこぎり屋根の工場棟・煙を描く */
 function drawFactory(ctx: TerrainDecorationContext): void {
   const { graphics: g, x, y, size } = ctx;
@@ -523,7 +573,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・海・海岸)に加え、拠点(都市・工場・空港・港・本拠地)も
+ * 自然地形(平地・森・山・道路・海・海岸)に加え、拠点(都市・研究所・工場・空港・港・本拠地)も
  * 建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -551,6 +601,9 @@ export function drawTerrainDecoration(
       break;
     case 'city':
       drawCity(ctx);
+      break;
+    case 'laboratory':
+      drawLaboratory(ctx);
       break;
     case 'factory':
       drawFactory(ctx);

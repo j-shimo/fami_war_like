@@ -153,6 +153,9 @@ const CAPTURE_PRIORITY: Record<string, number> = {
   headquarters: 3,
   factory: 2,
   port: 2,
+  // 研究所は都市と同じ収入源だが、中立のうちに占領すれば歩兵が新型戦車へ進化するため、
+  // 工場・港と同じ重さで狙う(進化を逃さないよう都市より先に取りに行く)
+  laboratory: 2,
   city: 1,
 };
 
@@ -488,7 +491,7 @@ export class EnemyAi {
         continue;
       }
       // すでにその場にいる拠点を最優先(移動せず占領を継続できる)、
-      // 次に拠点の戦略価値(本拠地>工場>都市)を優先する。
+      // 次に拠点の戦略価値(本拠地>工場・港・研究所>都市)を優先する。
       // 中立優先の思考パターンでは中立の拠点に加点し、敵軍の都市・工場より先に取りに行く。
       const priority = CAPTURE_PRIORITY[tile.terrainType] ?? 0;
       const neutralBonus =

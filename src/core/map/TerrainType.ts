@@ -9,6 +9,7 @@ export type TerrainType =
   | 'sea'
   | 'beach'
   | 'city'
+  | 'laboratory'
   | 'factory'
   | 'airport'
   | 'port'
@@ -37,6 +38,7 @@ export const TERRAIN_TYPES: readonly TerrainType[] = [
   'sea',
   'beach',
   'city',
+  'laboratory',
   'factory',
   'airport',
   'port',

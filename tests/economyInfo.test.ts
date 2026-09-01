@@ -91,6 +91,8 @@ describe('economyInfo', () => {
       remainingHp: 10,
       captured: false,
       reset: false,
+      evolvedFrom: null,
+      evolvedTo: null,
     };
     const lines = formatCaptureLog(result);
     expect(lines).toContain('残り耐久: 10');
@@ -106,6 +108,8 @@ describe('economyInfo', () => {
       remainingHp: 0,
       captured: true,
       reset: false,
+      evolvedFrom: null,
+      evolvedTo: null,
     };
     expect(formatCaptureLog(result)).toContain('占領完了');
   });
@@ -118,6 +122,8 @@ describe('economyInfo', () => {
       remainingHp: 10,
       captured: false,
       reset: true,
+      evolvedFrom: null,
+      evolvedTo: null,
     };
     expect(formatCaptureLog(result)).toContain('耐久をリセット');
   });

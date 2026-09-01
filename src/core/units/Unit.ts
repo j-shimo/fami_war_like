@@ -27,8 +27,6 @@ export interface UnitParams {
 export class Unit {
   /** ユニットを一意に識別する ID */
   readonly id: string;
-  /** ユニット種別 */
-  readonly unitType: UnitType;
   /** 所属軍 */
   readonly armyType: ArmyType;
   /** 現在位置 */
@@ -44,13 +42,36 @@ export class Unit {
    */
   carried: Unit[] = [];
 
+  /**
+   * 現在のユニット種別。研究所の占領による進化(evolveTo)でのみ書き換わるため、
+   * 外からは読み取り専用の unitType として公開する。
+   */
+  private currentType: UnitType;
+
   constructor(params: UnitParams) {
     this.id = params.id;
-    this.unitType = params.unitType;
+    this.currentType = params.unitType;
     this.armyType = params.armyType;
     this.position = gridPosition(params.position.col, params.position.row);
     this.currentHp = params.currentHp ?? this.data.maxHp;
     this.hasActed = params.hasActed ?? false;
+  }
+
+  /** ユニット種別 */
+  get unitType(): UnitType {
+    return this.currentType;
+  }
+
+  /**
+   * ユニット種別を差し替える(研究所の占領による進化)。
+   * 同じ 1 体として位置・ID・所属軍・行動済み状態はそのまま引き継ぎ、
+   * 現在 HP も引き継ぐ(進化しても回復はしない)。
+   * 進化先の最大 HP を超える場合だけ最大 HP まで丸める。
+   * 進化の条件と対応表は data/unitData の LABORATORY_EVOLUTION が持つ。
+   */
+  evolveTo(unitType: UnitType): void {
+    this.currentType = unitType;
+    this.currentHp = Math.min(this.currentHp, this.maxHp);
   }
 
   /** このユニットの静的パラメータ */
