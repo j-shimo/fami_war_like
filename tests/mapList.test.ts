@@ -67,8 +67,13 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
     for (const entry of extras) {
       expect(['1p', '2p']).toContain(entry.side);
     }
-    // 双大陸マップは1P側の激ムズマップ(2P側には別のマップを用意する)
+    // 双大陸マップは1P側・対角海マップは2P側の激ムズマップ
     expect(MAP_LIST.find((entry) => entry.id === 'twinContinents')?.side).toBe('1p');
+    expect(MAP_LIST.find((entry) => entry.id === 'diagonalSea')?.side).toBe('2p');
+    // サイドごとに激ムズマップがちょうど 1 枚ずつある
+    for (const side of ['1p', '2p'] as const) {
+      expect(extras.filter((entry) => entry.side === side)).toHaveLength(1);
+    }
   });
 
   it('通常マップ・テストマップはサイドを限定しない(どちらのサイドでも遊べる)', () => {

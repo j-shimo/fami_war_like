@@ -3,6 +3,7 @@
 
 import { DEFAULT_MAP_GROUP, type MapGroup, type PlayerSide } from '@/core/mode/GameMode';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
+import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import { LONG_ISLAND_MAP } from '@/data/maps/longIslandMap';
@@ -61,7 +62,7 @@ export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
  * 激ムズマップ(category: 'extra')はここへ登録しても、通常マップをすべてクリアするまで
  * 選択画面には並ばない(判定は src/core/progress/MapUnlock.ts)。
  * 激ムズマップは担当サイドごとに別のマップを用意するため、side でどちらのサイドに出すかを指定する
- * (2P側の激ムズマップは今後追加する)。
+ * (1P側は双大陸マップ・2P側は対角海マップ)。
  */
 export const MAP_LIST: readonly ResolvedMapEntry[] = (
   [
@@ -121,6 +122,15 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       category: 'extra',
       // 1P側の激ムズマップ(2P側には別のマップを用意する)
       side: '1p',
+    },
+    {
+      id: 'diagonalSea',
+      definition: DIAGONAL_SEA_MAP,
+      description:
+        '幅 9 マスの海が右上から左下へ斜めに横切る 40x24 の激ムズマップ。海の左上と右下に同じ大きさの三角形の島が 1 つずつ残り、島をつなぐ陸路は 1 本も無い。自軍は右上の陣地 7 拠点・収入 7000 の裸一貫、敵軍は都市と森が広がる左の島の 8 割(24 拠点)を占領済みの収入 31000 で、戦艦・戦闘機・爆撃機を含む 11 体を配置して待ち構える。海に点在する空港と港だけの小島 4 つは、輸送艦か輸送ヘリでしか取れない。',
+      category: 'extra',
+      // 2P側の激ムズマップ(1P側には双大陸マップを用意している)
+      side: '2p',
     },
   ] as const satisfies readonly MapEntry[]
 ).map(resolveMapEntry);
