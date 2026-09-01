@@ -10,6 +10,7 @@ import { LONG_ISLAND_MAP } from '@/data/maps/longIslandMap';
 import { DEFAULT_MAP_CATEGORY, type MapCategory } from '@/data/maps/mapCategory';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
+import { RING_LABORATORY_MAP } from '@/data/maps/ringLaboratoryMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
 import { STRAIT_MAP } from '@/data/maps/straitMap';
 import { TEST_MAP } from '@/data/maps/testMap';
@@ -113,6 +114,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       definition: INNER_SEA_MAP,
       description:
         '収入 13000 の自軍と 4000 の敵軍で始まる 16x12 の地上戦マップ。前線工場から偵察車が 2 ターンで敵陣へ届く狭い盤面で、中央のレンズ型の内海が戦場を北の街道ルートと南の森ルート(装輪車両は通行不可)に完全に分断する。中立拠点はすべて自軍から遠く、うち 4 個は敵軍が 1 ターンで届く。中央の中立都市 6 個も敵軍寄りで、特に北ルートは敵軍が先に届く。',
+    },
+    {
+      id: 'ringLaboratory',
+      definition: RING_LABORATORY_MAP,
+      description:
+        '「日」を横倒しにした街道が四隅を結ぶ 13x11 の地上戦マップ。両軍とも本拠地を持たず工場 3・収入 3000 の対等な立ち上がりで、左下が先手の自軍・右上が後手の敵軍の陣地。街道に挟まれた内側は左が山(車両は進入不可)・中央が平地・右が森(装輪車両は進入不可)の 3 帯に分かれる。盤面中央の中立研究所は両軍の前線工場から等距離(歩兵でちょうど 3 ターン)で、先に動ける自軍が新型戦車を手にする代わりに、中立都市 4 個は 4 個とも後手の敵軍が 1 ターン早く届く。',
+      // 追加要素(研究所・新型戦車)を主題にした新マップ
+      group: 'new',
     },
     {
       id: 'twinContinents',
