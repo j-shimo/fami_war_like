@@ -243,6 +243,52 @@ describe('EnemyAi.run', () => {
     expect(units.getUnitAt(gridPosition(5, 0))?.unitType).toBe('mediumTank');
   });
 
+  it('占領できないユニットは、未占領の拠点の上では足を止めず 1 マス手前で止まる', () => {
+    // 1 マスには 1 体しか立てないため、戦車が中立都市に居座ると自軍の歩兵が占領できなくなる。
+    // 目標が都市そのものでも、隣のマスで止まって歩兵に道を空ける
+    const { units, ai } = setup({
+      name: 't',
+      terrain: ['rrrc'],
+      units: [{ col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' }],
+    });
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    expect(moves[0].to).toEqual(gridPosition(2, 0));
+    expect(units.getUnitAt(gridPosition(3, 0))).toBeUndefined();
+  });
+
+  it('未占領の拠点の上にいる占領できないユニットは、そこから退く', () => {
+    // すでに都市の上にいる戦車。そのままでは自軍の歩兵が永久に占領できないので隣へどく
+    const { units, ai } = setup({
+      name: 't',
+      terrain: ['rcr'],
+      units: [{ col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' }],
+    });
+    const tank = units.getUnitAt(gridPosition(1, 0))!;
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    expect(tank.position).not.toEqual(gridPosition(1, 0));
+  });
+
+  it('占領できる歩兵は、拠点の上で止まってそのまま占領する', () => {
+    // 上の 2 件と同じ盤面でも、歩兵は拠点へ乗って占領する(退く対象は占領できないユニットだけ)
+    const { map, ai } = setup({
+      name: 't',
+      terrain: ['rrrc'],
+      units: [{ col: 0, row: 0, unitType: 'infantry', army: 'enemy' }],
+    });
+
+    const captures = actionsOfKind(ai.run(), 'capture');
+
+    expect(captures).toHaveLength(1);
+    expect(captures[0].movedTo).toEqual(gridPosition(3, 0));
+    expect(map.getTile(gridPosition(3, 0))?.captureHp).toBeLessThan(20);
+  });
+
   it('攻撃対象がいなければ待機する', () => {
     const { units, ai } = setup({
       name: 't',
