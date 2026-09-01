@@ -16,6 +16,12 @@ import { UNIT_DATA } from '@/data/unitData';
 /** 盤面のちょうど中央にある研究所 */
 const LABORATORY = gridPosition(6, 5);
 
+/** 自軍(先手)の本拠地。左下の角のいちばん外側 */
+const PLAYER_HQ = gridPosition(0, 10);
+
+/** 敵軍(後手)の本拠地。右上の角のいちばん外側(自軍と点対称) */
+const ENEMY_HQ = gridPosition(12, 0);
+
 /** 自軍(先手)の工場 3 つ。左下の角を囲む陣地 */
 const PLAYER_FACTORIES: readonly GridPosition[] = [
   gridPosition(1, 9),
@@ -30,12 +36,68 @@ const ENEMY_FACTORIES: readonly GridPosition[] = [
   gridPosition(11, 0),
 ];
 
-/** 中立都市 4 個。街道の角と角を結ぶ対角線(col - row = 2)の上に並ぶ */
-const NEUTRAL_CITIES: readonly GridPosition[] = [
-  gridPosition(3, 1),
-  gridPosition(5, 3),
-  gridPosition(8, 6),
-  gridPosition(11, 9),
+/** 自軍の陣地 4 拠点(本拠地 1 + 工場 3)。生産はこの 4 マスから始まる */
+const PLAYER_BASES: readonly GridPosition[] = [PLAYER_HQ, ...PLAYER_FACTORIES];
+
+/** 敵軍の陣地 4 拠点(本拠地 1 + 工場 3) */
+const ENEMY_BASES: readonly GridPosition[] = [ENEMY_HQ, ...ENEMY_FACTORIES];
+
+/** 中立都市 1 個ぶんの設計値(陣地からの移動コストと、先に届くのはどちらか) */
+interface CityPlan {
+  /** 都市の座標 */
+  readonly pos: GridPosition;
+  /** 自軍の陣地 4 拠点からの最短移動コスト(歩兵) */
+  readonly player: number;
+  /** 敵軍の陣地 4 拠点からの最短移動コスト(歩兵) */
+  readonly enemy: number;
+  /** 先に届くのはどちらか。同着は先に動ける自軍(先手)が取れる */
+  readonly first: 'player' | 'enemy';
+}
+
+/**
+ * 中立都市 14 個の設計値。
+ * 陣地の隣(両軍 2 個ずつ)・左上(2 個)・右下の 4 連(4 個)・対角線(4 個)の 4 グループからなる。
+ */
+const CITY_PLANS: readonly CityPlan[] = [
+  // 陣地のすぐ隣。両軍に 2 個ずつ点対称に置いた、取り合いにならない安全な収入
+  { pos: gridPosition(0, 7), player: 2, enemy: 17, first: 'player' },
+  { pos: gridPosition(4, 10), player: 3, enemy: 16, first: 'player' },
+  { pos: gridPosition(12, 3), player: 17, enemy: 2, first: 'enemy' },
+  { pos: gridPosition(8, 0), player: 16, enemy: 3, first: 'enemy' },
+  // 左上。街道の左上の角とその外側で、どちらも自軍が先に取れる
+  { pos: gridPosition(1, 1), player: 8, enemy: 10, first: 'player' },
+  { pos: gridPosition(2, 0), player: 10, enemy: 10, first: 'player' },
+  // 右下の 4 連(下辺の街道 row 9 の 1 マス下)。西の 2 個は自軍・東の 2 個は敵軍が先に届く
+  { pos: gridPosition(9, 10), player: 8, enemy: 11, first: 'player' },
+  { pos: gridPosition(10, 10), player: 9, enemy: 10, first: 'player' },
+  { pos: gridPosition(11, 10), player: 10, enemy: 9, first: 'enemy' },
+  { pos: gridPosition(12, 10), player: 11, enemy: 9, first: 'enemy' },
+  // 街道の角と角を結ぶ対角線(col - row = 2)。4 個とも敵軍が 1 ターン早い
+  { pos: gridPosition(3, 1), player: 10, enemy: 8, first: 'enemy' },
+  { pos: gridPosition(5, 3), player: 10, enemy: 8, first: 'enemy' },
+  { pos: gridPosition(8, 6), player: 10, enemy: 8, first: 'enemy' },
+  { pos: gridPosition(11, 9), player: 10, enemy: 8, first: 'enemy' },
+];
+
+/** 中立都市 14 個の座標 */
+const NEUTRAL_CITIES: readonly GridPosition[] = CITY_PLANS.map((plan) => plan.pos);
+
+/** 右下の 4 連都市(下辺の街道のすぐ下、row 10 の col 9〜12) */
+const SOUTH_EAST_ROW_CITIES: readonly GridPosition[] = [
+  gridPosition(9, 10),
+  gridPosition(10, 10),
+  gridPosition(11, 10),
+  gridPosition(12, 10),
+];
+
+/** 陣地を縁取る森。自軍側 (0,8)(2,10)(3,10) と、その点対称にあたる敵軍側 */
+const BASE_FOREST: readonly GridPosition[] = [
+  gridPosition(0, 8),
+  gridPosition(2, 10),
+  gridPosition(3, 10),
+  gridPosition(12, 2),
+  gridPosition(10, 0),
+  gridPosition(9, 0),
 ];
 
 /** 「日」を横倒しにした街道の骨格(外周の長方形 + 中央の縦棒)が通る列・行 */
@@ -199,34 +261,75 @@ describe('RING_LABORATORY_MAP(環状研究所マップ)', () => {
     });
   });
 
-  it('本拠地は 1 マスも置かない(勝敗は相手軍の全滅だけで決まる)', () => {
+  it('本拠地は両軍に 1 つずつ、角のいちばん外側にある', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    const headquarters: GridPosition[] = [];
     map.forEachTile((tile) => {
-      expect(tile.terrainType).not.toBe('headquarters');
+      if (tile.terrainType === 'headquarters') headquarters.push(tile.position);
     });
+    expect(headquarters).toHaveLength(2);
+    expect(headquarters).toContainEqual(PLAYER_HQ);
+    expect(headquarters).toContainEqual(ENEMY_HQ);
+    expect(map.getTile(PLAYER_HQ)?.owner).toBe('player');
+    expect(map.getTile(ENEMY_HQ)?.owner).toBe('enemy');
   });
 
-  it('両軍とも工場 3 つだけを所有し、収入 3000 で完全に対等に始まる', () => {
+  it('本拠地に隣接するのは自陣の工場だけで、陣地を突破しないと辿り着けない', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    const neighborsOf = (pos: GridPosition): GridPosition[] =>
+      [
+        gridPosition(pos.col + 1, pos.row),
+        gridPosition(pos.col - 1, pos.row),
+        gridPosition(pos.col, pos.row + 1),
+        gridPosition(pos.col, pos.row - 1),
+      ].filter((next) => map.getTile(next) !== null && map.getTile(next) !== undefined);
+
+    for (const [hq, army] of [
+      [PLAYER_HQ, 'player'],
+      [ENEMY_HQ, 'enemy'],
+    ] as const) {
+      const neighbors = neighborsOf(hq);
+      // 盤面の角なので隣は 2 マスだけ。どちらも自陣の工場
+      expect(neighbors).toHaveLength(2);
+      for (const neighbor of neighbors) {
+        const tile = map.getTile(neighbor);
+        expect(tile?.terrainType).toBe('factory');
+        expect(tile?.owner).toBe(army);
+      }
+    }
+  });
+
+  it('両軍とも本拠地 1 + 工場 3 の 4 拠点を所有し、収入 4000 で完全に対等に始まる', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     const economy = new EconomyManager();
     for (const army of ['player', 'enemy'] as const) {
       const bases = basesOf(map, army);
-      expect(bases).toHaveLength(3);
-      expect(bases.every((base) => base.terrainType === 'factory')).toBe(true);
-      expect(economy.getIncome(army, map)).toBe(3000);
+      expect(bases).toHaveLength(4);
+      expect(bases.filter((base) => base.terrainType === 'headquarters')).toHaveLength(1);
+      expect(bases.filter((base) => base.terrainType === 'factory')).toHaveLength(3);
+      expect(economy.getIncome(army, map)).toBe(4000);
+    }
+  });
+
+  it('陣地のまわりは森で縁取ってあり、両軍とも点対称に同じ数だけ置かれている', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    for (const pos of BASE_FOREST) {
+      expect(map.getTile(pos)?.terrainType).toBe('forest');
+      // (col, row) → (12 - col, 10 - row) の点対称の位置も森
+      const mirror = gridPosition(map.cols - 1 - pos.col, map.rows - 1 - pos.row);
+      expect(map.getTile(mirror)?.terrainType).toBe('forest');
     }
   });
 
   it('自軍の陣地は左下の角、敵軍の陣地は右上の角にあり、点対称に置かれている', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
-    for (const base of PLAYER_FACTORIES) {
+    for (const base of PLAYER_BASES) {
       const tile = map.getTile(base);
-      expect(tile?.terrainType).toBe('factory');
       expect(tile?.owner).toBe('player');
-      // (col, row) → (12 - col, 10 - row) の点対称の位置に敵軍の工場がある
+      // (col, row) → (12 - col, 10 - row) の点対称の位置に、同じ地形の敵軍の拠点がある
       const mirror = gridPosition(map.cols - 1 - base.col, map.rows - 1 - base.row);
-      expect(ENEMY_FACTORIES).toContainEqual(mirror);
-      expect(map.getTile(mirror)?.terrainType).toBe('factory');
+      expect(ENEMY_BASES).toContainEqual(mirror);
+      expect(map.getTile(mirror)?.terrainType).toBe(tile?.terrainType);
       expect(map.getTile(mirror)?.owner).toBe('enemy');
     }
   });
@@ -272,25 +375,25 @@ describe('RING_LABORATORY_MAP(環状研究所マップ)', () => {
   it('研究所は自軍の工場からちょうど 3 ターン(移動コスト 9)で届く', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     const movement = UNIT_DATA.infantry.movement;
-    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_FACTORIES);
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
     const cost = costTo(fromPlayer, LABORATORY);
     expect(cost).toBe(9);
     // 2 ターンぶん(6)では届かず、3 ターンぶん(9)でぴったり届く
     expect(cost).toBeGreaterThan(movement * 2);
     expect(turnsFor(cost, movement)).toBe(3);
-    // 最短になるのは街道の角にある前線工場 (1,9)。残る 2 つは 1 マス遠い
+    // 最短になるのは街道の角にある前線工場 (1,9)。残る 3 拠点はそれより遠い
     expect(costTo(moveCostMap(map, 'infantry', [gridPosition(1, 9)]), LABORATORY)).toBe(
       9,
     );
-    for (const factory of [gridPosition(0, 9), gridPosition(1, 10)]) {
-      expect(costTo(moveCostMap(map, 'infantry', [factory]), LABORATORY)).toBe(10);
+    for (const base of [gridPosition(0, 9), gridPosition(1, 10), PLAYER_HQ]) {
+      expect(costTo(moveCostMap(map, 'infantry', [base]), LABORATORY)).toBeGreaterThan(9);
     }
   });
 
   it('研究所までの距離は両軍とも等しく、先に動ける自軍が先着する', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
-    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_FACTORIES);
-    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_FACTORIES);
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
+    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_BASES);
     expect(costTo(fromEnemy, LABORATORY)).toBe(costTo(fromPlayer, LABORATORY));
   });
 
@@ -315,22 +418,94 @@ describe('RING_LABORATORY_MAP(環状研究所マップ)', () => {
     expect(tile.owner).toBe('player');
   });
 
-  it('中立都市は 4 個で、街道の角と角を結ぶ対角線(col - row = 2)の上に並ぶ', () => {
+  it('中立都市は 14 個で、設計どおりの座標に置かれている', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     const cities = basesOf(map, 'neutral').filter((base) => base.terrainType === 'city');
-    expect(cities).toHaveLength(4);
+    expect(cities).toHaveLength(14);
     for (const city of cities) {
-      expect(city.col - city.row).toBe(2);
       expect(NEUTRAL_CITIES).toContainEqual(gridPosition(city.col, city.row));
     }
   });
 
-  it('中立都市は 4 個とも後手の敵軍のほうが 1 ターン早く届く(先手番のハンデ)', () => {
+  it('中立都市までの移動コストは設計どおり(陣地の隣・左上・右下の 4 連・対角線)', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
+    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_BASES);
+    for (const plan of CITY_PLANS) {
+      expect({
+        pos: plan.pos,
+        player: costTo(fromPlayer, plan.pos),
+        enemy: costTo(fromEnemy, plan.pos),
+      }).toEqual({ pos: plan.pos, player: plan.player, enemy: plan.enemy });
+    }
+  });
+
+  it('先に届く中立都市は自軍 6 個・敵軍 8 個で、後手の敵軍が 2 個ぶん多い', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
+    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_BASES);
+    for (const plan of CITY_PLANS) {
+      // 同着のマスは先に動ける自軍(先手)が取れる
+      const first =
+        costTo(fromPlayer, plan.pos) <= costTo(fromEnemy, plan.pos) ? 'player' : 'enemy';
+      expect(first).toBe(plan.first);
+    }
+    expect(CITY_PLANS.filter((plan) => plan.first === 'player')).toHaveLength(6);
+    expect(CITY_PLANS.filter((plan) => plan.first === 'enemy')).toHaveLength(8);
+  });
+
+  it('陣地のすぐ隣の中立都市は両軍 2 個ずつ、点対称に同じ距離で置かれている', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     const movement = UNIT_DATA.infantry.movement;
-    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_FACTORIES);
-    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_FACTORIES);
-    for (const city of NEUTRAL_CITIES) {
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
+    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_BASES);
+    const homeCities = [
+      [gridPosition(0, 7), gridPosition(12, 3)],
+      [gridPosition(4, 10), gridPosition(8, 0)],
+    ] as const;
+    for (const [playerCity, enemyCity] of homeCities) {
+      // (col, row) → (12 - col, 10 - row) の点対称
+      expect(
+        gridPosition(map.cols - 1 - playerCity.col, map.rows - 1 - playerCity.row),
+      ).toEqual(enemyCity);
+      // 自軍から見た距離と、敵軍から見た距離が同じ = 立ち上がりは完全に対等
+      expect(costTo(fromPlayer, playerCity)).toBe(costTo(fromEnemy, enemyCity));
+      // どちらも 1 ターンで届く安全な収入
+      expect(turnsFor(costTo(fromPlayer, playerCity), movement)).toBe(1);
+      expect(turnsFor(costTo(fromEnemy, enemyCity), movement)).toBe(1);
+    }
+  });
+
+  it('右下の 4 連都市は下辺の街道のすぐ下に、4 マス続けて並ぶ', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    for (const city of SOUTH_EAST_ROW_CITIES) {
+      // 下辺の街道 row 9 の 1 マス下(row 10)に並ぶ
+      expect(city.row).toBe(10);
+      expect(map.getTile(city)?.terrainType).toBe('city');
+      expect(map.getTile(city)?.owner).toBe('neutral');
+      // すぐ上は下辺の街道。街道は col 1〜11 なので、東端の (12,10) だけは街道の外側に出る
+      const above = map.getTile(gridPosition(city.col, 9));
+      const expected = city.col <= 11 ? ['road', 'city'] : ['forest'];
+      expect(expected).toContain(above?.terrainType);
+    }
+    // col 9〜12 が途切れずに続いている
+    const cols = SOUTH_EAST_ROW_CITIES.map((city) => city.col);
+    expect(cols).toEqual([9, 10, 11, 12]);
+  });
+
+  it('対角線(col - row = 2)の 4 個は、4 個とも敵軍が 1 ターン早く届く', () => {
+    const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    const movement = UNIT_DATA.infantry.movement;
+    const fromPlayer = moveCostMap(map, 'infantry', PLAYER_BASES);
+    const fromEnemy = moveCostMap(map, 'infantry', ENEMY_BASES);
+    const diagonal = [
+      gridPosition(3, 1),
+      gridPosition(5, 3),
+      gridPosition(8, 6),
+      gridPosition(11, 9),
+    ];
+    for (const city of diagonal) {
+      expect(city.col - city.row).toBe(2);
       expect(costTo(fromEnemy, city)).toBe(8);
       expect(costTo(fromPlayer, city)).toBe(10);
       // 敵軍は 3 ターン、自軍は 4 ターン。先着はするが、自軍も取り合いに参加できる距離
@@ -339,25 +514,28 @@ describe('RING_LABORATORY_MAP(環状研究所マップ)', () => {
     }
   });
 
-  it('中立拠点は研究所 1 個と中立都市 4 個だけ(取り合いの対象は 5 拠点)', () => {
+  it('中立拠点は研究所 1 個と中立都市 14 個(取り合いの対象は 15 拠点)', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     const neutrals = basesOf(map, 'neutral');
-    expect(neutrals).toHaveLength(5);
+    expect(neutrals).toHaveLength(15);
     expect(neutrals.filter((base) => base.terrainType === 'laboratory')).toHaveLength(1);
-    expect(neutrals.filter((base) => base.terrainType === 'city')).toHaveLength(4);
+    expect(neutrals.filter((base) => base.terrainType === 'city')).toHaveLength(14);
   });
 
-  it('取り切ったときの収入は自軍 4000(研究所)・敵軍 7000(中立都市 4 個)になる', () => {
+  it('先着ぶんを取り切った収入は自軍 11000・敵軍 12000 で、敵軍が 1000 上回る', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
+    // 研究所は等距離なので先に動ける自軍が取る
     const laboratory = map.getTile(LABORATORY);
     if (laboratory) laboratory.owner = 'player';
-    for (const city of NEUTRAL_CITIES) {
-      const tile = map.getTile(city);
-      if (tile) tile.owner = 'enemy';
+    for (const plan of CITY_PLANS) {
+      const tile = map.getTile(plan.pos);
+      if (tile) tile.owner = plan.first;
     }
     const economy = new EconomyManager();
-    expect(economy.getIncome('player', map)).toBe(4000);
-    expect(economy.getIncome('enemy', map)).toBe(7000);
+    // 自軍: 陣地 4 + 研究所 1 + 都市 6 = 11 拠点
+    expect(economy.getIncome('player', map)).toBe(11000);
+    // 敵軍: 陣地 4 + 都市 8 = 12 拠点
+    expect(economy.getIncome('enemy', map)).toBe(12000);
   });
 
   it('道路に挟まれた内側は、左が山・中央が平地・右が森を多めに配置してある', () => {
@@ -456,7 +634,7 @@ describe('RING_LABORATORY_MAP(環状研究所マップ)', () => {
   it('進入できるマスに、街道からたどり着けない袋小路は無い', () => {
     const map = MapManager.fromDefinition(RING_LABORATORY_MAP);
     for (const movementType of GROUND_MOVEMENTS) {
-      const dist = moveCostMap(map, movementType, PLAYER_FACTORIES);
+      const dist = moveCostMap(map, movementType, PLAYER_BASES);
       map.forEachTile((tile) => {
         if (map.getMoveCost(tile.position, movementType) === null) return;
         expect(costTo(dist, tile.position)).toBeLessThan(Infinity);
