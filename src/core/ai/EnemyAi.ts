@@ -185,6 +185,15 @@ const DEFENSE_WEIGHT = 0.5;
 const OWN_PRODUCTION_SITE_PENALTY = 2;
 
 /**
+ * 占領できないユニット(歩兵以外)が、自軍所有でない拠点の上で足を止めることの減点。
+ * 1 マスには 1 体しか立てないため、居座られると自軍の歩兵がそのマスへ入れず、
+ * その拠点を永久に占領できなくなってしまう(都市は防御 2 で居心地が良いぶん起きやすい)。
+ * 「1 マスぶんの前進(GOAL_WEIGHT)+ 地形防御の加点(最大 1.5)」より大きくしてあるので、
+ * 目標そのものが拠点のときでも隣のマスへ退いて、歩兵に道を空ける。
+ */
+const UNCAPTURED_BASE_PENALTY = 12;
+
+/**
  * 間合いを取る間接攻撃ユニットが、最小射程より内側へ入り込むときの 1 マスあたりの重み。
  * 「遠すぎて届かない」より「近すぎて撃てない(しかも反撃を受ける)」ほうが不利なため、
  * 遠いぶんのはみ出し(重み 1)より重く見る。
@@ -578,10 +587,10 @@ export class EnemyAi {
     vision: Visibility,
   ): AiAction {
     let bestPos = unit.position;
-    let bestScore = this.moveScore(unit.position, goalCost);
+    let bestScore = this.moveScore(unit, unit.position, goalCost);
 
     for (const { position } of candidates) {
-      const score = this.moveScore(position, goalCost);
+      const score = this.moveScore(unit, position, goalCost);
       if (score > bestScore) {
         bestScore = score;
         bestPos = position;
@@ -1042,13 +1051,40 @@ export class EnemyAi {
   /**
    * 前進先マスの評価値(大きいほど良い)を返す。
    * 目標への近さ(goalCost)を最優先し、同じだけ近づけるマスが複数あれば
-   * 防御の高い地形を選ぶ。
+   * 防御の高い地形を選ぶ。拠点を塞いでしまうマスは減点する。
    */
-  private moveScore(pos: GridPosition, goalCost: (pos: GridPosition) => number): number {
-    const score =
-      -goalCost(pos) * GOAL_WEIGHT + this.terrainDefense(pos) * DEFENSE_WEIGHT;
+  private moveScore(
+    unit: Unit,
+    pos: GridPosition,
+    goalCost: (pos: GridPosition) => number,
+  ): number {
+    let score = -goalCost(pos) * GOAL_WEIGHT + this.terrainDefense(pos) * DEFENSE_WEIGHT;
     // 自軍の生産拠点で足を止めると、そのあいだ生産が止まってしまう
-    return this.isOwnProductionSite(pos) ? score - OWN_PRODUCTION_SITE_PENALTY : score;
+    if (this.isOwnProductionSite(pos)) {
+      score -= OWN_PRODUCTION_SITE_PENALTY;
+    }
+    // 占領できないユニットが未占領の拠点に居座ると、自軍の歩兵が入れず占領できなくなる
+    if (this.isBlockingCaptureTile(unit, pos)) {
+      score -= UNCAPTURED_BASE_PENALTY;
+    }
+    return score;
+  }
+
+  /**
+   * unit が pos で足を止めると、自軍の占領を塞いでしまうかどうかを返す。
+   * 塞ぐのは「占領できないユニット」が「自軍所有でない占領可能地形」に立つ場合。
+   * 占領役(歩兵)自身は、そこに立つこと自体が占領なので対象にしない。
+   */
+  private isBlockingCaptureTile(unit: Unit, pos: GridPosition): boolean {
+    if (unit.canCapture) {
+      return false;
+    }
+    const tile = this.map.getTile(pos);
+    return (
+      tile !== undefined &&
+      tile.owner !== this.army &&
+      getTerrainData(tile.terrainType).canCapture
+    );
   }
 
   /** pos が自軍の生産拠点(工場・本拠地・空港・港)かどうか */
