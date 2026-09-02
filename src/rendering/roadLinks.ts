@@ -1,12 +1,12 @@
-// 道路タイルが上下左右のどの隣接マスと「つながって見えるか」を判定する。
+// 道路・線路タイルが上下左右のどの隣接マスと「つながって見えるか」を判定する。
 // Phaser には依存しない純粋なロジックとして実装し、Vitest でテストする。
-// 描画側(terrainDecoration)はこの結果を使って道路の帯と中央線を描く。
+// 描画側(terrainDecoration)はこの結果を使って道路の帯と中央線、線路のレールを描く。
 
 import { gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import { getTerrainData } from '@/data/terrainData';
 
-/** 道路が各方向の隣接マスへつながっているか */
+/** 道路・線路が各方向の隣接マスへつながっているか */
 export interface RoadLinks {
   readonly up: boolean;
   readonly down: boolean;
@@ -41,5 +41,32 @@ export function computeRoadLinks(map: MapManager, pos: GridPosition): RoadLinks 
     down: isConnectable(map, gridPosition(col, row + 1)),
     left: isConnectable(map, gridPosition(col - 1, row)),
     right: isConnectable(map, gridPosition(col + 1, row)),
+  };
+}
+
+/**
+ * 指定座標の隣接マスが線路として連結して見えるかを返す。
+ * 線路どうしに加えて、線路の終端にあたる駅も接続先とみなす
+ * (道路や他の拠点へはつながらない。線路は駅と駅を結ぶ専用の帯として描く)。
+ */
+function isRailConnectable(map: MapManager, pos: GridPosition): boolean {
+  const tile = map.getTile(pos);
+  if (!tile) {
+    return false;
+  }
+  return tile.terrainType === 'railway' || tile.terrainType === 'station';
+}
+
+/**
+ * 指定した線路マスについて、上下左右それぞれへ線路が続いているかを判定する。
+ * 描画時に隣接方向へレールと枕木を伸ばすために使う。
+ */
+export function computeRailLinks(map: MapManager, pos: GridPosition): RoadLinks {
+  const { col, row } = pos;
+  return {
+    up: isRailConnectable(map, gridPosition(col, row - 1)),
+    down: isRailConnectable(map, gridPosition(col, row + 1)),
+    left: isRailConnectable(map, gridPosition(col - 1, row)),
+    right: isRailConnectable(map, gridPosition(col + 1, row)),
   };
 }

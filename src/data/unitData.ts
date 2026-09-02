@@ -4,7 +4,7 @@
 import type { MovementType, TerrainType } from '@/core/map/TerrainType';
 import {
   AIR_ONLY_ANTI_AIR_UNIT_TYPES,
-  GROUND_UNIT_TYPES,
+  CARRIABLE_GROUND_UNIT_TYPES,
   type UnitType,
 } from '@/core/units/UnitType';
 
@@ -32,7 +32,8 @@ export interface UnitData {
   readonly capacity: number;
   /**
    * 輸送できるユニット種別(capacity が 0 のユニットでは空配列)。
-   * 輸送ヘリ・輸送車は歩兵のみ、輸送艦はすべての地上ユニット(GROUND_UNIT_TYPES)を運べる。
+   * 輸送ヘリ・輸送車は歩兵のみ、輸送艦・列車砲は列車砲を除く地上ユニット
+   * (CARRIABLE_GROUND_UNIT_TYPES)を運べる。
    */
   readonly carriableTypes: readonly UnitType[];
   /**
@@ -365,6 +366,31 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     mountainVisionBonus: 0,
     nightStealth: false,
   },
+  railgun: {
+    unitType: 'railgun',
+    unitName: '列車砲',
+    maxHp: 10,
+    // 線路の上を蒸気で駆け抜ける移動力 15。ただし進めるのは線路と駅の上だけなので、
+    // 実際に届く範囲は敷かれた線路の長さそのもので決まる。
+    movement: 15,
+    // 軌道系。線路(コスト 1)と駅(コスト 1)以外はすべて進入不可。
+    movementType: 'rail',
+    // 射程 2〜6 の間接攻撃のみ。戦艦と同じ最大射程を持つ、地上で最も遠くまで届く砲。
+    // 間接攻撃なので移動したターンは攻撃できず、反撃も受けない。
+    minAttackRange: 2,
+    maxAttackRange: 6,
+    // 全ユニット中 2 番目に高いコスト(戦艦 35000 に次ぐ)。1 軍 1 台の制限もあわせて、
+    // 序盤に買える戦力ではなく「線路を守り切った側の切り札」という位置づけにする。
+    cost: 30000,
+    canCapture: false,
+    // 砲車の後ろに連結した貨車で、地上ユニットを 2 体まで運べる(列車砲自身は積めない)。
+    capacity: 2,
+    carriableTypes: CARRIABLE_GROUND_UNIT_TYPES,
+    // 射程 6 に対して視界 1。単独では最大射程まで撃てず、前に出した味方の目が要る。
+    vision: 1,
+    mountainVisionBonus: 0,
+    nightStealth: false,
+  },
   battleship: {
     unitType: 'battleship',
     unitName: '戦艦',
@@ -413,7 +439,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     canCapture: false,
     // すべての地上ユニットを最大 2 体まで運べる。
     capacity: 2,
-    carriableTypes: GROUND_UNIT_TYPES,
+    carriableTypes: CARRIABLE_GROUND_UNIT_TYPES,
     // 見張りに人手を割けない輸送船。夜戦では周囲 1 マスしか見えない。
     vision: 1,
     mountainVisionBonus: 0,
@@ -466,7 +492,7 @@ export function laboratoryEvolutionOf(unitType: UnitType): UnitType | null {
  * 新型戦車は生産できないため、どの拠点の一覧にも含めない
  * (研究所の占領で歩兵が進化したときにだけ手に入る)。
  * 工場・本拠地では地上ユニット(対空自走砲・対空ロケット砲を含む)、
- * 空港では飛行ユニット(ヘリ系と固定翼機)、港では海上ユニットを生産する。
+ * 空港では飛行ユニット(ヘリ系と固定翼機)、港では海上ユニット、駅では列車砲を生産する。
  * 生産できない地形(都市など)は一覧に含めない。
  * マップの構成による絞り込み(空港のないマップでの対空 2 種の除外)は
  * producibleUnitTypesAt の context で行う。
@@ -508,7 +534,33 @@ export const PRODUCIBLE_UNIT_TYPES_BY_TERRAIN: Readonly<
     'attackAircraft',
   ],
   port: ['transportShip', 'escortShip', 'submarine', 'battleship'],
+  // 駅で生産できるのは列車砲だけ(逆に列車砲は駅でしか生産できない)
+  station: ['railgun'],
 };
+
+/**
+ * 1 軍が同時に持てるユニット数の上限。一覧に無い種別に上限はない。
+ * 列車砲は 1 軍 1 台まで(撃破されれば作り直せる)。
+ */
+export const UNIT_LIMIT_PER_ARMY: Readonly<Partial<Record<UnitType, number>>> = {
+  railgun: 1,
+};
+
+/** unitType の 1 軍あたりの所持上限を返す。上限が無い種別は null */
+export function unitLimitOf(unitType: UnitType): number | null {
+  return UNIT_LIMIT_PER_ARMY[unitType] ?? null;
+}
+
+/**
+ * 輸送を役目とするユニット(輸送ヘリ・輸送車・輸送艦)かどうか。
+ * 「他ユニットを運べる(capacity >= 1)」ユニットのうち、間接攻撃を持たないものを指す。
+ * 列車砲も地上ユニットを 2 体運べるが、射程 2〜6 の砲撃が本業なので輸送ユニットには数えない
+ * (敵軍AIが列車砲を「渡る足」と誤認して輸送艦を作らなくなるのを防ぐ)。
+ */
+export function isFerryUnit(unitType: UnitType): boolean {
+  const data = getUnitData(unitType);
+  return data.capacity >= 1 && data.maxAttackRange <= 1;
+}
 
 /**
  * 生産できる種別をマップの構成に応じて絞り込むための条件。
@@ -522,20 +574,31 @@ export interface ProductionMapContext {
    * 生産一覧から除く。指定しない場合は制限なし(true 扱い)。
    */
   readonly hasAirport?: boolean;
+  /**
+   * その軍がすでに所持上限(UNIT_LIMIT_PER_ARMY)に達している種別の一覧。
+   * 列車砲を 1 台持っているあいだは、生産一覧から列車砲が消える。
+   * 盤面を見て数える必要があるため、値は ProductionManager.mapContext が組み立てる。
+   */
+  readonly limitReachedTypes?: readonly UnitType[];
 }
 
 /**
  * 指定した生産拠点(地形)で生産できるユニット種別の一覧を返す(生産不可地形は空配列)。
  * context に hasAirport: false を渡すと、空港のないマップでは無意味になる
  * 対空自走砲・対空ロケット砲を除いた一覧を返す。
+ * context.limitReachedTypes に渡した種別(所持上限に達した列車砲など)も一覧から外す。
  */
 export function producibleUnitTypesAt(
   terrainType: TerrainType,
   context: ProductionMapContext = {},
 ): readonly UnitType[] {
-  const types = PRODUCIBLE_UNIT_TYPES_BY_TERRAIN[terrainType] ?? [];
+  let types = PRODUCIBLE_UNIT_TYPES_BY_TERRAIN[terrainType] ?? [];
   if (context.hasAirport === false) {
-    return types.filter((type) => !AIR_ONLY_ANTI_AIR_UNIT_TYPES.includes(type));
+    types = types.filter((type) => !AIR_ONLY_ANTI_AIR_UNIT_TYPES.includes(type));
+  }
+  const limitReached = context.limitReachedTypes;
+  if (limitReached && limitReached.length > 0) {
+    types = types.filter((type) => !limitReached.includes(type));
   }
   return types;
 }

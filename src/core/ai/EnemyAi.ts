@@ -66,7 +66,7 @@ import type { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
 import { canDamage } from '@/data/damageTable';
 import { getTerrainData } from '@/data/terrainData';
-import { getUnitData, producibleUnitTypesAt } from '@/data/unitData';
+import { getUnitData, isFerryUnit, producibleUnitTypesAt } from '@/data/unitData';
 
 /** AI が 1 手番で実行した行動 1 件を表すログ。呼び出し側の表示に使う */
 export type AiAction =
@@ -167,6 +167,8 @@ const CAPTURE_PRIORITY: Record<string, number> = {
   // 研究所は都市と同じ収入源だが、中立のうちに占領すれば歩兵が新型戦車へ進化するため、
   // 工場・港と同じ重さで狙う(進化を逃さないよう都市より先に取りに行く)
   laboratory: 2,
+  // 駅は列車砲を作れる唯一の拠点なので、工場と同じ重さで狙う
+  station: 2,
   city: 1,
 };
 
@@ -860,7 +862,7 @@ export class EnemyAi {
    * 陸と空の輸送ユニット(輸送車・輸送ヘリ)は、最寄りの味方歩兵のそばへ自分から寄る。
    */
   private tryRendezvous(unit: Unit, vision: Visibility): AiAction | null {
-    if (unit.capacity < 1) {
+    if (!unit.isFerry) {
       return null;
     }
     const target =
@@ -1407,12 +1409,13 @@ export class EnemyAi {
    */
   private chooseProduction(tile: TileData, opponents: readonly Unit[]): UnitType | null {
     const byCostDesc = [
-      ...producibleUnitTypesAt(tile.terrainType, this.production.mapContext()),
+      ...producibleUnitTypesAt(tile.terrainType, this.production.mapContext(this.army)),
     ].sort((a, b) => getUnitData(b).cost - getUnitData(a).cost);
     // 輸送ユニットは戦力にならないため、通常の生産候補からは外す。
     // 必要になったぶんだけ neededFerry が名指しで生産する
+    // (地上ユニットを運べる列車砲は砲撃が本業なので、通常の生産候補に残す)
     const combatTypes = byCostDesc.filter(
-      (type) => getUnitData(type).capacity < 1 && this.canReachAnyTarget(tile, type),
+      (type) => !isFerryUnit(type) && this.canReachAnyTarget(tile, type),
     );
     const candidates = this.withNightVision(this.usableAgainst(combatTypes, opponents));
 
@@ -1531,7 +1534,7 @@ export class EnemyAi {
    */
   private savingForFerry(): boolean {
     const own = this.units.getUnitsByArmy(this.army);
-    if (own.some((unit) => unit.capacity >= 1)) {
+    if (own.some((unit) => unit.isFerry)) {
       return false;
     }
     const passenger = own.find((unit) => unit.canCapture);
@@ -1571,7 +1574,7 @@ export class EnemyAi {
     }
     const own = this.units.getUnitsByArmy(this.army);
     // すでに足がある(輸送ユニットを持っている)なら買い足さない
-    if (own.some((unit) => unit.capacity >= 1)) {
+    if (own.some((unit) => unit.isFerry)) {
       return null;
     }
     const passenger = own.find((unit) => unit.canCapture);

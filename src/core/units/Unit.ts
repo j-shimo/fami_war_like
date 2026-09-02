@@ -5,7 +5,7 @@
 import { gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { ArmyType, MovementType } from '@/core/map/TerrainType';
 import type { UnitType } from '@/core/units/UnitType';
-import { getUnitData, type UnitData } from '@/data/unitData';
+import { getUnitData, isFerryUnit, type UnitData } from '@/data/unitData';
 
 /** Unit を生成するためのパラメータ */
 export interface UnitParams {
@@ -36,9 +36,9 @@ export class Unit {
   /** 行動済みか。ターン内に移動・攻撃を終えると true になる */
   hasActed: boolean;
   /**
-   * 輸送中のユニット(輸送ヘリが歩兵を、輸送艦が地上ユニットを運んでいるときの搭乗ユニット)。
+   * 輸送中のユニット(輸送ヘリが歩兵を、輸送艦・列車砲が地上ユニットを運んでいるときの搭乗ユニット)。
    * 搭乗中のユニットは盤面(UnitManager)からは取り除かれ、この配列の参照だけが保持される。
-   * 何も運んでいない場合は空配列。乗せられる数は capacity で決まる(輸送ヘリ 1・輸送艦 2)。
+   * 何も運んでいない場合は空配列。乗せられる数は capacity で決まる(輸送ヘリ 1・輸送艦と列車砲 2)。
    */
   carried: Unit[] = [];
 
@@ -127,9 +127,18 @@ export class Unit {
     return this.data.maxAttackRange >= 1;
   }
 
-  /** 輸送できるユニット数(輸送ヘリは 1・輸送艦は 2。輸送しないユニットは 0) */
+  /** 輸送できるユニット数(輸送ヘリ・輸送車は 1・輸送艦と列車砲は 2。輸送しないユニットは 0) */
   get capacity(): number {
     return this.data.capacity;
+  }
+
+  /**
+   * 輸送を役目とするユニット(輸送ヘリ・輸送車・輸送艦)か。
+   * 地上ユニットを 2 体運べる列車砲は、砲撃が本業なのでここには含まない
+   * (判定は data/unitData の isFerryUnit)。
+   */
+  get isFerry(): boolean {
+    return isFerryUnit(this.unitType);
   }
 
   /** 現在ユニットを 1 体以上運んでいるか */

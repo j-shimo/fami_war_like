@@ -104,7 +104,11 @@ import { formatResultMessage } from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { armyLabel, formatTurnBanner, type ArmyLabelOptions } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
-import { computeRoadLinks } from '@/rendering/roadLinks';
+import {
+  computeRailLinks,
+  computeRoadLinks,
+  type RoadLinks,
+} from '@/rendering/roadLinks';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 import { ProductionWindow } from '@/rendering/ProductionWindow';
 import { VolumeWindow } from '@/rendering/VolumeWindow';
@@ -782,7 +786,7 @@ export class MainScene extends Phaser.Scene {
       this.terrainGraphics.fillStyle(data.color, 1);
       this.terrainGraphics.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
-      // 下地の上に地形ごとの模様(草・木・山・道路)や拠点の建物を描き込む
+      // 下地の上に地形ごとの模様(草・木・山・道路・線路)や拠点の建物を描き込む
       drawTerrainDecoration(tile.terrainType, {
         graphics: this.terrainGraphics,
         x,
@@ -790,10 +794,7 @@ export class MainScene extends Phaser.Scene {
         size: TILE_SIZE,
         col: tile.position.col,
         row: tile.position.row,
-        roadLinks:
-          tile.terrainType === 'road'
-            ? computeRoadLinks(this.map, tile.position)
-            : undefined,
+        roadLinks: this.terrainLinksAt(tile),
         ownerColor: data.canCapture ? OWNER_COLOR[tile.owner] : undefined,
       });
 
@@ -803,6 +804,20 @@ export class MainScene extends Phaser.Scene {
         this.terrainGraphics.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
       }
     });
+  }
+
+  /**
+   * 帯としてつながって見せる地形(道路・線路)の接続方向を返す。
+   * 道路は道路と拠点へ、線路は線路と駅へつながる。それ以外の地形では undefined。
+   */
+  private terrainLinksAt(tile: TileData): RoadLinks | undefined {
+    if (tile.terrainType === 'road') {
+      return computeRoadLinks(this.map, tile.position);
+    }
+    if (tile.terrainType === 'railway') {
+      return computeRailLinks(this.map, tile.position);
+    }
+    return undefined;
   }
 
   /** マスの区切り線を描画する */
@@ -3044,9 +3059,10 @@ export class MainScene extends Phaser.Scene {
     this.productionTile = tile;
 
     // 各ユニットの資金充足(生産可否)を判定して行データを作る。
-    // 生産できる種別は生産拠点(地形)ごとに異なる(工場・本拠地は地上、空港は飛行)。
-    // さらに、空港のないマップでは対空自走砲・対空ロケット砲が一覧から外れる。
-    const menu = listProductionItems(tile.terrainType, this.production.mapContext());
+    // 生産できる種別は生産拠点(地形)ごとに異なる(工場・本拠地は地上、空港は飛行、
+    // 港は海上、駅は列車砲)。さらに、空港のないマップでは対空自走砲・対空ロケット砲が、
+    // すでに 1 台持っているときは列車砲が一覧から外れる。
+    const menu = listProductionItems(tile.terrainType, this.production.mapContext(army));
     const items = menu.map((item) => ({
       ...item,
       affordable: this.production.canProduce(army, tile, item.unitType),

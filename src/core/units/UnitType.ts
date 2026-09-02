@@ -15,6 +15,9 @@
  *
  * 固定翼機は役割で 3 段階に分かれる。戦闘機は空だけを、爆撃機は地上・海上だけを狙い、
  * 攻撃機はその中間で空も陸も海も撃てる。
+ *
+ * 列車砲(railgun)は駅で生産する軌道系の地上ユニットで、線路と駅の上しか移動できない。
+ * 1 軍に 1 台しか持てないかわりに、射程 2〜6 の砲撃はロケット砲を全面的に上回る。
  */
 export type UnitType =
   | 'infantry'
@@ -34,6 +37,7 @@ export type UnitType =
   | 'antiAirRocketArtillery'
   | 'recon'
   | 'transportVehicle'
+  | 'railgun'
   | 'battleship'
   | 'escortShip'
   | 'transportShip'
@@ -58,6 +62,7 @@ export const UNIT_TYPES: readonly UnitType[] = [
   'antiAirRocketArtillery',
   'recon',
   'transportVehicle',
+  'railgun',
   'battleship',
   'escortShip',
   'transportShip',
@@ -112,9 +117,10 @@ export const AIR_ONLY_ANTI_AIR_UNIT_TYPES: readonly UnitType[] = [
 ];
 
 /**
- * 地上ユニットの一覧。輸送艦で運べる種別でもある。
- * 工場・本拠地で生産できるのはこのうち 11 種で、新型戦車だけは生産できない
- * (研究所の占領で歩兵が進化したときにだけ手に入る)。
+ * 地上ユニットの一覧。
+ * 工場・本拠地で生産できるのはこのうち 11 種で、新型戦車と列車砲はここでは生産できない
+ * (新型戦車は研究所の占領で歩兵が進化したときにだけ、列車砲は駅でだけ手に入る)。
+ * 輸送艦・列車砲が運べる種別は CARRIABLE_GROUND_UNIT_TYPES(列車砲を除いた一覧)。
  */
 export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'infantry',
@@ -129,4 +135,14 @@ export const GROUND_UNIT_TYPES: readonly UnitType[] = [
   'antiAirRocketArtillery',
   'recon',
   'transportVehicle',
+  'railgun',
 ];
+
+/**
+ * 輸送ユニット(輸送艦・列車砲)に積める地上ユニットの一覧。
+ * 列車砲は線路と駅から降りられない特別な地上ユニットなので、荷物としては運べない
+ * (自分自身を積む輪も断てる)。
+ */
+export const CARRIABLE_GROUND_UNIT_TYPES: readonly UnitType[] = GROUND_UNIT_TYPES.filter(
+  (unitType) => unitType !== 'railgun',
+);
