@@ -35,6 +35,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...game,
@@ -61,6 +62,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...game,
@@ -87,6 +89,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...game,
@@ -117,6 +120,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...game,
@@ -143,6 +147,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...game,
@@ -166,6 +171,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
         mapId: 'test',
         nightBattle: false,
         aiCharacterId: 'instructor',
+        playerCharacterId: 'instructor',
         playerSide: '1p',
         versusMode: 'cpu',
         ...game,
@@ -183,6 +189,7 @@ describe('夜戦モードの保存', () => {
       mapId: 'test',
       nightBattle: true,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -191,6 +198,7 @@ describe('夜戦モードの保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -201,12 +209,29 @@ describe('夜戦モードの保存', () => {
   });
 });
 
-describe('対戦相手の保存', () => {
+describe('指揮官の保存', () => {
+  it('自軍を率いていた指揮官の識別子を書き出し、再開時に攻撃補正を引き継げる', () => {
+    const save = createSaveData({
+      mapId: 'test',
+      nightBattle: false,
+      aiCharacterId: 'instructor',
+      playerCharacterId: 'gunnery',
+      playerSide: '1p',
+      versusMode: 'cpu',
+      ...setupGame(),
+    });
+    expect(save.playerCharacterId).toBe('gunnery');
+    expect(isSaveData(JSON.parse(JSON.stringify(save)))).toBe(true);
+    // 自軍の指揮官が欠けている(対応前の形式の)データは復元できない
+    expect(isSaveData({ ...save, playerCharacterId: undefined })).toBe(false);
+  });
+
   it('対戦していた敵指揮官の識別子を書き出し、再開時に判別できる', () => {
     const save = createSaveData({
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'vanguard',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -224,6 +249,7 @@ describe('isSaveData(中断データの検証)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -238,6 +264,7 @@ describe('isSaveData(中断データの検証)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -266,6 +293,7 @@ describe('matchesMap(中断データとマップの照合)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -278,6 +306,7 @@ describe('matchesMap(中断データとマップの照合)', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),
@@ -294,6 +323,7 @@ describe('モード選択の内容の保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '2p',
       versusMode: 'human',
       ...setupGame(),
@@ -316,6 +346,7 @@ describe('モード選択の内容の保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '2p',
       versusMode: 'cpu',
       ...game,
@@ -355,6 +386,7 @@ describe('戦績の保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       stats,
@@ -371,6 +403,7 @@ describe('戦績の保存', () => {
       mapId: 'test',
       nightBattle: false,
       aiCharacterId: 'instructor',
+      playerCharacterId: 'instructor',
       playerSide: '1p',
       versusMode: 'cpu',
       ...setupGame(),

@@ -1,6 +1,8 @@
-// 対戦相手(敵軍の指揮官)を選ぶウィンドウ。マップ選択画面の「対戦相手」ボタンで開く。
-// 左側の一覧から指揮官を選ぶと、その場で対戦相手が切り替わり、
-// 右側に肩書・名前・想定するプレイヤー層・思考パターンの説明を表示する。
+// 指揮官を選ぶウィンドウ。マップ選択画面の「自軍」「相手」ボタンで開く。
+// 左側の一覧から指揮官を選ぶと、その場で選択が切り替わり、
+// 右側に肩書・名前・想定するプレイヤー層・攻撃補正・思考パターンの説明を表示する。
+// 自軍の指揮官・対戦相手の指揮官のどちらも同じ一覧から選ぶため、
+// 見出しと操作の案内だけを呼び出し側から差し替えられるようにしてある。
 // 純粋なゲームロジックではなく Phaser の描画・入力を扱うため rendering/ に置く。
 // 指揮官のデータは src/data/aiCharacters.ts(純粋データ)が持つ。
 //
@@ -9,7 +11,12 @@
 
 import Phaser from 'phaser';
 
-import { AI_CHARACTERS, aiCharacterLabel, type AiCharacter } from '@/data/aiCharacters';
+import {
+  AI_CHARACTERS,
+  aiCharacterLabel,
+  attackBonusLabel,
+  type AiCharacter,
+} from '@/data/aiCharacters';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
 import { wrapText } from '@/ui/textWrap';
 
@@ -23,7 +30,11 @@ export interface AiCharacterWindowConfig {
   readonly viewHeight: number;
   /** 開いた時点で選ばれている指揮官の識別子 */
   readonly selectedId: string;
-  /** 一覧で指揮官が選ばれたときの通知(選んだ時点で対戦相手が切り替わる) */
+  /** タイトルバーの見出し(省略時は「対戦相手を選ぶ」) */
+  readonly title?: string;
+  /** ウィンドウ下端に出す操作の案内(省略時は対戦相手向けの文言) */
+  readonly hint?: string;
+  /** 一覧で指揮官が選ばれたときの通知(選んだ時点で選択が切り替わる) */
   readonly onSelect: (id: string) => void;
   /** 暗幕や × でウィンドウが閉じられたときの通知 */
   readonly onClose: () => void;
@@ -59,6 +70,10 @@ const DRAG_THRESHOLD = 8;
 /** ウィンドウの描画深度(ほかのウィンドウと同じく最前面帯) */
 const WINDOW_DEPTH = 300;
 
+/** 見出しと操作案内の既定値(対戦相手を選ぶときの文言) */
+const DEFAULT_TITLE = '対戦相手を選ぶ';
+const DEFAULT_HINT = '一覧から選ぶと対戦相手が切り替わります';
+
 /** 色(タイトル・枠・一覧・詳細) */
 const COLOR = {
   backdrop: 0x000000,
@@ -72,6 +87,7 @@ const COLOR = {
   name: '#ffffff',
   nameSelected: '#8ad0ff',
   difficulty: '#ffe08a',
+  bonus: '#8affb0',
   desc: '#d8d8e8',
   hint: '#9a9ab0',
   emblemStroke: 0xffffff,
@@ -80,7 +96,7 @@ const COLOR = {
 } as const;
 
 /**
- * 対戦相手(敵軍の指揮官)の選択ウィンドウ。
+ * 指揮官(自軍・対戦相手)の選択ウィンドウ。
  * ユニット説明ウィンドウと同じく、表示のたびに Phaser オブジェクトを作り直す。
  * 画面固定(setScrollFactor(0))のスクリーン座標で描く。
  */
@@ -138,7 +154,7 @@ export class AiCharacterWindow {
     return this.opened;
   }
 
-  /** 対戦相手の選択ウィンドウを開く */
+  /** 指揮官の選択ウィンドウを開く */
   open(config: AiCharacterWindowConfig): void {
     // 二重に開かないよう、開いていれば一度片付けてから作り直す
     this.close();
@@ -236,12 +252,17 @@ export class AiCharacterWindow {
     this.frameObjects.push(panel);
 
     const title = this.scene.add
-      .text(this.winX + 16, this.winY + TITLE_HEIGHT / 2, '対戦相手を選ぶ', {
-        fontFamily: 'sans-serif',
-        fontSize: '16px',
-        fontStyle: 'bold',
-        color: COLOR.title,
-      })
+      .text(
+        this.winX + 16,
+        this.winY + TITLE_HEIGHT / 2,
+        this.config?.title ?? DEFAULT_TITLE,
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '16px',
+          fontStyle: 'bold',
+          color: COLOR.title,
+        },
+      )
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setDepth(WINDOW_DEPTH + 2);
@@ -326,11 +347,16 @@ export class AiCharacterWindow {
       layer.add(name);
       this.contentObjects.push(name);
 
+      // 補正を持つ指揮官は、一覧の時点で見分けられるよう想定プレイヤー層のあとに添える
+      const sub =
+        character.attackBonus > 0
+          ? `${character.difficulty}・攻撃 +${Math.round(character.attackBonus * 100)}%`
+          : character.difficulty;
       const difficulty = this.scene.add
-        .text(textX, cy + 8, character.difficulty, {
+        .text(textX, cy + 8, sub, {
           fontFamily: 'sans-serif',
           fontSize: '10px',
-          color: COLOR.difficulty,
+          color: character.attackBonus > 0 ? COLOR.bonus : COLOR.difficulty,
         })
         .setOrigin(0, 0.5)
         .setScrollFactor(0);
@@ -369,6 +395,14 @@ export class AiCharacterWindow {
       fontSize: '12px',
       color: COLOR.difficulty,
     });
+    y += 20;
+
+    // 攻撃補正。率いる軍の全ユニットの火力に効くため、思考パターンより先に見せる
+    this.addText(px, y, `攻撃補正: ${attackBonusLabel(character)}`, {
+      fontFamily: 'sans-serif',
+      fontSize: '12px',
+      color: character.attackBonus > 0 ? COLOR.bonus : COLOR.hint,
+    });
     y += 22;
 
     // 思考パターンの説明。日本語はスペースが無く Phaser の wordWrap では折り返せないため、
@@ -383,16 +417,11 @@ export class AiCharacterWindow {
     }
 
     // 操作の案内(ウィンドウ下端)
-    this.addText(
-      px,
-      this.winY + WIN_HEIGHT - 26,
-      '一覧から選ぶと対戦相手が切り替わります',
-      {
-        fontFamily: 'sans-serif',
-        fontSize: '11px',
-        color: COLOR.hint,
-      },
-    );
+    this.addText(px, this.winY + WIN_HEIGHT - 26, this.config?.hint ?? DEFAULT_HINT, {
+      fontFamily: 'sans-serif',
+      fontSize: '11px',
+      color: COLOR.hint,
+    });
   }
 
   /** 一覧の右端のスクロールバーを描く。スクロール不要なら何も描かない */
@@ -540,7 +569,7 @@ export class AiCharacterWindow {
       }
       return;
     }
-    // 左側の一覧: 行を選んで対戦相手を切り替える(スクロール量ぶんを差し引いて行を求める)
+    // 左側の一覧: 行を選んで指揮官を切り替える(スクロール量ぶんを差し引いて行を求める)
     if (this.isInsideList(screenX, screenY)) {
       const listTop = top + TITLE_HEIGHT;
       const index = Math.floor((screenY - listTop - this.scrollOffset) / LIST_ROW_HEIGHT);

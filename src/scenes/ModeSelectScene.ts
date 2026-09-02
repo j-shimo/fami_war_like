@@ -14,10 +14,12 @@ import {
   readClearProgress,
   type ClearProgress,
 } from '@/core/progress/ClearProgress';
+import { resetClearData } from '@/core/progress/DataReset';
 import { isNewGroupUnlocked, remainingForNewGroup } from '@/core/progress/MapUnlock';
 import { readGameMode, writeGameMode } from '@/core/settings/SettingsStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { MAP_LIST, STANDARD_MAP_LIST, mapsInGroup } from '@/data/maps';
+import { ConfirmWindow } from '@/rendering/ConfirmWindow';
 
 /** 切替ボタン(担当サイド・操作の設定)の寸法と間隔 */
 const TOGGLE_HEIGHT = 30;
@@ -43,6 +45,17 @@ const MENU_TOP = 224;
 
 /** 行の左に置く見出しラベルと、ボタン列との間隔 */
 const ROW_LABEL_GAP = 12;
+
+/** クリアデータのリセットボタンの寸法と縦位置(マップ区分の入口の下) */
+const RESET_BUTTON_WIDTH = 180;
+const RESET_BUTTON_HEIGHT = 30;
+const RESET_ROW_CENTER_Y = 434;
+/** リセット後の案内文の縦位置(ボタンの下) */
+const RESET_NOTICE_Y = 462;
+/** リセットボタンの色(取り消せない操作だと分かるよう、ほかのボタンと変える) */
+const RESET_FILL = 0x2a2030;
+const RESET_STROKE = 0xd0704a;
+const RESET_LABEL_COLOR = '#ffb08a';
 
 /** 選択中・未選択のボタンの色 */
 const SELECTED_FILL = 0x2d3b5a;
@@ -111,8 +124,11 @@ interface ToggleButton<T> {
  * 新マップの入口は、通常マップをすべてクリアするまで「未解放」として開かない
  * (1P側・2P側のどちらかでクリアしていれば解放される)。
  *
+ * 画面下部には「データリセット」ボタンを置き、確認のうえでクリアデータ
+ * (クリア状況と中断データ)を消して最初から遊べる状態へ戻せるようにする。
+ *
  * 選んだ担当サイド・操作の設定はゲーム設定として保存し、次回の起動時にも引き継ぐ。
- * 詳細は docs/GameDesign.md「モード選択」を参照。
+ * 詳細は docs/GameDesign.md「モード選択」「データリセット」を参照。
  */
 export class ModeSelectScene extends Phaser.Scene {
   /** 現在選んでいる遊び方(担当サイド・操作の設定) */
@@ -123,9 +139,21 @@ export class ModeSelectScene extends Phaser.Scene {
   private versusButtons: ToggleButton<VersusMode>[] = [];
   private sideHint!: Phaser.GameObjects.Text;
   private versusHint!: Phaser.GameObjects.Text;
+  /** データリセットの確認ダイアログ(初回オープン時に生成) */
+  private confirmWindow: ConfirmWindow | null = null;
+  /** 直前の操作でクリアデータを消したか(消した直後だけ画面に案内を出す) */
+  private resetDone = false;
 
   constructor() {
     super('ModeSelectScene');
+  }
+
+  /**
+   * データリセット後は画面を作り直して開き直す(新マップの解放状態が変わるため)。
+   * そのときだけ「リセットしました」の案内を出すよう、フラグを受け取る。
+   */
+  init(data: { resetDone?: boolean } = {}): void {
+    this.resetDone = data.resetDone === true;
   }
 
   create(): void {
@@ -164,6 +192,86 @@ export class ModeSelectScene extends Phaser.Scene {
     this.createSideSelector(width);
     this.createVersusSelector(width);
     this.createMapMenu(width);
+    this.createResetButton(width);
+
+    // シーンを抜けるときに、開いたままの確認ダイアログを片付ける
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.confirmWindow?.close();
+      this.confirmWindow = null;
+    });
+  }
+
+  /**
+   * クリアデータのリセットボタンを画面下部に置く。
+   * 押すと確認ダイアログを出し、「はい」を選んだときだけクリアデータを消す。
+   */
+  private createResetButton(width: number): void {
+    const left = width / 2 - RESET_BUTTON_WIDTH / 2;
+    const top = RESET_ROW_CENTER_Y - RESET_BUTTON_HEIGHT / 2;
+
+    const button = this.add
+      .rectangle(left, top, RESET_BUTTON_WIDTH, RESET_BUTTON_HEIGHT, RESET_FILL)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, RESET_STROKE)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(width / 2, RESET_ROW_CENTER_Y, 'データリセット', {
+        fontFamily: 'sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: RESET_LABEL_COLOR,
+      })
+      .setOrigin(0.5);
+
+    button.on(Phaser.Input.Events.POINTER_OVER, () => {
+      button.setFillStyle(0x3a2a3c);
+    });
+    button.on(Phaser.Input.Events.POINTER_OUT, () => {
+      button.setFillStyle(RESET_FILL);
+    });
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => this.confirmReset());
+
+    if (this.resetDone) {
+      this.add
+        .text(width / 2, RESET_NOTICE_Y, 'クリアデータをリセットしました', {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          color: '#8affb0',
+        })
+        .setOrigin(0.5);
+    }
+  }
+
+  /** クリアデータを消してよいか確認し、「はい」のときだけ消す */
+  private confirmReset(): void {
+    const width = DEFAULT_DIMENSIONS.gameWidth;
+    const height = DEFAULT_DIMENSIONS.gameHeight;
+    this.confirmWindow ??= new ConfirmWindow(this);
+    this.confirmWindow.open({
+      gameWidth: width,
+      gameHeight: height,
+      viewWidth: width,
+      viewHeight: height,
+      title: 'データリセット',
+      // ConfirmWindow は日本語を自動では折り返せないため、収まる長さで行を分けておく
+      message: [
+        'クリアデータをリセットしてよろしいですか?',
+        'クリア状況・戦績・中断データが消えます',
+      ],
+      onYes: () => this.resetProgress(),
+      onNo: () => {
+        // 何もせずダイアログを閉じるだけ(ConfirmWindow 側で片付け済み)
+      },
+    });
+  }
+
+  /**
+   * クリアデータを消して画面を開き直す。
+   * 新マップの解放状態が変わるため、表示は作り直したうえで案内を出す。
+   */
+  private resetProgress(): void {
+    resetClearData();
+    this.scene.restart({ resetDone: true });
   }
 
   /** 担当サイド(1P側 / 2P側)の切替ボタンを並べる */

@@ -11,6 +11,11 @@ import {
   canCounterattack,
   isWithinAttackRange,
 } from '@/core/battle/AttackRange';
+import {
+  attackBonusOf,
+  NO_COMMANDER_BONUS,
+  type CommanderBonus,
+} from '@/core/battle/CommanderBonus';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 
 /** 攻撃 1 回ぶんの結果 */
@@ -33,9 +38,16 @@ export interface AttackResult {
 
 /** 攻撃の実行を担うマネージャ */
 export class BattleManager {
+  /**
+   * @param map 地形防御値の参照に使うマップ
+   * @param units 撃破時にユニットを取り除くための管理
+   * @param bonus 軍ごとの指揮官の攻撃補正(省略時は補正なし)。
+   *   攻撃・反撃のどちらも、撃つ側の軍の補正で計算する
+   */
   constructor(
     private readonly map: MapManager,
     private readonly units: UnitManager,
+    private readonly bonus: CommanderBonus = NO_COMMANDER_BONUS,
   ) {}
 
   /**
@@ -113,7 +125,10 @@ export class BattleManager {
   private applyDamage(attacker: Unit, defender: Unit, lost: Unit[]): number {
     const terrain = this.map.getTerrainData(defender.position);
     const defense = terrain?.defense ?? 0;
-    const damage = calculateDamage(attacker, defender, defense);
+    const damage = calculateDamage(attacker, defender, defense, {
+      // 攻撃側の軍を率いる指揮官の補正で火力が上がる(反撃も撃つ側の補正で計算する)
+      attackBonus: attackBonusOf(this.bonus, attacker.armyType),
+    });
     defender.currentHp = Math.max(0, defender.currentHp - damage);
     this.applyDamageToPassengers(defender, damage, lost);
     return damage;

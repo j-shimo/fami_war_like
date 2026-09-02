@@ -1,9 +1,13 @@
-// 対戦する敵軍の指揮官(対戦キャラクター)の一覧。
-// キャラクターごとに敵軍AIの思考パターン(AiBehavior)を紐づけ、マップ選択画面で選べるようにする。
+// 指揮官(対戦キャラクター)の一覧。
+// キャラクターごとに敵軍AIの思考パターン(AiBehavior)と攻撃補正を紐づけ、
+// マップ選択画面で「自軍の指揮官」と「対戦相手の指揮官」をそれぞれ選べるようにする。
 // CLAUDE.md の方針に従い、キャラクターも思考パターンの数値もすべてオリジナルとする。
 //
-// 新しい思考パターンを増やすときは、AiBehavior のパラメータを組み合わせたキャラクターを
-// この一覧へ追加すれば選択画面に並ぶ。
+// 思考パターンは敵軍AIが使うものなので、自軍の指揮官に選んだときは攻撃補正だけが効く
+// (自軍はプレイヤーが操作するため、思考パターンの出番がない)。
+//
+// 新しい指揮官を増やすときは、AiBehavior のパラメータと攻撃補正を組み合わせたキャラクターを
+// この一覧へ追加すれば、自軍・対戦相手の両方の選択画面に並ぶ。
 
 import type { AiBehavior } from '@/core/ai/AiBehavior';
 
@@ -23,15 +27,21 @@ export interface AiCharacter {
    * ゲームのルール(軍の色)とは関係しない。
    */
   readonly emblemColor: number;
-  /** 思考パターンの説明(選択画面の対戦相手ウィンドウに表示する) */
+  /** 思考パターンの説明(選択画面の指揮官ウィンドウに表示する) */
   readonly description: string;
-  /** この指揮官の思考パターン */
+  /**
+   * この指揮官が率いる軍の攻撃補正。0.1 なら「全ユニットの攻撃力 +10%」。
+   * 補正を持たない指揮官は 0(これまでどおりのダメージ計算)。
+   * 自軍の指揮官に選べばこちらの火力が上がり、対戦相手に選べば相手の火力が上がる。
+   */
+  readonly attackBonus: number;
+  /** この指揮官の思考パターン(敵軍AIが使う。自軍の指揮官に選んだときは使わない) */
   readonly behavior: AiBehavior;
 }
 
 /**
- * 選択できる対戦キャラクターの一覧(表示順)。
- * 先頭が既定の対戦相手になる。
+ * 選択できる指揮官の一覧(表示順)。
+ * 先頭が既定の指揮官(自軍・対戦相手ともに初期選択)になる。
  */
 export const AI_CHARACTERS: readonly AiCharacter[] = [
   {
@@ -42,6 +52,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     emblemColor: 0x6ec1a0,
     description:
       '目の前の敵と拠点を順に片づける、基本に忠実な指揮官。遠くを見ないぶん動きが読みやすく、まずはこの相手で戦い方を覚えられる。攻撃できる敵がいれば必ず攻撃し、移動できる範囲に拠点があれば占領する。生産は毎ターン、資金で買えるいちばん高価なユニットを選ぶ。',
+    // 補正を持たない基本の指揮官。ここを基準に、他の指揮官の強さを測る
+    attackBonus: 0,
     // 敵AIを導入した当初からの思考パターン。既定値そのままの素朴な方針。
     behavior: {
       production: 'strongest',
@@ -65,6 +77,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     emblemColor: 0xe8734a,
     description:
       'まず歩兵 6 体をそろえて中立都市を押さえ、伸ばした収入で重装備を整える指揮官。歩兵がそろうまでは歩兵だけを生産し、そのあとは安いユニットを買わずに資金を貯めて強力なユニットを狙う。戦闘ユニットは敵が 1 体も見えていなくても、通れるマスをたどって自軍の本拠地へ突き進む。',
+    attackBonus: 0,
     behavior: {
       // 序盤は歩兵で中立都市を取りに行き、収入を伸ばしてから戦力を整える
       production: 'infantryFirst',
@@ -93,6 +106,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     emblemColor: 0x8f7ad6,
     description:
       '編成を組み、戦力を一段ずつ積み上げてくる指揮官。占領役の歩兵と目になる偵察車を切らさず、同じユニットを並べるより一段強いユニットを狙って資金を貯める。ただし戦力で押されているあいだは貯めこまず、買えるものを買って盛り返してくる。自走砲は間合いを取って一方的に撃ち、部隊は固まって前進するため各個撃破しにくい。夜戦では視界の狭い鈍重なユニットを買わず、目の利く戦力でそろえてくる。',
+    attackBonus: 0,
     behavior: {
       // 「最低限の編成をそろえてから、一段ずつ強い戦力へ乗り換える」方針
       production: 'roster',
@@ -121,13 +135,39 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       regroupRadius: 2,
     },
   },
+  {
+    id: 'gunnery',
+    name: 'イグナ',
+    title: '火力長',
+    difficulty: '中級〜上級',
+    emblemColor: 0xd8c24a,
+    description:
+      '砲の腕だけで戦局を動かす指揮官。動き方はノーラとまったく同じで、目の前の敵と拠点を順に片づけ、生産は毎ターンいちばん高価なユニットを選ぶ。違うのは火力で、率いる軍は全ユニットが攻撃時に 10% の攻撃補正を受ける。読みやすい動きのまま一撃が重くなるため、同じ撃ち合いでもこちらが先に削り切られる。自軍の指揮官に選べば、その 10% はこちらの火力になる。',
+    // ノーラと同じ +10% の攻撃補正だけを持つ指揮官。
+    // 撃ち合いの一手ぶんが重くなるため、相手にするとノーラより一段手ごわい
+    attackBonus: 0.1,
+    // 思考パターンはノーラ(既定)と同一。強さの違いを攻撃補正だけに絞っている
+    behavior: {
+      production: 'strongest',
+      infantryQuota: 0,
+      roster: [],
+      powerCostRatio: 0,
+      saveForUpgrade: false,
+      advance: 'nearestEnemy',
+      routing: 'direct',
+      preferNeutralCapture: false,
+      indirectStandoff: false,
+      nightVisionFloor: 0,
+      regroupRadius: 0,
+    },
+  },
 ];
 
-/** 既定の対戦キャラクター(選択画面の初期選択) */
+/** 既定の指揮官(自軍・対戦相手ともに選択画面の初期選択) */
 export const DEFAULT_AI_CHARACTER: AiCharacter = AI_CHARACTERS[0];
 
 /**
- * 識別子から対戦キャラクターを引く。
+ * 識別子から指揮官を引く。
  * 未知の識別子(古い中断データなど)の場合は既定のキャラクターを返す。
  */
 export function getAiCharacter(id: string | undefined): AiCharacter {
@@ -137,4 +177,15 @@ export function getAiCharacter(id: string | undefined): AiCharacter {
 /** 肩書つきの表示名(例: 「教導官 ノーラ」)を返す */
 export function aiCharacterLabel(character: AiCharacter): string {
   return `${character.title} ${character.name}`;
+}
+
+/**
+ * 攻撃補正の表示文(例: 「全ユニットの攻撃力 +10%」)を返す。
+ * 補正を持たない指揮官は、補正が無いことをはっきり示す文言を返す。
+ */
+export function attackBonusLabel(character: AiCharacter): string {
+  if (character.attackBonus <= 0) {
+    return '攻撃補正なし';
+  }
+  return `全ユニットの攻撃力 +${Math.round(character.attackBonus * 100)}%`;
 }

@@ -6,6 +6,7 @@ import {
   type AttackTargetOptions,
 } from '@/core/battle/AttackRange';
 import { forecastBattle } from '@/core/battle/BattleForecast';
+import { NO_COMMANDER_BONUS, type CommanderBonus } from '@/core/battle/CommanderBonus';
 import { BattleManager, type AttackResult } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
@@ -396,6 +397,16 @@ export class MainScene extends Phaser.Scene {
   private nightBattle = false;
   /** 対戦している敵指揮官(マップ選択画面で選ぶ)。思考パターンはここから決まる */
   private aiCharacter: AiCharacter = DEFAULT_AI_CHARACTER;
+  /**
+   * 自軍を率いる指揮官(マップ選択画面で選ぶ)。
+   * 自軍はプレイヤーが操作するため思考パターンは使わず、攻撃補正だけが効く。
+   */
+  private playerCharacter: AiCharacter = DEFAULT_AI_CHARACTER;
+  /**
+   * 両軍の指揮官から決まる、軍ごとの攻撃補正。
+   * 戦闘・戦闘予測・敵軍AIの見積もりで同じ数値を使うよう、init() で 1 度だけ組み立てる。
+   */
+  private commanderBonus: CommanderBonus = NO_COMMANDER_BONUS;
   /** 担当するプレイヤーサイド(モード選択画面で選ぶ)。2P側は盤面を入れ替えて後手番になる */
   private playerSide: PlayerSide = DEFAULT_GAME_MODE.side;
   /** 操作の設定(モード選択画面で選ぶ)。対人戦では敵軍AIを動かさない */
@@ -451,6 +462,7 @@ export class MainScene extends Phaser.Scene {
     mapId?: string;
     nightBattle?: boolean;
     aiCharacterId?: string;
+    playerCharacterId?: string;
     playerSide?: PlayerSide;
     versusMode?: VersusMode;
     save?: SaveData;
@@ -466,6 +478,16 @@ export class MainScene extends Phaser.Scene {
     this.nightBattle = data.nightBattle ?? false;
     // 未知の識別子(古い中断データなど)の場合は既定の指揮官にフォールバックする
     this.aiCharacter = getAiCharacter(data.aiCharacterId);
+    this.playerCharacter = getAiCharacter(data.playerCharacterId);
+    // 対人戦では指揮官を選ばない(どちらの手番も人が操作する)ため、補正もかけない。
+    // 対 CPU では自軍・敵軍それぞれの指揮官の攻撃補正がそのまま軍の補正になる
+    this.commanderBonus =
+      this.versusMode === 'human'
+        ? NO_COMMANDER_BONUS
+        : {
+            player: this.playerCharacter.attackBonus,
+            enemy: this.aiCharacter.attackBonus,
+          };
     // 敵の行動アニメは中断データではなくゲーム設定として保存しているため、
     // マップ・再開の内容とは関わりなく毎回保存済みの設定を読み直す
     this.enemyAnimationMode = readEnemyAnimationMode();
@@ -492,7 +514,7 @@ export class MainScene extends Phaser.Scene {
     this.gameHeight = dims.gameHeight;
     this.scale.resize(this.gameWidth, this.gameHeight);
     this.setupCamera();
-    this.battle = new BattleManager(this.map, this.units);
+    this.battle = new BattleManager(this.map, this.units, this.commanderBonus);
     // 2P側は後手番。入れ替え後の敵軍(元の 1P 側)を先手にする
     this.turn =
       restored?.turn ??
@@ -519,6 +541,8 @@ export class MainScene extends Phaser.Scene {
       nightBattle: this.nightBattle,
       // 選んだ敵指揮官の思考パターン(生産方針・進軍方針)で戦わせる
       behavior: this.aiCharacter.behavior,
+      // 与ダメージ・被反撃の見積もりを実際の戦闘とそろえるため、同じ補正を渡す
+      commanderBonus: this.commanderBonus,
     });
     this.audio = new SoundManager();
     // ブラウザが非アクティブ(タブ切替・アプリ切替)の間はゲーム音を止める
@@ -1116,7 +1140,7 @@ export class MainScene extends Phaser.Scene {
 
   /** 攻撃側→対象の戦闘予測を計算し、対象マス付近にポップアップ表示する */
   private showForecastPopup(attacker: Unit, target: Unit): void {
-    const forecast = forecastBattle(attacker, target, this.map);
+    const forecast = forecastBattle(attacker, target, this.map, this.commanderBonus);
     const view = buildBattleForecastView(forecast, attacker, target);
     const style = FORECAST_STYLE[view.alert];
     this.forecastText.setText([...view.lines]);
@@ -2119,6 +2143,7 @@ export class MainScene extends Phaser.Scene {
         mapId: this.mapId,
         nightBattle: this.nightBattle,
         aiCharacterId: this.aiCharacter.id,
+        playerCharacterId: this.playerCharacter.id,
         playerSide: this.playerSide,
         versusMode: this.versusMode,
         stats: this.stats.snapshot(),

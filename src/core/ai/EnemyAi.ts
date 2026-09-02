@@ -26,6 +26,11 @@
 
 import { DEFAULT_AI_BEHAVIOR, type AiBehavior } from '@/core/ai/AiBehavior';
 import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
+import {
+  attackBonusOf,
+  NO_COMMANDER_BONUS,
+  type CommanderBonus,
+} from '@/core/battle/CommanderBonus';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 import type { AttackResult, BattleManager } from '@/core/battle/BattleManager';
 import type { CaptureResult, CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -146,6 +151,12 @@ export interface EnemyAiDeps {
    * 対戦キャラクターの選択に応じて、生産方針と進軍方針を差し替えるために使う。
    */
   readonly behavior?: AiBehavior;
+  /**
+   * 軍ごとの指揮官の攻撃補正(省略時は補正なし)。
+   * 与ダメージ・被反撃の見積もりを実際の戦闘と一致させるため、
+   * BattleManager へ渡すものと同じ補正を渡す。
+   */
+  readonly commanderBonus?: CommanderBonus;
 }
 
 /** 拠点占領の優先度。本拠地を最優先で狙う */
@@ -241,6 +252,7 @@ export class EnemyAi {
   private readonly production: ProductionManager;
   private readonly nightBattle: boolean;
   private readonly behavior: AiBehavior;
+  private readonly commanderBonus: CommanderBonus;
   /**
    * 経路距離(PathDistance)の計算結果のキャッシュ。
    * 同じ目標・同じ移動タイプを何体ものユニットが参照するため、手番ごとにまとめて使い回す。
@@ -262,6 +274,12 @@ export class EnemyAi {
     this.production = deps.production;
     this.nightBattle = deps.nightBattle ?? false;
     this.behavior = deps.behavior ?? DEFAULT_AI_BEHAVIOR;
+    this.commanderBonus = deps.commanderBonus ?? NO_COMMANDER_BONUS;
+  }
+
+  /** 指定ユニットが攻撃するときにかかる、指揮官の攻撃補正 */
+  private attackBonus(unit: Unit): number {
+    return attackBonusOf(this.commanderBonus, unit.armyType);
   }
 
   /** この AI の思考パターン */
@@ -391,7 +409,9 @@ export class EnemyAi {
       if (!canAttackUnit(unit, target)) {
         continue;
       }
-      const damage = calculateDamage(unit, target, this.terrainDefense(target.position));
+      const damage = calculateDamage(unit, target, this.terrainDefense(target.position), {
+        attackBonus: this.attackBonus(unit),
+      });
       // ダメージを与えられない相手には攻撃しない(無駄な行動を避ける)
       if (damage <= 0) {
         continue;
@@ -466,7 +486,10 @@ export class EnemyAi {
     // 反撃は被弾後の HP で行われるため、想定残 HP に一時的に置き換えて見積もる
     const savedHp = target.currentHp;
     target.currentHp = Math.max(1, savedHp - damage);
-    const counter = calculateDamage(target, attacker, this.terrainDefense(from));
+    const counter = calculateDamage(target, attacker, this.terrainDefense(from), {
+      // 反撃は防御側が撃つため、防御側の軍の指揮官補正で見積もる
+      attackBonus: this.attackBonus(target),
+    });
     target.currentHp = savedHp;
     return counter;
   }

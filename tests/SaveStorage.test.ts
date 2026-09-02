@@ -52,6 +52,7 @@ function makeSaveData(): SaveData {
     mapId: 'test',
     nightBattle: false,
     aiCharacterId: 'instructor',
+    playerCharacterId: 'instructor',
     playerSide: '1p',
     versusMode: 'cpu',
     map,

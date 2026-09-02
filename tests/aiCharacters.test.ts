@@ -4,6 +4,7 @@ import {
   AI_CHARACTERS,
   DEFAULT_AI_CHARACTER,
   aiCharacterLabel,
+  attackBonusLabel,
   getAiCharacter,
 } from '@/data/aiCharacters';
 
@@ -90,6 +91,25 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
       expect(character.behavior.powerCostRatio).toBeLessThan(1);
     }
   });
+
+  it('攻撃補正は 0 以上の現実的な範囲に収まっている', () => {
+    for (const character of AI_CHARACTERS) {
+      expect(character.attackBonus).toBeGreaterThanOrEqual(0);
+      // 補正だけで勝負が決まってしまわないよう、いまは 5 割を上限の目安にしている
+      expect(character.attackBonus).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('攻撃補正を持つ指揮官がいて、ノーラと同じ思考パターンで戦う', () => {
+    const gunner = AI_CHARACTERS.find((character) => character.attackBonus > 0);
+    expect(gunner).toBeDefined();
+    // 全ユニットの攻撃時に 10% の補正がかかる
+    expect(gunner?.attackBonus).toBeCloseTo(0.1);
+    // 強さの違いを攻撃補正だけに絞るため、思考パターンは既定(ノーラ)と同一にしてある
+    expect(gunner?.behavior).toEqual(DEFAULT_AI_CHARACTER.behavior);
+    // 既定の指揮官(ノーラ)自身は補正を持たない
+    expect(DEFAULT_AI_CHARACTER.attackBonus).toBe(0);
+  });
 });
 
 describe('getAiCharacter', () => {
@@ -110,5 +130,16 @@ describe('aiCharacterLabel', () => {
     expect(aiCharacterLabel(AI_CHARACTERS[0])).toBe(
       `${AI_CHARACTERS[0].title} ${AI_CHARACTERS[0].name}`,
     );
+  });
+});
+
+describe('attackBonusLabel', () => {
+  it('補正を持つ指揮官は割合つきの説明を返す', () => {
+    const gunner = AI_CHARACTERS.find((character) => character.attackBonus > 0);
+    expect(gunner && attackBonusLabel(gunner)).toBe('全ユニットの攻撃力 +10%');
+  });
+
+  it('補正を持たない指揮官は補正が無いことを示す', () => {
+    expect(attackBonusLabel(DEFAULT_AI_CHARACTER)).toBe('攻撃補正なし');
   });
 });
