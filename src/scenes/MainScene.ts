@@ -106,6 +106,7 @@ import { armyLabel, formatTurnBanner, type ArmyLabelOptions } from '@/ui/turnInf
 import { formatUnitInfo } from '@/ui/unitInfo';
 import {
   computeRailLinks,
+  computeRiverLinks,
   computeRoadLinks,
   type RoadLinks,
 } from '@/rendering/roadLinks';
@@ -807,8 +808,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 帯としてつながって見せる地形(道路・線路)の接続方向を返す。
-   * 道路は道路と拠点へ、線路は線路と駅へつながる。それ以外の地形では undefined。
+   * 帯としてつながって見せる地形(道路・線路・川)の接続方向を返す。
+   * 道路は道路と拠点へ、線路は線路と駅へ、川は川と水面(海・海岸・港)へつながる。
+   * それ以外の地形では undefined。
    */
   private terrainLinksAt(tile: TileData): RoadLinks | undefined {
     if (tile.terrainType === 'road') {
@@ -816,6 +818,9 @@ export class MainScene extends Phaser.Scene {
     }
     if (tile.terrainType === 'railway') {
       return computeRailLinks(this.map, tile.position);
+    }
+    if (tile.terrainType === 'river') {
+      return computeRiverLinks(this.map, tile.position);
     }
     return undefined;
   }

@@ -1,12 +1,12 @@
-// 道路・線路タイルが上下左右のどの隣接マスと「つながって見えるか」を判定する。
+// 道路・線路・川タイルが上下左右のどの隣接マスと「つながって見えるか」を判定する。
 // Phaser には依存しない純粋なロジックとして実装し、Vitest でテストする。
-// 描画側(terrainDecoration)はこの結果を使って道路の帯と中央線、線路のレールを描く。
+// 描画側(terrainDecoration)はこの結果を使って道路の帯と中央線、線路のレール、川の流れを描く。
 
 import { gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import { getTerrainData } from '@/data/terrainData';
 
-/** 道路・線路が各方向の隣接マスへつながっているか */
+/** 道路・線路・川が各方向の隣接マスへつながっているか */
 export interface RoadLinks {
   readonly up: boolean;
   readonly down: boolean;
@@ -68,5 +68,37 @@ export function computeRailLinks(map: MapManager, pos: GridPosition): RoadLinks 
     down: isRailConnectable(map, gridPosition(col, row + 1)),
     left: isRailConnectable(map, gridPosition(col - 1, row)),
     right: isRailConnectable(map, gridPosition(col + 1, row)),
+  };
+}
+
+/**
+ * 指定座標の隣接マスが川として連結して見えるかを返す。
+ * 川どうしに加えて、川が注ぎ込む先の水面(海・海岸・港)も接続先とみなす
+ * (陸地へはつながらない。川は水の流れとして描く)。
+ */
+function isRiverConnectable(map: MapManager, pos: GridPosition): boolean {
+  const tile = map.getTile(pos);
+  if (!tile) {
+    return false;
+  }
+  return (
+    tile.terrainType === 'river' ||
+    tile.terrainType === 'sea' ||
+    tile.terrainType === 'beach' ||
+    tile.terrainType === 'port'
+  );
+}
+
+/**
+ * 指定した川マスについて、上下左右それぞれへ水面が続いているかを判定する。
+ * 描画時に流れの向き(横に流れる川か、縦に流れる川か)を決めるために使う。
+ */
+export function computeRiverLinks(map: MapManager, pos: GridPosition): RoadLinks {
+  const { col, row } = pos;
+  return {
+    up: isRiverConnectable(map, gridPosition(col, row - 1)),
+    down: isRiverConnectable(map, gridPosition(col, row + 1)),
+    left: isRiverConnectable(map, gridPosition(col - 1, row)),
+    right: isRiverConnectable(map, gridPosition(col + 1, row)),
   };
 }

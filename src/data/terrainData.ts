@@ -139,7 +139,8 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
     canRepair: false,
     // 地上ユニット(歩兵・車両)は進入不可。飛行ユニットは上空を、
     // 海上ユニット(戦艦・護衛艦・輸送艦・潜水艦)は水上を移動コスト 1 で進める。
-    // 海と陸の境目にあたる海岸(beach)・港(port)だけは海上ユニットも進入できる。
+    // 海と陸の境目にあたる海岸(beach)・港(port)と、陸を刻む川(river)だけは
+    // 海上ユニットも進入できる。
     moveCost: {
       infantry: IMPASSABLE,
       vehicle: IMPASSABLE,
@@ -149,6 +150,30 @@ export const TERRAIN_DATA: Readonly<Record<TerrainType, TerrainData>> = {
       rail: IMPASSABLE,
     },
     color: 0x2f6aa0,
+  },
+  river: {
+    terrainType: 'river',
+    terrainName: '川',
+    // 遮蔽の無い浅瀬。渡っている最中は撃たれ放題という位置づけで防御は 0(海・海岸と同じ)。
+    defense: 0,
+    canCapture: false,
+    canProduce: false,
+    canRepair: false,
+    // 陸を分断しながら、海上ユニットには水路として使える地形。
+    // 歩兵は膝まで水に浸かって渡るのでコスト 2(山・海岸と同じ)、装軌車両は
+    // 川底を踏み固めながら渡るのでコスト 3(全地形の中で最も重い進入コスト)。
+    // 装輪車両はタイヤが川底に取られて渡れない。海上ユニットは海と同じくコスト 1 で遡上でき、
+    // 「陸の切れ目」であると同時に「艦艇の通り道」にもなる。
+    moveCost: {
+      infantry: 2,
+      vehicle: 3,
+      wheeled: IMPASSABLE,
+      air: 1,
+      sea: 1,
+      rail: IMPASSABLE,
+    },
+    // 海(濃い青)と見分けられるよう、川底が透ける浅瀬の明るい青にする
+    color: 0x4f9ec0,
   },
   beach: {
     terrainType: 'beach',

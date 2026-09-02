@@ -9,6 +9,7 @@ import { ISLAND_MAP } from '@/data/maps/islandMap';
 import { LONG_ISLAND_MAP } from '@/data/maps/longIslandMap';
 import { DEFAULT_MAP_CATEGORY, type MapCategory } from '@/data/maps/mapCategory';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+import { RAIL_BRIDGE_MAP } from '@/data/maps/railBridgeMap';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { RING_LABORATORY_MAP } from '@/data/maps/ringLaboratoryMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
@@ -121,6 +122,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       description:
         '「日」を横倒しにした街道が四隅を結ぶ 17x15 の地上戦マップ。両軍とも本拠地 1 + 工場 3・収入 4000・初期資金 0 の対等な立ち上がりで、左下が先手の自軍・右上が後手の敵軍の陣地。街道に挟まれた内側は左が山(車両は進入不可)・中央が平地・右が森(装輪車両は進入不可)の 3 帯に分かれる。盤面中央の中立研究所は両軍の前線工場から等距離(歩兵でちょうど 3 ターン)で、先に動ける自軍が新型戦車を手にする。中立都市は 14 個あり、先に届くのは自軍 6 個・敵軍 8 個。陣地の隣の都市は後手だけが 1 ターンで届くので、収入が伸び始めるのは後手のほうが 1 ターン早い。',
       // 追加要素(研究所・新型戦車)を主題にした新マップ
+      group: 'new',
+    },
+    {
+      id: 'railBridge',
+      definition: RAIL_BRIDGE_MAP,
+      description:
+        '「山」の字の両端を上まで伸ばした陸地を、最上段の線路が一直線に貫く 23x16 のマップ。左上が先手の自軍・右上が後手の敵軍で、両軍とも本拠地 1 + 工場 3 + 駅 1 + 港 1(収入 6000)の対等な立ち上がり。自軍の駅から中立の駅を挟んで敵軍の駅までが 1 本の線路でつながっており、入江の上は幅 1 マスの鉄橋になる。線路を使わない地上ユニットは南岸までぐるっと回り込むしかなく、敵本拠地までの距離は歩兵で線路 16・南岸回り 42(中立駅までは 7 と 34)。中央の中立駅は森と中立都市に囲まれた高台にあり、南から上がるには幅 1 マスの川を渡ることになる(装輪車両は渡れない)。川は左右の入江をつなぐ水路でもあり、海上ユニットは川を通って敵の港へ回り込める。中立拠点は 24 個で、後手の敵軍は陣地の隣に中立都市が 2 個多い。',
+      // 駅・線路・列車砲と、新しい地形「川」を主題にした新マップ
       group: 'new',
     },
     {
