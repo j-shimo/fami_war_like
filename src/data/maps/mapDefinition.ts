@@ -12,6 +12,7 @@ export type TerrainSymbol =
   | 'f' // 森
   | 'm' // 山
   | 'r' // 道路
+  | '=' // 線路
   | '~' // 海
   | 'b' // 海岸
   | 'c' // 都市
@@ -19,6 +20,7 @@ export type TerrainSymbol =
   | 'F' // 工場
   | 'A' // 空港
   | 'P' // 港
+  | 'S' // 駅
   | 'H'; // 本拠地
 
 /** 地形記号 → 地形種別の対応表 */
@@ -27,6 +29,7 @@ export const SYMBOL_TO_TERRAIN: Readonly<Record<TerrainSymbol, TerrainType>> = {
   f: 'forest',
   m: 'mountain',
   r: 'road',
+  '=': 'railway',
   '~': 'sea',
   b: 'beach',
   c: 'city',
@@ -34,6 +37,7 @@ export const SYMBOL_TO_TERRAIN: Readonly<Record<TerrainSymbol, TerrainType>> = {
   F: 'factory',
   A: 'airport',
   P: 'port',
+  S: 'station',
   H: 'headquarters',
 };
 

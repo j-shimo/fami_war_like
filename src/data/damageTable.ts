@@ -46,6 +46,10 @@ import type { UnitType } from '@/core/units/UnitType';
  *   海上ユニットには攻撃できない(0)。
  * - 輸送車(transportVehicle): 歩兵を 1 体運ぶ地上の輸送ユニット。相性は偵察車と同じ
  *   (攻撃側の行・防御側の列とも偵察車と同じ値)。
+ * - 列車砲(railgun): 駅で生産し線路の上だけを走る射程 2〜6 の間接攻撃ユニット。
+ *   攻撃できる相手への火力はすべてロケット砲を上回るが、飛行ユニットと潜水艦は撃てない(0)。
+ *   被ダメージは車体が重装甲なぶん重戦車と同じ水準で、歩兵・偵察車・輸送車・対空戦車の
+ *   機関銃や機関砲ではほとんど傷がつかない(2〜5)。
  * - 戦艦(battleship): 射程 3〜6 の艦砲で地上・水上・上空を叩く主力。潜水艦だけは撃てない(0)。
  *   固定翼機を撃てる唯一の海上ユニット(戦闘機 60・攻撃機 70・爆撃機 80)。
  * - 護衛艦(escortShip): 対潜・近接対空の護衛役。潜水艦とヘリ系以外は撃てない(0)。
@@ -74,6 +78,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 50,
       recon: 30,
       transportVehicle: 30,
+      railgun: 2,
       battleship: 5,
       escortShip: 10,
       transportShip: 15,
@@ -102,6 +107,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 80,
       recon: 75,
       transportVehicle: 75,
+      railgun: 30,
       // 対艦装備を持たないため、水上艦には 1 割しか通らない。潜水艦は攻撃できない。
       battleship: 10,
       escortShip: 10,
@@ -129,6 +135,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 90,
       recon: 80,
       transportVehicle: 80,
+      railgun: 45,
       battleship: 15,
       escortShip: 15,
       transportShip: 20,
@@ -156,6 +163,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 95,
       recon: 85,
       transportVehicle: 85,
+      railgun: 60,
       battleship: 20,
       escortShip: 20,
       transportShip: 20,
@@ -185,6 +193,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 95,
       recon: 85,
       transportVehicle: 85,
+      railgun: 60,
       battleship: 20,
       escortShip: 20,
       transportShip: 20,
@@ -208,6 +217,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 75,
       recon: 70,
       transportVehicle: 70,
+      railgun: 35,
       battleship: 25,
       escortShip: 40,
       transportShip: 50,
@@ -234,6 +244,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 90,
       recon: 85,
       transportVehicle: 85,
+      railgun: 40,
       // 装甲の厚い戦艦には 3〜4 割、護衛艦・輸送艦には 6 割。潜水艦は攻撃できない。
       battleship: 35,
       escortShip: 60,
@@ -266,6 +277,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       // 海上ユニットにも攻撃できない。
       battleship: 0,
       escortShip: 0,
@@ -297,6 +309,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 90,
       recon: 85,
       transportVehicle: 85,
+      railgun: 85,
       // 装甲の厚い戦艦には 4〜5 割、護衛艦・輸送艦には 7 割。潜水艦は攻撃できない。
       battleship: 45,
       escortShip: 70,
@@ -328,6 +341,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 90,
       recon: 70,
       transportVehicle: 70,
+      railgun: 60,
       // 海上ユニットへの火力が高い(戦艦 6〜7 割・護衛艦/輸送艦 9 割)。潜水艦は不可。
       battleship: 65,
       escortShip: 90,
@@ -355,6 +369,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 85,
       recon: 75,
       transportVehicle: 75,
+      railgun: 30,
       battleship: 25,
       escortShip: 40,
       transportShip: 60,
@@ -378,6 +393,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -404,6 +420,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 85,
       recon: 65,
       transportVehicle: 65,
+      railgun: 5,
       battleship: 5,
       escortShip: 15,
       transportShip: 25,
@@ -434,6 +451,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -464,6 +482,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -493,6 +512,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       // 同じ偵察車同士は装甲が薄いぶん撃ち合いになる。
       recon: 45,
       transportVehicle: 45,
+      railgun: 3,
       // 近接攻撃のみで対艦装備も持たないため、海上ユニットには攻撃できない。
       battleship: 0,
       escortShip: 0,
@@ -525,10 +545,46 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       // 装甲の薄い偵察車・輸送車同士は撃ち合いになる。
       recon: 45,
       transportVehicle: 45,
+      railgun: 3,
       // 近接攻撃のみで対艦装備も持たないため、海上ユニットには攻撃できない。
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
+      submarine: 0,
+    },
+    /**
+     * 列車砲: 駅で生産し、線路の上だけを走る射程 2〜6 の間接攻撃ユニット。
+     * 攻撃できる相手への火力は**すべてロケット砲を上回る**、地上で最も重い砲。
+     * 仰角を取れない固定の大口径砲なので飛行ユニットは 1 機も撃てず(0)、
+     * 水中の潜水艦にも手が出せない(0)。
+     */
+    railgun: {
+      // 対歩兵・対軽装甲は 9 割。射程 6 から一方的に削る。
+      infantry: 90,
+      lightTank: 90,
+      mediumTank: 80,
+      // 戦車は装甲が厚くなるほど通りにくいが、それでもロケット砲(45 / 35)を上回る。
+      heavyTank: 60,
+      newTank: 50,
+      artillery: 85,
+      rocketArtillery: 95,
+      // 飛行ユニットはまったく攻撃できない(仰角を取れない大口径砲)。
+      fighter: 0,
+      bomber: 0,
+      attackAircraft: 0,
+      attackHelicopter: 0,
+      transportHelicopter: 0,
+      antiAirTank: 90,
+      antiAirArtillery: 85,
+      antiAirRocketArtillery: 95,
+      recon: 90,
+      transportVehicle: 90,
+      // 同じ列車砲どうしの撃ち合い。装甲列車の車体は重戦車と同じ硬さ。
+      railgun: 60,
+      // 海岸沿いの線路からは水上艦も叩ける。潜水艦だけは攻撃できない。
+      battleship: 45,
+      escortShip: 70,
+      transportShip: 70,
       submarine: 0,
     },
     battleship: {
@@ -550,6 +606,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 90,
       recon: 80,
       transportVehicle: 80,
+      railgun: 35,
       // 対空砲を備えており、飛行ユニットには 8〜9 割。
       // 今後追加する飛行ユニット(戦闘機・爆撃機など)もこの水準に合わせる。
       attackHelicopter: 85,
@@ -583,6 +640,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -606,6 +664,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 0,
       escortShip: 0,
       transportShip: 0,
@@ -630,6 +689,7 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       antiAirRocketArtillery: 0,
       recon: 0,
       transportVehicle: 0,
+      railgun: 0,
       battleship: 90,
       // 対潜装備を持つ護衛艦にはほとんど通らない(2〜3 割)。
       escortShip: 25,

@@ -1,6 +1,6 @@
 // 地形マスの上にコードで模様を描き込み、単色の四角よりリッチに見せる。
 // 外部画像アセットは使わず(グラフィックはすべてオリジナルとする方針)、
-// Phaser の Graphics プリミティブだけで草・木・山・道路を描く。
+// Phaser の Graphics プリミティブだけで草・木・山・道路・線路を描く。
 // マップ状態には依存せず描画のみを担うため、Vitest の対象外(MainScene と同様)。
 
 import Phaser from 'phaser';
@@ -20,10 +20,13 @@ export interface TerrainDecorationContext {
   /** グリッド座標。模様の配置を毎回同じにする(再描画でちらつかない)ために使う */
   readonly col: number;
   readonly row: number;
-  /** 道路の接続方向。terrainType が 'road' のときのみ使う */
+  /**
+   * 道路・線路の接続方向。terrainType が 'road' のときは computeRoadLinks の結果を、
+   * 'railway' のときは computeRailLinks の結果を渡す。それ以外の地形では使わない。
+   */
   readonly roadLinks?: RoadLinks;
   /**
-   * 所有者を示す色。拠点(都市・研究所・工場・本拠地)の旗に使う。
+   * 所有者を示す色。拠点(都市・研究所・工場・駅・本拠地)の旗に使う。
    * 中立や非拠点では省略できる。
    */
   readonly ownerColor?: number;
@@ -239,6 +242,82 @@ function drawRoad(ctx: TerrainDecorationContext): void {
   }
   if (links.down) {
     dashLine(g, cx, cy, cx, y + size);
+  }
+}
+
+/**
+ * 線路: 隣接する線路・駅へ伸びるバラストの帯に、枕木と 2 本のレールを描く。
+ * 道路(アスファルトの帯 + 中央の破線)と一目で区別できるよう、
+ * 灰褐色の砂利の上にはしご状の枕木を並べる。
+ */
+function drawRailway(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, roadLinks } = ctx;
+  const ballast = 0x6f6a5e;
+  const sleeper = 0x5a4632;
+  const rail = 0xd6d2c4;
+  const half = size / 2;
+  const bandHalf = size * 0.22;
+  const railHalf = size * 0.11;
+  const cx = x + half;
+  const cy = y + half;
+
+  const links = roadLinks ?? { up: false, down: false, left: false, right: false };
+  // どこにもつながらない線路は、横向きの 1 区間として描いて線路と分かるようにする
+  const isolated = !links.up && !links.down && !links.left && !links.right;
+  const left = links.left || isolated;
+  const right = links.right || isolated;
+
+  // バラスト(砂利)の帯
+  g.fillStyle(ballast, 1);
+  g.fillRect(cx - bandHalf, cy - bandHalf, bandHalf * 2, bandHalf * 2);
+  if (left) {
+    g.fillRect(x, cy - bandHalf, half, bandHalf * 2);
+  }
+  if (right) {
+    g.fillRect(cx, cy - bandHalf, half, bandHalf * 2);
+  }
+  if (links.up) {
+    g.fillRect(cx - bandHalf, y, bandHalf * 2, half);
+  }
+  if (links.down) {
+    g.fillRect(cx - bandHalf, cy, bandHalf * 2, half);
+  }
+
+  // 枕木(帯に対して直交する短い木材を等間隔に並べる)
+  const sleeperStep = 5;
+  g.fillStyle(sleeper, 1);
+  if (left || right) {
+    const from = left ? x : cx - bandHalf;
+    const to = right ? x + size : cx + bandHalf;
+    for (let sx = from + 1; sx < to - 1; sx += sleeperStep) {
+      g.fillRect(sx, cy - bandHalf * 0.8, 2, bandHalf * 1.6);
+    }
+  }
+  if (links.up || links.down) {
+    const from = links.up ? y : cy - bandHalf;
+    const to = links.down ? y + size : cy + bandHalf;
+    for (let sy = from + 1; sy < to - 1; sy += sleeperStep) {
+      g.fillRect(cx - bandHalf * 0.8, sy, bandHalf * 1.6, 2);
+    }
+  }
+
+  // レール(枕木の上に光る 2 本の鋼)
+  g.lineStyle(1.5, rail, 0.95);
+  if (left) {
+    g.lineBetween(x, cy - railHalf, cx, cy - railHalf);
+    g.lineBetween(x, cy + railHalf, cx, cy + railHalf);
+  }
+  if (right) {
+    g.lineBetween(cx, cy - railHalf, x + size, cy - railHalf);
+    g.lineBetween(cx, cy + railHalf, x + size, cy + railHalf);
+  }
+  if (links.up) {
+    g.lineBetween(cx - railHalf, y, cx - railHalf, cy);
+    g.lineBetween(cx + railHalf, y, cx + railHalf, cy);
+  }
+  if (links.down) {
+    g.lineBetween(cx - railHalf, cy, cx - railHalf, y + size);
+    g.lineBetween(cx + railHalf, cy, cx + railHalf, y + size);
   }
 }
 
@@ -532,6 +611,66 @@ function drawPort(ctx: TerrainDecorationContext): void {
   drawOwnerFlag(ctx, x + size * 0.72, y + size * 0.4, y + size * 0.08);
 }
 
+/**
+ * 駅: 三角屋根のプラットホーム上屋と、その手前を通る線路を描く。
+ * 工場と同じ性能の拠点だが、列車砲を生産できる唯一の拠点なので、
+ * 一目で分かるよう赤煉瓦の駅舎とホームの線路で表す。
+ */
+function drawStation(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size } = ctx;
+  const wall = 0xc9a08a;
+  const shade = 0x9b6f5b;
+  const roof = 0x7a4a3c;
+  const glass = 0xf2d9a0;
+  const platform = 0xb9b2a4;
+  const rail = 0xd6d2c4;
+  const sleeper = 0x5a4632;
+  const ground = y + size * 0.62;
+
+  // 駅舎(左寄りの平屋)
+  const bodyL = x + size * 0.14;
+  const bodyR = x + size * 0.7;
+  const bodyT = y + size * 0.28;
+  g.fillStyle(wall, 1);
+  g.fillRect(bodyL, bodyT, bodyR - bodyL, ground - bodyT);
+  g.fillStyle(shade, 1);
+  g.fillRect(bodyR - 3, bodyT, 3, ground - bodyT);
+
+  // 三角屋根(駅舎の上に少し張り出させる)
+  g.fillStyle(roof, 1);
+  g.fillTriangle(
+    bodyL - size * 0.06,
+    bodyT,
+    bodyR + size * 0.06,
+    bodyT,
+    (bodyL + bodyR) / 2,
+    y + size * 0.1,
+  );
+
+  // 待合室の明かり(横一列の窓)
+  g.fillStyle(glass, 1);
+  for (let wx = bodyL + 3; wx <= bodyR - 6; wx += 7) {
+    g.fillRect(wx, bodyT + size * 0.08, 4, 4);
+  }
+
+  // 駅舎の前のプラットホーム
+  g.fillStyle(platform, 1);
+  g.fillRect(x, ground, size, size * 0.1);
+
+  // ホームに沿って走る線路(枕木 + レール 2 本)
+  const trackY = y + size * 0.84;
+  g.fillStyle(sleeper, 1);
+  for (let sx = x + 2; sx < x + size - 2; sx += 5) {
+    g.fillRect(sx, trackY - size * 0.07, 2, size * 0.14);
+  }
+  g.lineStyle(1.5, rail, 0.95);
+  g.lineBetween(x, trackY - size * 0.04, x + size, trackY - size * 0.04);
+  g.lineBetween(x, trackY + size * 0.04, x + size, trackY + size * 0.04);
+
+  // 屋根の頂に所有者旗
+  drawOwnerFlag(ctx, (bodyL + bodyR) / 2, y + size * 0.1, y + size * 0.02);
+}
+
 /** 本拠地: 天守を持つ城郭と大きめの所有者旗を描く */
 function drawHeadquarters(ctx: TerrainDecorationContext): void {
   const { graphics: g, x, y, size } = ctx;
@@ -573,8 +712,8 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・海・海岸)に加え、拠点(都市・研究所・工場・空港・港・本拠地)も
- * 建物のシルエットと所有者旗で表現する。
+ * 自然地形(平地・森・山・道路・線路・海・海岸)に加え、
+ * 拠点(都市・研究所・工場・空港・港・駅・本拠地)も建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
   terrainType: TerrainType,
@@ -592,6 +731,9 @@ export function drawTerrainDecoration(
       break;
     case 'road':
       drawRoad(ctx);
+      break;
+    case 'railway':
+      drawRailway(ctx);
       break;
     case 'sea':
       drawSea(ctx);
@@ -613,6 +755,9 @@ export function drawTerrainDecoration(
       break;
     case 'port':
       drawPort(ctx);
+      break;
+    case 'station':
+      drawStation(ctx);
       break;
     case 'headquarters':
       drawHeadquarters(ctx);

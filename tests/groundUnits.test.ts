@@ -318,10 +318,13 @@ describe('重戦車は軽装甲の車両からほとんどダメージを受け�
     expect(getBaseDamage('heavyTank', 'transportVehicle')).toBe(85);
   });
 
-  it('軽装甲の車両(偵察車・輸送車・対空戦車)から見て、地上ユニットで最も通らない相手', () => {
-    // 新型戦車(研究所の占領でのみ手に入る)は重戦車以上の装甲を持つため比較から外す
+  it('軽装甲の車両(偵察車・輸送車・対空戦車)から見て、生産できる地上ユニットで最も通らない相手', () => {
+    // 工場・本拠地で生産できない特別な 2 種は比較から外す。
+    // 新型戦車(研究所の占領で手に入る)は重戦車以上の装甲を持ち、
+    // 列車砲(駅で 1 台だけ作れる)も装甲列車の車体で機関銃・機関砲をはね返す
+    // (偵察車・輸送車から 3、対空戦車から 5)。
     const otherGround = GROUND_UNIT_TYPES.filter(
-      (t) => t !== 'heavyTank' && t !== 'newTank',
+      (t) => t !== 'heavyTank' && t !== 'newTank' && t !== 'railgun',
     );
     for (const attacker of ['recon', 'transportVehicle', 'antiAirTank'] as const) {
       const vsHeavy = getBaseDamage(attacker, 'heavyTank');

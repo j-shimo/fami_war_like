@@ -1,7 +1,7 @@
 // ユニット種別ごとのシルエットアイコンをコードで描く。
 // 外部画像は使わず(グラフィックはすべてオリジナルとする方針)、Phaser の
 // Graphics プリミティブだけで歩兵・戦車・自走砲・輸送車・対空車両・ヘリ・固定翼機・艦艇の
-// 姿を描き分ける。
+// 姿を描き分ける。列車砲は台車と長砲身のシルエットで表す。
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
 // 戦車 3 種(軽・中・重)と新型戦車は共通の車体シルエットを大きさで描き分ける。
@@ -480,6 +480,26 @@ function drawTransportShip(ctx: UnitIconContext): void {
   g.fillRect(cx - r * 0.1, cy - r * 0.4, r * 0.48, r * 0.24);
 }
 
+/**
+ * 列車砲: 台車(車輪)の上に載せた長大な砲身のシルエット。
+ * 車輪と、右へ大きく突き出した砲身で「線路の上を走る巨砲」を表す。
+ */
+function drawRailgun(ctx: UnitIconContext): void {
+  const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
+  g.fillStyle(color, alpha);
+  // 台車(横に長い車体)
+  g.fillRoundedRect(cx - r * 0.78, cy + r * 0.1, r * 1.56, r * 0.3, r * 0.08);
+  // 車輪(台車の下に 4 つ)
+  for (let i = 0; i < 4; i++) {
+    g.fillCircle(cx - r * 0.6 + i * r * 0.4, cy + r * 0.5, r * 0.12);
+  }
+  // 砲架(台車の上の低い箱)
+  g.fillRoundedRect(cx - r * 0.44, cy - r * 0.16, r * 0.7, r * 0.3, r * 0.06);
+  // 砲身(右上へ仰角を付けた長い一本)
+  g.lineStyle(Math.max(3, r * 0.16), color, alpha);
+  g.lineBetween(cx - r * 0.34, cy - r * 0.02, cx + r * 0.82, cy - r * 0.5);
+}
+
 /** 潜水艦: 水面下の紡錘形の船体とセイル(司令塔)、波線で潜航を表すシルエット */
 function drawSubmarine(ctx: UnitIconContext): void {
   const { graphics: g, cx, cy, radius: r, color, alpha } = ctx;
@@ -553,6 +573,9 @@ export function drawUnitIcon(unitType: UnitType, ctx: UnitIconContext): void {
       break;
     case 'transportVehicle':
       drawTransportVehicle(ctx);
+      break;
+    case 'railgun':
+      drawRailgun(ctx);
       break;
     case 'battleship':
       drawBattleship(ctx);

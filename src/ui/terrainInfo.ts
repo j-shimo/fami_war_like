@@ -66,6 +66,10 @@ export function formatTerrainInfo(
     if (data.moveCost.sea !== null) {
       lines.push(`移動コスト 海上: ${moveCostLabel(data.moveCost.sea)}`);
     }
+    // 列車砲(軌道系)が進入できる地形(線路・駅)だけ、軌道の移動コストも併記する。
+    if (data.moveCost.rail !== null) {
+      lines.push(`移動コスト 軌道: ${moveCostLabel(data.moveCost.rail)}`);
+    }
   }
 
   if (data.canCapture) {
