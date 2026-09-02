@@ -1,6 +1,6 @@
 // 地形マスの上にコードで模様を描き込み、単色の四角よりリッチに見せる。
 // 外部画像アセットは使わず(グラフィックはすべてオリジナルとする方針)、
-// Phaser の Graphics プリミティブだけで草・木・山・道路・線路を描く。
+// Phaser の Graphics プリミティブだけで草・木・山・道路・線路・川を描く。
 // マップ状態には依存せず描画のみを担うため、Vitest の対象外(MainScene と同様)。
 
 import Phaser from 'phaser';
@@ -21,8 +21,9 @@ export interface TerrainDecorationContext {
   readonly col: number;
   readonly row: number;
   /**
-   * 道路・線路の接続方向。terrainType が 'road' のときは computeRoadLinks の結果を、
-   * 'railway' のときは computeRailLinks の結果を渡す。それ以外の地形では使わない。
+   * 道路・線路・川の接続方向。terrainType が 'road' のときは computeRoadLinks の結果を、
+   * 'railway' のときは computeRailLinks、'river' のときは computeRiverLinks の結果を渡す。
+   * それ以外の地形では使わない。
    */
   readonly roadLinks?: RoadLinks;
   /**
@@ -148,6 +149,43 @@ function drawSea(ctx: TerrainDecorationContext): void {
     g.lineStyle(1.5, color, 0.85);
     g.lineBetween(px, py, px + len * 0.5, py - 1.5);
     g.lineBetween(px + len * 0.5, py - 1.5, px + len, py);
+  }
+}
+
+/**
+ * 川: 流れの筋と、水面から覗く川石を描いて浅瀬を表現する。
+ * 海(短い波線を散らす)と見分けられるよう、流れの向きにそろえた長い筋で描く。
+ * 向きは roadLinks(computeRiverLinks)の接続方向から決め、左右へ続いていれば横に、
+ * それ以外(上下へ続く川・単独のマス)は縦に流す。
+ */
+function drawRiver(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, col, row, roadLinks } = ctx;
+  const stream = 0x8fd0e8;
+  const deep = 0x2f7fa8;
+  // 左右どちらかへ水面が続いていれば横向きの流れとして描く
+  const horizontal = roadLinks ? roadLinks.left || roadLinks.right : true;
+  const streams = 4;
+  for (let i = 0; i < streams; i++) {
+    // 流れの筋。マスをまたいでつながって見えるよう、流れの向きへ長く伸ばす
+    const across = size * (0.18 + 0.64 * hash01(col, row, i * 3 + 71));
+    const along = size * (0.05 + 0.45 * hash01(col, row, i * 3 + 72));
+    const len = size * (0.3 + 0.25 * hash01(col, row, i * 3 + 73));
+    const color = i % 2 === 0 ? stream : deep;
+    g.lineStyle(1.5, color, 0.8);
+    if (horizontal) {
+      g.lineBetween(x + along, y + across, x + along + len, y + across);
+    } else {
+      g.lineBetween(x + across, y + along, x + across, y + along + len);
+    }
+  }
+  // 川石。浅瀬であること(歩いて渡れること)を見た目でも示す
+  const stones = 3;
+  for (let i = 0; i < stones; i++) {
+    const px = x + size * (0.15 + 0.7 * hash01(col, row, i * 2 + 81));
+    const py = y + size * (0.15 + 0.7 * hash01(col, row, i * 2 + 82));
+    const r = size * (0.05 + 0.03 * hash01(col, row, i + 91));
+    g.fillStyle(0xbfc8cc, 0.85);
+    g.fillCircle(px, py, r);
   }
 }
 
@@ -712,7 +750,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・線路・海・海岸)に加え、
+ * 自然地形(平地・森・山・道路・線路・海・川・海岸)に加え、
  * 拠点(都市・研究所・工場・空港・港・駅・本拠地)も建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -737,6 +775,9 @@ export function drawTerrainDecoration(
       break;
     case 'sea':
       drawSea(ctx);
+      break;
+    case 'river':
+      drawRiver(ctx);
       break;
     case 'beach':
       drawBeach(ctx);
