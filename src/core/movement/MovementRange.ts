@@ -7,7 +7,7 @@ import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { canMerge } from '@/core/units/merge';
-import { canCarry } from '@/core/units/transport';
+import { canCarry, canLoadOn } from '@/core/units/transport';
 
 /**
  * 移動範囲・経路の計算オプション。
@@ -264,6 +264,8 @@ export function findMergeTargets(
  * unit が輸送可能な種別でない場合は、該当する輸送ユニットが見つからず空配列を返す。
  * 海上にいる輸送艦へは地上ユニットが進入できないため、実際に乗り込めるのは
  * 港に停泊している輸送艦(地上ユニットが到達できるマス)に限られる。
+ * 列車砲は駅に停車しているときしか積み降ろしできないため(canLoadOn)、
+ * 線路の上に停まっている列車砲は搭乗先に出てこない。
  */
 export function findTransportTargets(
   unit: Unit,
@@ -275,7 +277,11 @@ export function findTransportTargets(
   const targets: Unit[] = [];
   for (const key of dist.keys()) {
     const occupant = units.getUnitAt(fromKey(key));
-    if (occupant && canCarry(occupant, unit)) {
+    if (
+      occupant &&
+      canCarry(occupant, unit) &&
+      canLoadOn(occupant, map.getTile(occupant.position)?.terrainType)
+    ) {
       targets.push(occupant);
     }
   }
@@ -286,6 +292,7 @@ export function findTransportTargets(
  * 輸送ユニットが運んでいるユニットを降ろせる、隣接マスの一覧を返す。
  *
  * 条件:
+ * - 輸送ユニットが積み降ろしできる地形に停まっていること(列車砲は駅だけ・canLoadOn)
  * - 輸送ユニットの上下左右いずれかの隣接マスであること
  * - 降ろすユニットの移動タイプで進入できる地形であること(進入不可地形は除く)
  * - 他ユニットがいないこと(空きマス)
@@ -301,6 +308,10 @@ export function findUnloadPositions(
 ): GridPosition[] {
   const target = passenger ?? transport.carried[0];
   if (!target) {
+    return [];
+  }
+  // 列車砲は駅に停車しているときしか降ろせない(線路の上では降ろす場所を出さない)
+  if (!canLoadOn(transport, map.getTile(transport.position)?.terrainType)) {
     return [];
   }
   const result: GridPosition[] = [];

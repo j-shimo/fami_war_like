@@ -37,6 +37,12 @@ export interface UnitData {
    */
   readonly carriableTypes: readonly UnitType[];
   /**
+   * 積み降ろし(搭乗・降車)を行える地形の限定リスト。
+   * 省略した輸送ユニット(輸送ヘリ・輸送車・輸送艦)は、停まっている地形を問わず積み降ろしできる。
+   * 列車砲だけがこの制限を持ち、駅(station)に停車しているときしか積み降ろしできない。
+   */
+  readonly loadingTerrainTypes?: readonly TerrainType[];
+  /**
    * 視界(マス数)。夜戦で、このユニットの周囲何マスまでを明るくする(敵を発見できる)かを表す。
    * 昼戦(通常戦闘)ではマップ全体が明るいため参照しない。
    * 詳細は docs/GameDesign.md「夜戦」を参照。
@@ -386,6 +392,9 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     // 砲車の後ろに連結した貨車で、地上ユニットを 2 体まで運べる(列車砲自身は積めない)。
     capacity: 2,
     carriableTypes: CARRIABLE_GROUND_UNIT_TYPES,
+    // 積み降ろしができるのは駅に停車しているときだけ(線路の上では乗せも降ろしもできない)。
+    // 貨車への積み込みには荷役設備が要る、という理屈で駅にだけ許す。
+    loadingTerrainTypes: ['station'],
     // 射程 6 に対して視界 1。単独では最大射程まで撃てず、前に出した味方の目が要る。
     vision: 1,
     mountainVisionBonus: 0,

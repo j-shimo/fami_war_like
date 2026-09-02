@@ -6,10 +6,10 @@ import {
 } from '@/core/battle/AttackRange';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
-import { findUnloadPositions } from '@/core/movement/MovementRange';
+import { findTransportTargets, findUnloadPositions } from '@/core/movement/MovementRange';
 import { Unit } from '@/core/units/Unit';
 import { UnitManager } from '@/core/units/UnitManager';
-import { canCarry } from '@/core/units/transport';
+import { canCarry, canLoadOn } from '@/core/units/transport';
 import {
   AIR_UNIT_TYPES,
   CARRIABLE_GROUND_UNIT_TYPES,
@@ -135,9 +135,26 @@ describe('列車砲の輸送', () => {
     }
   });
 
-  it('運んだ歩兵は線路ぞいの隣接マス(平地など)へ降ろせる', () => {
-    // row0: 線路の上に列車砲、row1 は平地
-    const def: MapDefinition = { name: '降車テスト', terrain: ['===', '...'] };
+  it('積み降ろしできる地形は駅だけ', () => {
+    expect(getUnitData('railgun').loadingTerrainTypes).toEqual(['station']);
+    // 他の輸送ユニットには地形の制限がない(どこに停まっていても積み降ろしできる)
+    for (const unitType of [
+      'transportHelicopter',
+      'transportVehicle',
+      'transportShip',
+    ] as const) {
+      expect(getUnitData(unitType).loadingTerrainTypes).toBeUndefined();
+    }
+    expect(canLoadOn(makeUnit('railgun'), 'station')).toBe(true);
+    for (const terrain of ['railway', 'plain', 'road', 'factory'] as const) {
+      expect(canLoadOn(makeUnit('railgun'), terrain)).toBe(false);
+    }
+    expect(canLoadOn(makeUnit('transportShip'), 'sea')).toBe(true);
+  });
+
+  it('駅に停車していれば、運んだ歩兵を隣接マス(平地など)へ降ろせる', () => {
+    // row0: 駅(col1)を含む線路の上に列車砲、row1 は平地
+    const def: MapDefinition = { name: '降車テスト', terrain: ['=S=', '...'] };
     const map = MapManager.fromDefinition(def);
     const units = UnitManager.fromPlacements(
       [{ col: 1, row: 0, unitType: 'railgun', army: 'player' }],
@@ -149,6 +166,60 @@ describe('列車砲の輸送', () => {
 
     const positions = findUnloadPositions(railgun, map, units, infantry);
     expect(positions).toContainEqual(gridPosition(1, 1));
+  });
+
+  it('線路の上では降ろせない(降車先が 1 マスも出ない)', () => {
+    // row0: すべて線路(駅なし)、row1 は平地
+    const def: MapDefinition = { name: '線路上降車テスト', terrain: ['===', '...'] };
+    const map = MapManager.fromDefinition(def);
+    const units = UnitManager.fromPlacements(
+      [{ col: 1, row: 0, unitType: 'railgun', army: 'player' }],
+      map,
+    );
+    const railgun = units.getUnitAt(gridPosition(1, 0))!;
+    const infantry = makeUnit('infantry', 'player', 1, 0);
+    railgun.carried.push(infantry);
+
+    expect(findUnloadPositions(railgun, map, units, infantry)).toHaveLength(0);
+  });
+
+  it('駅に停車している列車砲にだけ搭乗できる(線路の上へは乗り込めない)', () => {
+    // row0: 駅(col1)を含む線路、row1 は平地。歩兵は row1 から線路・駅へ歩いて上がれる
+    const onStation = MapManager.fromDefinition({
+      name: '搭乗テスト(駅)',
+      terrain: ['=S=', '...'],
+    });
+    const stationUnits = UnitManager.fromPlacements(
+      [
+        { col: 1, row: 0, unitType: 'railgun', army: 'player' },
+        { col: 1, row: 1, unitType: 'infantry', army: 'player' },
+      ],
+      onStation,
+    );
+    const infantry = stationUnits.getUnitAt(gridPosition(1, 1))!;
+    expect(findTransportTargets(infantry, onStation, stationUnits)).toEqual([
+      stationUnits.getUnitAt(gridPosition(1, 0)),
+    ]);
+
+    // 同じ配置でも、列車砲が線路(駅でない)に停まっていれば搭乗先に出てこない
+    const onRailway = MapManager.fromDefinition({
+      name: '搭乗テスト(線路)',
+      terrain: ['===', '...'],
+    });
+    const railwayUnits = UnitManager.fromPlacements(
+      [
+        { col: 1, row: 0, unitType: 'railgun', army: 'player' },
+        { col: 1, row: 1, unitType: 'infantry', army: 'player' },
+      ],
+      onRailway,
+    );
+    expect(
+      findTransportTargets(
+        railwayUnits.getUnitAt(gridPosition(1, 1))!,
+        onRailway,
+        railwayUnits,
+      ),
+    ).toEqual([]);
   });
 });
 
