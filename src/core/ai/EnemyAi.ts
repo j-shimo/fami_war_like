@@ -60,7 +60,7 @@ import {
   type PathDistanceField,
 } from '@/core/movement/PathDistance';
 import { computeVisibility, type Visibility } from '@/core/night/Visibility';
-import { canCarry } from '@/core/units/transport';
+import { canCarry, canLoadOn } from '@/core/units/transport';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
@@ -965,7 +965,8 @@ export class EnemyAi {
   /**
    * transport が pos にいるとき、passenger を降ろせる隣接マスを返す。
    *
-   * 条件は findUnloadPositions と同じ(passenger が進入できる地形・他ユニットがいない)。
+   * 条件は findUnloadPositions と同じ(積み降ろしできる地形に停まっている・
+   * passenger が進入できる地形・他ユニットがいない)。
    * こちらは移動先の候補マスに対して先読みするため、transport 自身は
    * そのマスから居なくなるものとして数える。
    */
@@ -974,6 +975,10 @@ export class EnemyAi {
     pos: GridPosition,
     passenger: Unit,
   ): GridPosition[] {
+    // 列車砲は駅に停車しているときしか降ろせない
+    if (!canLoadOn(transport, this.map.getTile(pos)?.terrainType)) {
+      return [];
+    }
     const spots: GridPosition[] = [];
     for (const { dc, dr } of NEIGHBOR_OFFSETS) {
       const spot = gridPosition(pos.col + dc, pos.row + dr);
