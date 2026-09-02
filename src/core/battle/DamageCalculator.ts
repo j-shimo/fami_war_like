@@ -2,8 +2,9 @@
 // docs/GameDesign.md「ダメージ計算の初期案」および docs/TerrainSpec.md「防御値」を参照。
 //
 // 計算式(MVP):
-//   raw = 基礎ダメージ(相性表) × 攻撃側HP割合 × 地形補正
-//   地形補正 = 1 - 防御値 × 0.1
+//   raw = 基礎ダメージ(相性表) × 攻撃側HP割合 × 地形補正 × 指揮官補正
+//   地形補正   = 1 - 防御値 × 0.1
+//   指揮官補正 = 1 + 攻撃補正(攻撃側の指揮官による割増し。補正なしなら 1)
 //   最終ダメージ(HP) = round(raw / 10)
 //
 // 相性表は 0-100 スケールのため、0-10 表記の HP に合わせて 10 で割る。
@@ -12,28 +13,45 @@
 import type { Unit } from '@/core/units/Unit';
 import { getBaseDamage } from '@/data/damageTable';
 
+/** calculateDamage の任意指定(省略するとどちらも既定の計算になる) */
+export interface DamageOptions {
+  /**
+   * 火力計算に使う攻撃側 HP(省略時は攻撃側の現在 HP)。
+   * 反撃ダメージの予測など、被弾後の HP で計算したい場合に指定する。
+   */
+  readonly attackerHp?: number;
+  /**
+   * 攻撃側の指揮官による攻撃補正(0.1 なら +10%)。省略時は補正なし(0)。
+   * 軍ごとの補正表は CommanderBonus が持つ。
+   */
+  readonly attackBonus?: number;
+}
+
 /**
  * 攻撃側が防御側へ与えるダメージ(HP 値)を計算する。
  *
  * @param attacker 攻撃側ユニット(現在 HP により火力が低下する)
  * @param defender 防御側ユニット(種別で相性が決まる)
  * @param defenderTerrainDefense 防御側がいるマスの地形防御値
- * @param attackerHp 火力計算に使う攻撃側 HP(省略時は攻撃側の現在 HP)。
- *   反撃ダメージの予測など、被弾後の HP で計算したい場合に指定する。
+ * @param options 火力計算に使う攻撃側 HP と、攻撃側の指揮官による攻撃補正
  */
 export function calculateDamage(
   attacker: Unit,
   defender: Unit,
   defenderTerrainDefense: number,
-  attackerHp: number = attacker.currentHp,
+  options: DamageOptions = {},
 ): number {
+  const attackerHp = options.attackerHp ?? attacker.currentHp;
+  const attackBonus = options.attackBonus ?? 0;
   const base = getBaseDamage(attacker.unitType, defender.unitType);
   const hpRatio = attackerHp / attacker.maxHp;
   // 飛行ユニットは地形の上空にいるため、地形の防御補正を受けない(常に防御 0 扱い)。
   const effectiveDefense = defender.movementType === 'air' ? 0 : defenderTerrainDefense;
   const terrainFactor = Math.max(0, 1 - effectiveDefense * 0.1);
+  // 指揮官の攻撃補正。マイナスの補正は想定していないため 0 で下限を切る
+  const commanderFactor = 1 + Math.max(0, attackBonus);
 
-  const raw = base * hpRatio * terrainFactor; // 0-100 スケール
+  const raw = base * hpRatio * terrainFactor * commanderFactor; // 0-100 スケール
   const damage = Math.round(raw / 10); // HP(0-10)スケールへ変換
 
   // 相性があり攻撃側が生存しているのに 0 ダメージになる場合は 1 に切り上げる

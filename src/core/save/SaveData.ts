@@ -31,7 +31,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -65,6 +65,11 @@ export interface SaveData {
   readonly nightBattle: boolean;
   /** 対戦していた敵指揮官の識別子(AiCharacter.id)。再開時に同じ思考パターンで続ける */
   readonly aiCharacterId: string;
+  /**
+   * 自軍を率いていた指揮官の識別子(AiCharacter.id)。
+   * 攻撃補正を持つ指揮官を選んでいた場合、再開時にも同じ補正で続ける。
+   */
+  readonly playerCharacterId: string;
   /**
    * 担当していたプレイヤーサイド(1P側 / 2P側)。
    * 2P側は盤面の自軍・敵軍を入れ替えて後手番で始めるため、再開時にも同じ条件で続ける。
@@ -102,6 +107,8 @@ export interface SaveSource {
   readonly nightBattle: boolean;
   /** 対戦している敵指揮官の識別子(AiCharacter.id) */
   readonly aiCharacterId: string;
+  /** 自軍を率いている指揮官の識別子(AiCharacter.id) */
+  readonly playerCharacterId: string;
   /** 担当しているプレイヤーサイド(1P側 / 2P側) */
   readonly playerSide: PlayerSide;
   /** 操作の設定(対 CPU / 対人戦) */
@@ -176,6 +183,7 @@ export function createSaveData(source: SaveSource): SaveData {
     mapId: source.mapId,
     nightBattle: source.nightBattle,
     aiCharacterId: source.aiCharacterId,
+    playerCharacterId: source.playerCharacterId,
     playerSide: source.playerSide,
     versusMode: source.versusMode,
     savedAt: source.savedAt ?? Date.now(),
@@ -321,6 +329,9 @@ export function isSaveData(value: unknown): value is SaveData {
     return false;
   }
   if (typeof value.aiCharacterId !== 'string') {
+    return false;
+  }
+  if (typeof value.playerCharacterId !== 'string') {
     return false;
   }
   if (!isPlayerSide(value.playerSide) || !isVersusMode(value.versusMode)) {

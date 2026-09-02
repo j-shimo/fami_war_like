@@ -79,16 +79,22 @@ const MODE_BUTTON_GAP = 8;
 const MODE_ROW_CENTER_Y = 76;
 
 /**
- * 対戦相手(敵指揮官)を開くボタンの寸法と縦位置。
- * 指揮官は今後増やせるようにするため、選択画面には現在の相手だけを出し、
+ * 指揮官(自軍・対戦相手)を開くボタンの寸法と縦位置。
+ * 指揮官は今後増やせるようにするため、選択画面には現在選んでいる指揮官だけを出し、
  * 一覧と説明は専用ウィンドウ(AiCharacterWindow)で見せる。
+ * 自軍と対戦相手を並べて見比べられるよう、同じ行に 2 つ並べる。
  */
-const CHARACTER_BUTTON_WIDTH = 210;
+const CHARACTER_BUTTON_WIDTH = 190;
 const CHARACTER_BUTTON_HEIGHT = 26;
 const CHARACTER_ROW_CENTER_Y = 108;
+/** ボタンの左に置く見出しラベルのぶんの幅と、ラベルとボタンの間隔 */
+const CHARACTER_LABEL_WIDTH = 34;
+const CHARACTER_LABEL_GAP = 8;
+/** 「自軍」の列と「相手」の列の間隔 */
+const CHARACTER_COLUMN_GAP = 24;
 /** ボタン内の左端に置くエンブレム(指揮官の識別色の円)の半径と左余白 */
 const CHARACTER_EMBLEM_RADIUS = 6;
-const CHARACTER_EMBLEM_MARGIN = 12;
+const CHARACTER_EMBLEM_MARGIN = 10;
 
 /**
  * 見出し・戦闘モード・ゲーム説明といったヘッダー側 UI の表示深度。
@@ -117,6 +123,16 @@ const EMPTY_GROUP_HINT: Readonly<Record<MapGroup, string>> = {
   four: '4Pマップは準備中です',
 };
 
+/** 指揮官ボタン 1 つぶんの表示物(選択が変わるたびに塗り替える) */
+interface CharacterButton {
+  /** ボタンの左端 X 座標(エンブレムの位置の計算に使う) */
+  readonly left: number;
+  /** 選んでいる指揮官の識別色を描くエンブレム */
+  readonly emblem: Phaser.GameObjects.Graphics;
+  /** 選んでいる指揮官の肩書つきの名前 */
+  readonly label: Phaser.GameObjects.Text;
+}
+
 /** カード 1 枚ぶんの配置情報(縦位置と高さは説明文の行数によってマップごとに変わる) */
 interface CardLayout {
   readonly entry: ResolvedMapEntry;
@@ -130,11 +146,12 @@ interface CardLayout {
  * モード選択画面から入るマップ選択画面。
  * モード選択画面で選んだマップ区分(通常 / 新 / 4P)のマップをカードとして縦に並べ、
  * クリックすると選んだマップを MainScene へ渡してゲームを開始する。
- * 見出しの下では戦闘モード(通常戦 / 夜戦)と対戦相手(敵指揮官)を選べる。
+ * 見出しの下では戦闘モード(通常戦 / 夜戦)と指揮官(自軍 / 対戦相手)を選べる。
  * 夜戦を選ぶと、自軍の視界の外が暗くなり敵ユニットが見えない状態でゲームを始める
  * (詳細は docs/GameDesign.md「夜戦」を参照)。
- * 対戦相手ごとに敵軍AIの思考パターンが違い、選んだ相手の説明はボタンの下に表示する
- * (詳細は docs/GameDesign.md「敵AI」を参照)。
+ * 対戦相手ごとに敵軍AIの思考パターンが違い、指揮官によっては率いる軍に攻撃補正がかかる。
+ * 一覧と説明は「自軍」「相手」ボタンから開く専用ウィンドウで見せる
+ * (詳細は docs/GameDesign.md「敵AI」「指揮官の攻撃補正」を参照)。
  * 選んだマップの中断データが残っている場合は、再開するかどうかを確認ダイアログで尋ね、
  * 「はい」なら中断データから再開し、「いいえ」なら中断データを破棄して新規に開始する。
  * 担当サイド・操作の設定(モード選択画面で選ぶ)は見出しの左に表示し、
@@ -158,6 +175,11 @@ export class MapSelectScene extends Phaser.Scene {
   private static lastAiCharacterId: string = DEFAULT_AI_CHARACTER.id;
 
   /**
+   * 直前に選ばれた自軍の指揮官。対戦相手と同じく、ゲームから戻ってきても選択を保つ。
+   */
+  private static lastPlayerCharacterId: string = DEFAULT_AI_CHARACTER.id;
+
+  /**
    * 直前に開いていたマップ区分。ゲームやゲーム説明から戻ってきたときに
    * 同じ区分の一覧へ戻すため、シーンをまたいで残るクラス変数として持つ。
    */
@@ -172,6 +194,8 @@ export class MapSelectScene extends Phaser.Scene {
   private nightBattle = MapSelectScene.lastNightBattle;
   /** 現在選んでいる対戦相手(敵指揮官)の識別子 */
   private aiCharacterId: string = MapSelectScene.lastAiCharacterId;
+  /** 現在選んでいる自軍の指揮官の識別子 */
+  private playerCharacterId: string = MapSelectScene.lastPlayerCharacterId;
   /** 見出し下の説明文(戦闘モードの切替で書き換える) */
   private hintText!: Phaser.GameObjects.Text;
   /** 戦闘モードのボタン(選択状態に応じて色を塗り替える) */
@@ -180,11 +204,10 @@ export class MapSelectScene extends Phaser.Scene {
     readonly rect: Phaser.GameObjects.Rectangle;
     readonly label: Phaser.GameObjects.Text;
   }[] = [];
-  /** 対戦相手ウィンドウを開くボタンのラベル(選んでいる指揮官名を表示する) */
-  private characterLabel!: Phaser.GameObjects.Text;
-  /** 対戦相手ボタンのエンブレム(選んでいる指揮官の識別色で塗る) */
-  private characterEmblem!: Phaser.GameObjects.Graphics;
-  /** 対戦相手の一覧・説明を見せるウィンドウ(初回オープン時に生成) */
+  /** 自軍・対戦相手それぞれの指揮官ボタン(選んでいる指揮官名と識別色を出す) */
+  private playerCharacterButton: CharacterButton | null = null;
+  private enemyCharacterButton: CharacterButton | null = null;
+  /** 指揮官の一覧・説明を見せるウィンドウ(初回オープン時に生成。自軍・相手で共用する) */
   private characterWindow: AiCharacterWindow | null = null;
 
   /** 中断データの再開確認に使うダイアログ(初回オープン時に生成) */
@@ -248,6 +271,9 @@ export class MapSelectScene extends Phaser.Scene {
     this.confirmWindow = null;
     this.nightBattle = MapSelectScene.lastNightBattle;
     this.aiCharacterId = MapSelectScene.lastAiCharacterId;
+    this.playerCharacterId = MapSelectScene.lastPlayerCharacterId;
+    this.playerCharacterButton = null;
+    this.enemyCharacterButton = null;
     this.modeButtons = [];
     this.characterWindow = null;
     // 直前に大きなマップを遊んでいた場合に備え、選択画面用の寸法へ戻す
@@ -284,8 +310,9 @@ export class MapSelectScene extends Phaser.Scene {
     // 戦闘モード(通常戦 / 夜戦)の選択
     this.createModeSelector(width);
 
-    // 対戦相手(敵指揮官)の選択。指揮官ごとに敵軍AIの思考パターンが変わる。
-    // 対人戦では AI と戦わないため、指揮官は選ばせずその旨だけを出す。
+    // 指揮官(自軍・対戦相手)の選択。対戦相手は敵軍AIの思考パターンが変わり、
+    // どちらも攻撃補正を持つ指揮官なら、その軍の全ユニットの火力が上がる。
+    // 対人戦では AI と戦わず補正もかけないため、指揮官は選ばせずその旨だけを出す。
     if (this.mode.versus === 'human') {
       this.createVersusHumanNotice(width);
     } else {
@@ -520,16 +547,44 @@ export class MapSelectScene extends Phaser.Scene {
   }
 
   /**
-   * 戦闘モードの下に、対戦相手(敵指揮官)を開くボタンを置く。
-   * 指揮官は今後増やせるようにするため、ここには現在選んでいる相手だけを出し、
-   * 押すと一覧と思考パターンの説明を並べた専用ウィンドウを開く。
-   * 選んだ相手は MainScene へ渡され、次回以降の初期選択にも残る。
+   * 戦闘モードの下に、指揮官(自軍・対戦相手)を開くボタンを 2 つ並べて置く。
+   * 指揮官は今後増やせるようにするため、ここには現在選んでいる指揮官だけを出し、
+   * 押すと一覧と説明(攻撃補正・思考パターン)を並べた専用ウィンドウを開く。
+   * 選んだ指揮官は MainScene へ渡され、次回以降の初期選択にも残る。
    */
   private createCharacterSelector(width: number): void {
-    const left = width / 2 - CHARACTER_BUTTON_WIDTH / 2;
+    // 「見出し + ボタン」の列を 2 つ、行全体で中央へ寄せる
+    const columnWidth =
+      CHARACTER_LABEL_WIDTH + CHARACTER_LABEL_GAP + CHARACTER_BUTTON_WIDTH;
+    const rowLeft = width / 2 - (columnWidth * 2 + CHARACTER_COLUMN_GAP) / 2;
+    const playerLeft = rowLeft + CHARACTER_LABEL_WIDTH + CHARACTER_LABEL_GAP;
+    const enemyLeft =
+      rowLeft +
+      columnWidth +
+      CHARACTER_COLUMN_GAP +
+      CHARACTER_LABEL_WIDTH +
+      CHARACTER_LABEL_GAP;
 
+    this.playerCharacterButton = this.createCharacterButton(playerLeft, '自軍', () =>
+      this.openCharacterWindow('player'),
+    );
+    this.enemyCharacterButton = this.createCharacterButton(enemyLeft, '相手', () =>
+      this.openCharacterWindow('enemy'),
+    );
+    this.updateCharacterButtons();
+  }
+
+  /**
+   * 指揮官ボタン 1 つぶん(見出し・枠・エンブレム・名前・▼ 印)を作る。
+   * 選んでいる指揮官の描き分けは updateCharacterButtons() が行う。
+   */
+  private createCharacterButton(
+    left: number,
+    heading: string,
+    onOpen: () => void,
+  ): CharacterButton {
     this.add
-      .text(left - 12, CHARACTER_ROW_CENTER_Y, '対戦相手', {
+      .text(left - CHARACTER_LABEL_GAP, CHARACTER_ROW_CENTER_Y, heading, {
         fontFamily: 'sans-serif',
         fontSize: '13px',
         color: '#c8c8d8',
@@ -552,9 +607,9 @@ export class MapSelectScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
 
     // 選んでいる指揮官のエンブレム(識別色の円)をボタンの左端に描く
-    this.characterEmblem = this.add.graphics().setDepth(HEADER_DEPTH + 1);
+    const emblem = this.add.graphics().setDepth(HEADER_DEPTH + 1);
 
-    this.characterLabel = this.add
+    const label = this.add
       .text(
         left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS * 2 + 8,
         CHARACTER_ROW_CENTER_Y,
@@ -571,7 +626,7 @@ export class MapSelectScene extends Phaser.Scene {
 
     // 一覧を開けることが分かるよう、右端に印を出す
     this.add
-      .text(left + CHARACTER_BUTTON_WIDTH - 10, CHARACTER_ROW_CENTER_Y, '▼', {
+      .text(left + CHARACTER_BUTTON_WIDTH - 8, CHARACTER_ROW_CENTER_Y, '▼', {
         fontFamily: 'sans-serif',
         fontSize: '10px',
         color: '#8ad0ff',
@@ -587,38 +642,54 @@ export class MapSelectScene extends Phaser.Scene {
       button.setStrokeStyle(2, 0x3a4a6a);
       button.setFillStyle(0x1f2740);
     });
-    button.on(Phaser.Input.Events.POINTER_DOWN, () => this.openCharacterWindow());
+    button.on(Phaser.Input.Events.POINTER_DOWN, onOpen);
 
-    this.updateCharacterButton(left);
+    return { left, emblem, label };
   }
 
-  /** 対戦相手ボタンのエンブレムと指揮官名を、現在の選択に合わせて描き直す */
-  private updateCharacterButton(left: number): void {
-    const character = getAiCharacter(this.aiCharacterId);
-    this.characterLabel.setText(aiCharacterLabel(character));
-    const cx = left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS;
-    this.characterEmblem.clear();
-    this.characterEmblem.fillStyle(character.emblemColor, 1);
-    this.characterEmblem.fillCircle(cx, CHARACTER_ROW_CENTER_Y, CHARACTER_EMBLEM_RADIUS);
-    this.characterEmblem.lineStyle(2, 0xffffff, 0.9);
-    this.characterEmblem.strokeCircle(
-      cx,
-      CHARACTER_ROW_CENTER_Y,
-      CHARACTER_EMBLEM_RADIUS,
-    );
+  /** 指揮官ボタンのエンブレムと名前を、現在の選択に合わせて描き直す */
+  private updateCharacterButtons(): void {
+    this.paintCharacterButton(this.playerCharacterButton, this.playerCharacterId);
+    this.paintCharacterButton(this.enemyCharacterButton, this.aiCharacterId);
   }
 
-  /** 対戦相手の一覧・説明を見せるウィンドウを開く */
-  private openCharacterWindow(): void {
+  /** 指揮官ボタン 1 つを、指定の指揮官の識別色・名前で塗り直す */
+  private paintCharacterButton(button: CharacterButton | null, id: string): void {
+    if (!button) {
+      return;
+    }
+    const character = getAiCharacter(id);
+    // 攻撃補正を持つ指揮官は、ボタンの時点で分かるよう名前のうしろに添える
+    const bonus =
+      character.attackBonus > 0 ? ` +${Math.round(character.attackBonus * 100)}%` : '';
+    button.label.setText(`${aiCharacterLabel(character)}${bonus}`);
+    const cx = button.left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS;
+    button.emblem.clear();
+    button.emblem.fillStyle(character.emblemColor, 1);
+    button.emblem.fillCircle(cx, CHARACTER_ROW_CENTER_Y, CHARACTER_EMBLEM_RADIUS);
+    button.emblem.lineStyle(2, 0xffffff, 0.9);
+    button.emblem.strokeCircle(cx, CHARACTER_ROW_CENTER_Y, CHARACTER_EMBLEM_RADIUS);
+  }
+
+  /**
+   * 指揮官の一覧・説明を見せるウィンドウを開く。
+   * 自軍・対戦相手のどちらを選び直すかで、見出しと操作案内・選択の反映先が変わる。
+   */
+  private openCharacterWindow(target: 'player' | 'enemy'): void {
     const width = DEFAULT_DIMENSIONS.gameWidth;
+    const forPlayer = target === 'player';
     this.characterWindow ??= new AiCharacterWindow(this);
     this.characterWindow.open({
       gameWidth: width,
       gameHeight: DEFAULT_DIMENSIONS.gameHeight,
       viewWidth: width,
       viewHeight: DEFAULT_DIMENSIONS.gameHeight,
-      selectedId: this.aiCharacterId,
-      onSelect: (id) => this.selectCharacter(id),
+      selectedId: forPlayer ? this.playerCharacterId : this.aiCharacterId,
+      title: forPlayer ? '自軍の指揮官を選ぶ' : '対戦相手を選ぶ',
+      hint: forPlayer
+        ? '一覧から選ぶと自軍の指揮官が切り替わります(攻撃補正のみ)'
+        : '一覧から選ぶと対戦相手が切り替わります',
+      onSelect: (id) => this.selectCharacter(target, id),
       onClose: () => {
         // 一覧を閉じた直後の押下がカードの選択として扱われないよう、状態を片付ける
         this.pressedEntry = null;
@@ -628,16 +699,22 @@ export class MapSelectScene extends Phaser.Scene {
     });
   }
 
-  /** 対戦相手を切り替え、ボタンの表示を更新する */
-  private selectCharacter(id: string): void {
-    if (this.aiCharacterId === id) {
-      return;
+  /** 自軍・対戦相手の指揮官を切り替え、ボタンの表示を更新する */
+  private selectCharacter(target: 'player' | 'enemy', id: string): void {
+    if (target === 'player') {
+      if (this.playerCharacterId === id) {
+        return;
+      }
+      this.playerCharacterId = id;
+      MapSelectScene.lastPlayerCharacterId = id;
+    } else {
+      if (this.aiCharacterId === id) {
+        return;
+      }
+      this.aiCharacterId = id;
+      MapSelectScene.lastAiCharacterId = id;
     }
-    this.aiCharacterId = id;
-    MapSelectScene.lastAiCharacterId = id;
-    this.updateCharacterButton(
-      DEFAULT_DIMENSIONS.gameWidth / 2 - CHARACTER_BUTTON_WIDTH / 2,
-    );
+    this.updateCharacterButtons();
   }
 
   /** 戦闘モードを切り替え、ボタンの見た目と説明文を更新する */
@@ -787,11 +864,16 @@ export class MapSelectScene extends Phaser.Scene {
   /** 対人戦のときに、対戦相手(敵指揮官)の代わりに出す案内 */
   private createVersusHumanNotice(width: number): void {
     this.add
-      .text(width / 2, CHARACTER_ROW_CENTER_Y, '対戦相手: もう 1 人のプレイヤー', {
-        fontFamily: 'sans-serif',
-        fontSize: '13px',
-        color: '#c8c8d8',
-      })
+      .text(
+        width / 2,
+        CHARACTER_ROW_CENTER_Y,
+        '対戦相手: もう 1 人のプレイヤー(指揮官の攻撃補正はどちらにもかかりません)',
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          color: '#c8c8d8',
+        },
+      )
       .setOrigin(0.5)
       .setDepth(HEADER_DEPTH);
   }
@@ -1037,7 +1119,7 @@ export class MapSelectScene extends Phaser.Scene {
 
   /**
    * 選んだマップでゲームを開始する。save を渡すとその中断データから再開する。
-   * 再開時の戦闘モード・対戦相手・モード選択の内容は中断データに保存されたものを使い、
+   * 再開時の戦闘モード・指揮官・モード選択の内容は中断データに保存されたものを使い、
    * 新規開始時はこの画面で選んでいるものを使う。
    */
   private startGame(entry: ResolvedMapEntry, save?: SaveData): void {
@@ -1046,6 +1128,7 @@ export class MapSelectScene extends Phaser.Scene {
       mapId: entry.id,
       nightBattle: save ? save.nightBattle : this.nightBattle,
       aiCharacterId: save ? save.aiCharacterId : this.aiCharacterId,
+      playerCharacterId: save ? save.playerCharacterId : this.playerCharacterId,
       // 担当サイド・操作の設定も、再開時は中断データに保存されたものを使う
       playerSide: save ? save.playerSide : this.mode.side,
       versusMode: save ? save.versusMode : this.mode.versus,

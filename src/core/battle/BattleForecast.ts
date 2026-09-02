@@ -9,6 +9,11 @@
 //      反撃火力は被弾後の防御側 HP を基準に計算する。
 
 import { canCounterattack } from '@/core/battle/AttackRange';
+import {
+  attackBonusOf,
+  NO_COMMANDER_BONUS,
+  type CommanderBonus,
+} from '@/core/battle/CommanderBonus';
 import { calculateDamage } from '@/core/battle/DamageCalculator';
 import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
@@ -47,17 +52,23 @@ function terrainDefenseAt(map: MapManager, unit: Unit): number {
  * @param attacker 攻撃側ユニット
  * @param defender 防御側ユニット
  * @param map 地形防御値の参照に使うマップ
+ * @param bonus 軍ごとの指揮官の攻撃補正(省略時は補正なし)。
+ *   実際の戦闘と同じ数値を出すため、BattleManager へ渡すものと同じ補正を渡す
  */
 export function forecastBattle(
   attacker: Unit,
   defender: Unit,
   map: MapManager,
+  bonus: CommanderBonus = NO_COMMANDER_BONUS,
 ): BattleForecast {
   // 1. 攻撃側 → 防御側
   const damageDealt = calculateDamage(
     attacker,
     defender,
     terrainDefenseAt(map, defender),
+    {
+      attackBonus: attackBonusOf(bonus, attacker.armyType),
+    },
   );
   const defenderHpAfter = Math.max(0, defender.currentHp - damageDealt);
   const defenderDefeated = defenderHpAfter === 0;
@@ -68,12 +79,11 @@ export function forecastBattle(
 
   // 反撃火力は被弾後の防御側 HP で計算する(BattleManager と同じ挙動)
   const counterDamage = willCounter
-    ? calculateDamage(
-        defender,
-        attacker,
-        terrainDefenseAt(map, attacker),
-        defenderHpAfter,
-      )
+    ? calculateDamage(defender, attacker, terrainDefenseAt(map, attacker), {
+        attackerHp: defenderHpAfter,
+        // 反撃は防御側が撃つため、防御側の軍の指揮官補正で計算する
+        attackBonus: attackBonusOf(bonus, defender.armyType),
+      })
     : 0;
   const attackerHpAfter = Math.max(0, attacker.currentHp - counterDamage);
   const attackerDefeated = willCounter && attackerHpAfter === 0;
