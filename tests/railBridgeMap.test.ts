@@ -210,9 +210,14 @@ describe('三叉鉄橋マップの拠点', () => {
     expect(byTerrain).toEqual({ city: 25, laboratory: 2, port: 2, station: 1 });
   });
 
-  it('初期ユニットは置かず、初期資金 8000 から生産で戦力を用意する', () => {
+  it('初期ユニットは置かず、初期資金 31000(列車砲 + 歩兵)から生産で戦力を用意する', () => {
     expect(RAIL_BRIDGE_MAP.units).toEqual([]);
-    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(8000);
+    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(31000);
+    // 1 ターン目に列車砲と歩兵を 1 体ずつ買える額にしてある
+    // (敵軍AIが貯金で列車砲まで届かず、かつ列車砲ちょうどだと歩兵の余りが出ないための調整)
+    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(
+      getUnitData('railgun').cost + getUnitData('infantry').cost,
+    );
   });
 
   it('中立港 2 個は中央の縦棒の両岸にあり、両軍の港から海路でつながっている', () => {
@@ -412,7 +417,7 @@ describe('三叉鉄橋マップの通行性と敵軍AI', () => {
     });
   });
 
-  it('敵軍AIは生産と中立拠点の占領を進められる', () => {
+  it('敵軍AIは 1 ターン目に列車砲を生産しつつ、中立拠点の占領も進められる', () => {
     const aiMap = MapManager.fromDefinition(RAIL_BRIDGE_MAP);
     const units = UnitManager.fromPlacements(RAIL_BRIDGE_MAP.units ?? [], aiMap);
     const economy = new EconomyManager({ initialFunds: RAIL_BRIDGE_MAP.initialFunds });
@@ -431,7 +436,14 @@ describe('三叉鉄橋マップの通行性と敵軍AI', () => {
       for (const unit of units.getUnitsByArmy('enemy')) unit.hasActed = false;
     }
 
-    expect(units.getUnitsByArmy('enemy').length).toBeGreaterThan(0);
+    // 初期資金 31000 G のねらいどおり、1 ターン目で列車砲が出る
+    expect(
+      units.getUnitsByArmy('enemy').some((unit) => unit.unitType === 'railgun'),
+    ).toBe(true);
+    // 余りの 1000 G で歩兵も出るので、占領役が絶えない
+    expect(
+      units.getUnitsByArmy('enemy').some((unit) => unit.unitType === 'infantry'),
+    ).toBe(true);
     // 陣地の隣のハンデ都市など、近い中立拠点を実際に占領できている
     let captured = 0;
     aiMap.forEachTile((tile) => {
