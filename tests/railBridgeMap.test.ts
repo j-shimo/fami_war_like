@@ -210,11 +210,14 @@ describe('三叉鉄橋マップの拠点', () => {
     expect(byTerrain).toEqual({ city: 25, laboratory: 2, port: 2, station: 1 });
   });
 
-  it('初期ユニットは置かず、初期資金 30000(列車砲ちょうど)から生産で戦力を用意する', () => {
+  it('初期ユニットは置かず、初期資金 31000(列車砲 + 歩兵)から生産で戦力を用意する', () => {
     expect(RAIL_BRIDGE_MAP.units).toEqual([]);
-    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(30000);
-    // 1 ターン目から駅で列車砲を買える額にしてある(敵軍AIが貯金で列車砲まで届かないための調整)
-    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(getUnitData('railgun').cost);
+    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(31000);
+    // 1 ターン目に列車砲と歩兵を 1 体ずつ買える額にしてある
+    // (敵軍AIが貯金で列車砲まで届かず、かつ列車砲ちょうどだと歩兵の余りが出ないための調整)
+    expect(RAIL_BRIDGE_MAP.initialFunds).toBe(
+      getUnitData('railgun').cost + getUnitData('infantry').cost,
+    );
   });
 
   it('中立港 2 個は中央の縦棒の両岸にあり、両軍の港から海路でつながっている', () => {
@@ -414,7 +417,7 @@ describe('三叉鉄橋マップの通行性と敵軍AI', () => {
     });
   });
 
-  it('敵軍AIは初期資金 30000 で 1 ターン目に列車砲を生産できる', () => {
+  it('敵軍AIは 1 ターン目に列車砲を生産しつつ、中立拠点の占領も進められる', () => {
     const aiMap = MapManager.fromDefinition(RAIL_BRIDGE_MAP);
     const units = UnitManager.fromPlacements(RAIL_BRIDGE_MAP.units ?? [], aiMap);
     const economy = new EconomyManager({ initialFunds: RAIL_BRIDGE_MAP.initialFunds });
@@ -433,19 +436,21 @@ describe('三叉鉄橋マップの通行性と敵軍AI', () => {
       for (const unit of units.getUnitsByArmy('enemy')) unit.hasActed = false;
     }
 
-    // 初期資金を列車砲ちょうど(30000 G)にしたねらいどおり、1 ターン目で列車砲が出る
+    // 初期資金 31000 G のねらいどおり、1 ターン目で列車砲が出る
     expect(
       units.getUnitsByArmy('enemy').some((unit) => unit.unitType === 'railgun'),
     ).toBe(true);
-    // そのあとも毎ターン生産を続けられる
-    expect(units.getUnitsByArmy('enemy').length).toBeGreaterThan(1);
-    // 陣地の拠点はすべて敵軍のまま維持されている
-    let owned = 0;
+    // 余りの 1000 G で歩兵も出るので、占領役が絶えない
+    expect(
+      units.getUnitsByArmy('enemy').some((unit) => unit.unitType === 'infantry'),
+    ).toBe(true);
+    // 陣地の隣のハンデ都市など、近い中立拠点を実際に占領できている
+    let captured = 0;
     aiMap.forEachTile((tile) => {
       if (tile.owner === 'enemy' && getTerrainData(tile.terrainType).canCapture) {
-        owned += 1;
+        captured += 1;
       }
     });
-    expect(owned).toBeGreaterThanOrEqual(ENEMY_BASES.length);
+    expect(captured).toBeGreaterThan(ENEMY_BASES.length);
   });
 });
