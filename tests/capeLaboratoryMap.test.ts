@@ -20,7 +20,8 @@ const PLAYER_FACTORIES: readonly GridPosition[] = [
   gridPosition(12, 2),
   gridPosition(11, 3),
 ];
-const PLAYER_PORTS: readonly GridPosition[] = [gridPosition(11, 7), gridPosition(17, 6)];
+/** 自軍の港 2 つ。街道 1 マス (11,5) を挟んで並ぶ (10,5) と (12,5)。どちらも工場から 3 マス */
+const PLAYER_PORTS: readonly GridPosition[] = [gridPosition(10, 5), gridPosition(12, 5)];
 const PLAYER_CITIES: readonly GridPosition[] = [
   gridPosition(9, 2),
   gridPosition(13, 2),
@@ -79,21 +80,32 @@ const EAST_CITIES: readonly GridPosition[] = [
 /** 自軍の島の本体(row 0〜8)がいちばん東まで届く列 */
 const PLAYER_ISLAND_EAST_EDGE = 19;
 
-/** 西の岬(島が左側だけ南へ長く伸びた部分)の中立拠点。研究所 1 個と中立都市 3 個 */
+/** 西の岬(「[」の縦棒)の中立拠点。研究所 1 個と中立都市 3 個 */
 const CAPE_LABORATORY = gridPosition(2, 16);
 const CAPE_CITIES: readonly GridPosition[] = [
   gridPosition(5, 10),
   gridPosition(1, 13),
   gridPosition(4, 19),
 ];
-/** 岬の東岸(row 13〜20 の col 5)。敵軍の本土と真正面から向かい合う海岸 */
-const CAPE_EAST_COAST: readonly GridPosition[] = [13, 14, 15, 16, 17, 18, 19, 20].map(
-  (row) => gridPosition(5, row),
+/** 「[」の下の横棒の付け根にある中立空港と、その先端の東の端にある中立港 */
+const CAPE_ARM_AIRPORT = gridPosition(2, 21);
+const CAPE_ARM_PORT = gridPosition(8, 21);
+/** 岬の東岸(row 13〜19 の col 5)。敵軍の本土と内海を挟んで向かい合う海岸 */
+const CAPE_EAST_COAST: readonly GridPosition[] = [13, 14, 15, 16, 17, 18, 19].map((row) =>
+  gridPosition(5, row),
 );
-/** 岬の先端(row 21)。一面の海岸で、上陸作戦の起点になる */
-const CAPE_TIP: readonly GridPosition[] = [0, 1, 2, 3, 4].map((col) =>
+/** 「[」の下の横棒の南岸(row 21 の col 0〜5)。積み込みと揚陸に使える海岸 */
+const CAPE_ARM_SOUTH_COAST: readonly GridPosition[] = [0, 1, 3, 4, 5].map((col) =>
   gridPosition(col, 21),
 );
+/** 下の横棒の上側(row 20 の col 5〜8)。内海に面した山の壁 */
+const CAPE_ARM_RIDGE: readonly GridPosition[] = [5, 6, 7, 8].map((col) =>
+  gridPosition(col, 20),
+);
+/** 「[」の下の横棒が占める範囲(row 20〜21、col 0〜8) */
+function isCapeArm(pos: GridPosition): boolean {
+  return pos.col <= 8 && pos.row >= 20 && pos.row <= 21;
+}
 
 /** 東の離島。建物は中立の研究所 2 個だけで、まわりはすべて海岸 */
 const ISLET_LABORATORIES: readonly GridPosition[] = [
@@ -210,9 +222,9 @@ describe('岬と研究島マップの盤面', () => {
     expect(minCost(ENEMY_PORTS[0], PLAYER_PORTS, 'sea')).toBeLessThan(Infinity);
   });
 
-  it('自軍の島は西側だけが盤面の下端近くまで南へ伸びて岬になっている', () => {
-    // row 9〜21 で自軍の陸が残っているのは西端(col 0〜7)だけ
-    for (let row = 9; row <= 21; row += 1) {
+  it('自軍の島は西側だけが南へ伸びたあと東へ折れて「[」の字になっている', () => {
+    // row 9〜19(「[」の縦棒)で自軍の陸が残っているのは西端(col 0〜7)だけ
+    for (let row = 9; row <= 19; row += 1) {
       for (let col = 8; col < map.cols; col += 1) {
         const pos = gridPosition(col, row);
         const passable = map.getMoveCost(pos, 'infantry') !== null;
@@ -222,26 +234,60 @@ describe('岬と研究島マップの盤面', () => {
         expect(isIslet(pos) || onEnemyIsland).toBe(true);
       }
     }
-    // 岬は自軍の島と地続き(歩兵で岬の先端まで歩いて行ける)
-    expect(minCostToAny(CAPE_TIP, PLAYER_BASES, 'infantry')).toBeLessThan(Infinity);
+    // row 20〜21 は東へ折れた下の横棒。col 8 まで陸が続き、col 9 で海に切れる
+    for (const row of [20, 21]) {
+      for (let col = 0; col <= 8; col += 1) {
+        expect(map.getMoveCost(gridPosition(col, row), 'infantry')).not.toBeNull();
+      }
+      expect(map.getTile(gridPosition(9, row))?.terrainType).toBe('sea');
+    }
+    // 縦棒より 1〜3 マスぶん東へ張り出しているので「「」ではなく「[」の形になる
+    for (let row = 9; row <= 19; row += 1) {
+      expect(map.getMoveCost(gridPosition(8, row), 'infantry')).toBeNull();
+    }
+    // 下の横棒は自軍の島と地続き(歩兵で先端の港まで歩いて行ける)
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'infantry')).toBeLessThan(Infinity);
     // 岬は自軍の島の本体(row 8)より 13 段も下まで伸びている
-    expect(CAPE_TIP[0].row - 8).toBe(13);
+    expect(21 - 8).toBe(13);
   });
 
-  it('岬の東岸から敵軍の島までは、海岸を挟んで右へ 6 マスの近さしかない', () => {
-    // 岬の東岸(col 5)と先端(row 21)は一面の海岸
-    for (const pos of [...CAPE_EAST_COAST, ...CAPE_TIP]) {
+  it('下の横棒の上側は内海に面した山の壁で、飛行ユニットだけが近道できる', () => {
+    // 内海に面した (5〜8,20) は山。装軌車両・装輪車両は進入できず、海岸でもないので
+    // 輸送艦を横付けして上陸することもできない
+    for (const pos of CAPE_ARM_RIDGE) {
+      expect(map.getTile(pos)?.terrainType).toBe('mountain');
+      expect(map.getMoveCost(pos, 'vehicle')).toBeNull();
+      expect(map.getMoveCost(pos, 'wheeled')).toBeNull();
+      expect(map.getMoveCost(pos, 'sea')).toBeNull();
+    }
+    // 山の壁の北側((6〜8,19))は内海
+    for (const col of [6, 7, 8]) {
+      expect(map.getTile(gridPosition(col, 19))?.terrainType).toBe('sea');
+    }
+    // 先端の港へ地上から入るには横棒を端まで歩くしかなく、遠回りになる
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'infantry')).toBe(28);
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'vehicle')).toBe(30);
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'wheeled')).toBe(37);
+    // 飛行ユニットは山も内海もまっすぐ越えられるので、10 マス以上の近道になる
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'air')).toBe(18);
+  });
+
+  it('岬の東岸と下の横棒の南岸は海岸で、そこから敵軍の島が目と鼻の先にある', () => {
+    // 岬の東岸(col 5)と下の横棒の南岸(row 21)は海岸
+    for (const pos of [...CAPE_EAST_COAST, ...CAPE_ARM_SOUTH_COAST]) {
       expect(map.getTile(pos)?.terrainType).toBe('beach');
     }
-    // 岬の東岸(col 5)と敵軍の島の西岸(col 11)のあいだは海 5 マス = 岸から岸まで 6
-    expect(minCostToAny(ENEMY_BEACHES, CAPE_EAST_COAST, 'sea')).toBe(6);
-    expect(minCostToAny(ENEMY_BEACHES, CAPE_TIP, 'sea')).toBe(6);
+    // 内海を回り込む東岸からは岸から岸まで 7
+    expect(minCostToAny(ENEMY_BEACHES, CAPE_EAST_COAST, 'sea')).toBe(7);
+    // 下の横棒の先端(中立港)からは海 1 マスを挟むだけで敵軍の島に届く
+    expect(minCost(gridPosition(10, 21), [CAPE_ARM_PORT], 'sea')).toBe(2);
+    expect(minCostToAny(ENEMY_PORTS, [CAPE_ARM_PORT], 'sea')).toBe(3);
     // 敵軍の島は岬の「右(東)」にある
     for (const beach of ENEMY_BEACHES) {
       expect(beach.col).toBeGreaterThan(5);
     }
-    // 自軍の港から敵軍の海岸まで直接向かうと 13 かかる(岬を足場にすると半分以下になる)
-    expect(minCostToAny(ENEMY_BEACHES, PLAYER_PORTS, 'sea')).toBe(13);
+    // 自軍の港から敵軍の海岸まで直接向かうと 14(岬を足場にすると半分以下になる)
+    expect(minCostToAny(ENEMY_BEACHES, PLAYER_PORTS, 'sea')).toBe(14);
   });
 
   it('敵軍の島は右側が北へ伸びていて、その腕の先端は盤面の上下のまんなかまで届く', () => {
@@ -258,7 +304,7 @@ describe('岬と研究島マップの盤面', () => {
     for (const pos of ENEMY_ARM_BEACHES) {
       expect(map.getTile(pos)?.terrainType).toBe('beach');
     }
-    expect(minCostToAny(ENEMY_ARM_BEACHES, PLAYER_PORTS, 'sea')).toBe(12);
+    expect(minCostToAny(ENEMY_ARM_BEACHES, PLAYER_PORTS, 'sea')).toBe(16);
   });
 });
 
@@ -279,6 +325,26 @@ describe('岬と研究島マップの拠点', () => {
     expect(new EconomyManager().getIncome('player', map)).toBe(10000);
   });
 
+  it('自軍の港 2 つは、街道 1 マスを挟んでどちらも工場から 3 マスの地点にある', () => {
+    // 2 つの港は同じ行で、あいだに街道 1 マス (11,5) を挟んでいる
+    const [west, east] = PLAYER_PORTS;
+    expect(east.col - west.col).toBe(2);
+    expect(east.row).toBe(west.row);
+    expect(map.getTile(gridPosition(11, 5))?.terrainType).toBe('road');
+    // 工場 (11,3) からどちらの港へもちょうど 3 マス。地上ユニットはどの移動タイプでも同じ
+    for (const movementType of ['infantry', 'vehicle', 'wheeled'] as const) {
+      expect(minCost(west, PLAYER_FACTORIES, movementType)).toBe(3);
+      expect(minCost(east, PLAYER_FACTORIES, movementType)).toBe(3);
+    }
+    // 港の下 (10,6)/(12,6) は南の海から切れ込んだ入り江で、そこから外洋へ出られる
+    for (const inlet of [gridPosition(10, 6), gridPosition(12, 6)]) {
+      expect(map.getTile(inlet)?.terrainType).toBe('sea');
+    }
+    for (const port of PLAYER_PORTS) {
+      expect(minCost(port, [gridPosition(11, 7)], 'sea')).toBeLessThan(Infinity);
+    }
+  });
+
   it('敵軍は本拠地 1・工場 3・空港 1・港 2・都市 8 の 15 拠点(収入 15000)で始まる', () => {
     expect(keys(basesOf('enemy'))).toEqual(keys(ENEMY_BASES));
     expect(map.getTile(ENEMY_HQ)?.terrainType).toBe('headquarters');
@@ -295,15 +361,15 @@ describe('岬と研究島マップの拠点', () => {
     expect(new EconomyManager().getIncome('enemy', map)).toBe(15000);
   });
 
-  it('中立拠点は 19 個(中立都市 16・中立研究所 3)', () => {
+  it('中立拠点は 21 個(中立都市 16・中立研究所 3・中立空港 1・中立港 1)', () => {
     const neutral = basesOf('neutral');
-    expect(neutral).toHaveLength(19);
+    expect(neutral).toHaveLength(21);
     const byTerrain = neutral.reduce<Record<string, number>>((counts, pos) => {
       const terrain = map.getTile(pos)?.terrainType ?? '';
       counts[terrain] = (counts[terrain] ?? 0) + 1;
       return counts;
     }, {});
-    expect(byTerrain).toEqual({ city: 16, laboratory: 3 });
+    expect(byTerrain).toEqual({ city: 16, laboratory: 3, airport: 1, port: 1 });
   });
 
   it('初期ユニットは置かず、初期資金 0 から収入だけで立ち上げる', () => {
@@ -318,6 +384,8 @@ describe('岬と研究島マップの拠点', () => {
     for (const port of ENEMY_PORTS) {
       expect(minCost(port, [PLAYER_PORTS[0]], 'sea')).toBeLessThan(Infinity);
     }
+    // 岬の先端の中立港も同じ海でつながっている
+    expect(minCost(CAPE_ARM_PORT, PLAYER_PORTS, 'sea')).toBeLessThan(Infinity);
   });
 });
 
@@ -337,22 +405,36 @@ describe('岬と研究島マップの中立拠点の分布', () => {
     expect(keys(onIslandBody)).toEqual(keys([...WEST_CITIES, ...EAST_CITIES]));
   });
 
-  it('西の岬には中立の研究所 1 個と中立都市 3 個が縦に点在する', () => {
+  it('西の岬には研究所 1・都市 3・空港 1 が縦一列に並び、先端に中立港が 1 つある', () => {
     expect(map.getTile(CAPE_LABORATORY)?.terrainType).toBe('laboratory');
     expect(map.getTile(CAPE_LABORATORY)?.owner).toBe('neutral');
     for (const pos of CAPE_CITIES) {
       expect(map.getTile(pos)?.terrainType).toBe('city');
       expect(map.getTile(pos)?.owner).toBe('neutral');
     }
-    // 岬の中立拠点は自軍だけが歩いて取りに行ける
-    for (const pos of [CAPE_LABORATORY, ...CAPE_CITIES]) {
+    // 中立空港は研究所・中立都市と同じ縦のラダーの延長線上(col 1〜5)にある
+    expect(map.getTile(CAPE_ARM_AIRPORT)?.terrainType).toBe('airport');
+    expect(map.getTile(CAPE_ARM_AIRPORT)?.owner).toBe('neutral');
+    for (const pos of [CAPE_LABORATORY, ...CAPE_CITIES, CAPE_ARM_AIRPORT]) {
+      expect(pos.col).toBeGreaterThanOrEqual(1);
+      expect(pos.col).toBeLessThanOrEqual(5);
+    }
+    // 中立港は下の横棒の先端、敵軍の島にいちばん近い東の端にある
+    expect(map.getTile(CAPE_ARM_PORT)?.terrainType).toBe('port');
+    expect(map.getTile(CAPE_ARM_PORT)?.owner).toBe('neutral');
+    expect(CAPE_ARM_PORT.col).toBe(8);
+    // 岬の中立拠点 6 個は自軍だけが歩いて取りに行ける
+    const capeBases = [...CAPE_CITIES, CAPE_LABORATORY, CAPE_ARM_AIRPORT, CAPE_ARM_PORT];
+    for (const pos of capeBases) {
       expect(minCost(pos, PLAYER_BASES, 'infantry')).toBeLessThan(Infinity);
       expect(minCost(pos, ENEMY_BASES, 'infantry')).toBe(Infinity);
     }
-    // 岬を降りるほど遠くなる(いちばん上の都市が 10、いちばん下の都市が 20)
+    // 岬を降りるほど遠くなる(いちばん上の都市が 10、先端の港が 28)
     expect(minCost(CAPE_CITIES[0], PLAYER_BASES, 'infantry')).toBe(10);
     expect(minCost(CAPE_LABORATORY, PLAYER_BASES, 'infantry')).toBe(19);
     expect(minCost(CAPE_CITIES[2], PLAYER_BASES, 'infantry')).toBe(20);
+    expect(minCost(CAPE_ARM_AIRPORT, PLAYER_BASES, 'infantry')).toBe(24);
+    expect(minCost(CAPE_ARM_PORT, PLAYER_BASES, 'infantry')).toBe(28);
   });
 
   it('東の離島は自軍の島の東端より右にあり、建つのは中立の研究所 2 個だけ', () => {
@@ -382,8 +464,8 @@ describe('岬と研究島マップの中立拠点の分布', () => {
       expect(minCost(pos, PLAYER_BASES, 'infantry')).toBe(Infinity);
       expect(minCost(pos, ENEMY_BASES, 'infantry')).toBe(Infinity);
     }
-    // 海路は自軍の港から 7・敵軍の港から 22 と、自軍のほうがずっと近い
-    expect(minCostToAny(ISLET_BEACHES, PLAYER_PORTS, 'sea')).toBe(7);
+    // 海路は自軍の港から 13・敵軍の港から 22 と、自軍のほうがずっと近い
+    expect(minCostToAny(ISLET_BEACHES, PLAYER_PORTS, 'sea')).toBe(13);
     expect(minCostToAny(ISLET_BEACHES, ENEMY_PORTS, 'sea')).toBe(22);
   });
 
@@ -403,15 +485,15 @@ describe('岬と研究島マップの中立拠点の分布', () => {
     }
   });
 
-  it('中立拠点 19 個のうち 16 個は自軍側にあり、取り切れば収入で敵軍を追い越せる', () => {
+  it('中立拠点 21 個のうち 18 個は自軍側にあり、取り切れば収入で敵軍を追い越せる', () => {
     const forPlayer = basesOf('neutral').filter(
       (pos) => minCost(pos, PLAYER_BASES, 'infantry') < Infinity,
     );
-    // 歩いて取れるのは北西の島の 10 個と岬の 4 個
-    expect(forPlayer).toHaveLength(14);
-    // 離島の研究所 2 個を足した 16 個ぶんが自軍の伸びしろ(収入 10000 → 26000)
-    expect(14 + ISLET_LABORATORIES.length).toBe(16);
-    expect((PLAYER_BASES.length + 16) * 1000).toBe(26000);
+    // 歩いて取れるのは北西の島の 10 個と岬の 6 個
+    expect(forPlayer).toHaveLength(16);
+    // 離島の研究所 2 個を足した 18 個ぶんが自軍の伸びしろ(収入 10000 → 28000)
+    expect(16 + ISLET_LABORATORIES.length).toBe(18);
+    expect((PLAYER_BASES.length + 18) * 1000).toBe(28000);
     // 敵軍の伸びしろは島に残る 3 個ぶんだけ(収入 15000 → 18000)
     expect((ENEMY_BASES.length + ENEMY_ISLAND_NEUTRAL_CITIES.length) * 1000).toBe(18000);
   });
@@ -428,6 +510,15 @@ describe('岬と研究島マップの通行性と敵軍AI', () => {
         // 離島は輸送艦・輸送ヘリでしか行けないので対象外
         if (isIslet(tile.position)) return;
         expect(fields.some((field) => field.get(tile.position) !== undefined)).toBe(true);
+      });
+    }
+    // 「[」の下の横棒も、遠回りではあるが地上ユニットで歩き切れる
+    for (const movementType of ['infantry', 'vehicle', 'wheeled'] as const) {
+      const arm = distancesFrom(map, PLAYER_HQ, movementType);
+      map.forEachTile((tile) => {
+        if (!isCapeArm(tile.position)) return;
+        if (map.getMoveCost(tile.position, movementType) === null) return;
+        expect(arm.get(tile.position)).not.toBeUndefined();
       });
     }
     // 海上ユニットは盤面の海をすべて行き来できる
