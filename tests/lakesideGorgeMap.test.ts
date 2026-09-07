@@ -59,6 +59,16 @@ const POCKET_LABORATORY = gridPosition(6, 4);
 const POCKET_AIRPORT = gridPosition(7, 3);
 const POCKET_CITIES: readonly GridPosition[] = [gridPosition(5, 3), gridPosition(6, 5)];
 
+/** 窪地の南の縁。山ではなく、川 (5〜7,7) に接する海岸にしてある */
+const POCKET_BEACH: readonly GridPosition[] = [
+  gridPosition(5, 6),
+  gridPosition(6, 6),
+  gridPosition(7, 6),
+];
+
+/** 研究所の左どなりの海岸に置いた中立港。窪地の新型戦車を運び出す輸送艦の生産拠点 */
+const WEST_PORT = gridPosition(3, 4);
+
 /** 右上の 5x4 の湖(col 27〜31・row 5〜8) */
 const LAKE: readonly GridPosition[] = [27, 28, 29, 30, 31].flatMap((col) =>
   [5, 6, 7, 8].map((row) => gridPosition(col, row)),
@@ -71,6 +81,28 @@ const RIVER: readonly GridPosition[] = Array.from({ length: 24 }, (_, i) =>
 
 /** 右端の街道が左(くねくね道)と下(右下の空間)へ分かれる分岐点 */
 const SPLIT = gridPosition(33, 11);
+
+/** くねくね道が海ぎわから折れて、敵軍の陣地を上から迎えにくる入口 */
+const CAMP_GATE = gridPosition(3, 18);
+
+/** くねくね道の西端。海(col 0〜2)ぞいを南へ下る 2 マス */
+const SHORE_ROAD: readonly GridPosition[] = [gridPosition(3, 16), gridPosition(3, 17)];
+
+/** 分岐点のまわりに置いた中立都市(自軍のほうが近い) */
+const SPLIT_CITIES: readonly GridPosition[] = [
+  gridPosition(30, 10),
+  gridPosition(32, 12),
+];
+
+/** くねくね道ぞいの中立都市(西端の (6,15) までを含む) */
+const ROAD_CITIES: readonly GridPosition[] = [
+  gridPosition(25, 9),
+  gridPosition(21, 10),
+  gridPosition(11, 13),
+  gridPosition(13, 13),
+  gridPosition(18, 13),
+  gridPosition(6, 15),
+];
 
 /** 後手のハンデとして敵軍の陣地の隣にだけ置いた中立都市 2 個 */
 const HANDICAP_CITIES: readonly GridPosition[] = [
@@ -140,7 +172,7 @@ describe('湖畔と山峡マップの盤面', () => {
     const sea = distancesFrom(map, PLAYER_PORT, 'sea');
     expect(sea.get(gridPosition(26, 7))).toBeLessThan(Infinity);
     expect(sea.get(ENEMY_PORT)).toBe(44);
-    expect(sea.get(gridPosition(3, 12))).toBe(36);
+    expect(sea.get(WEST_PORT)).toBe(34);
   });
 
   it('川より上は一面の森、川のすぐ南(row 8)は端から端まで山', () => {
@@ -150,8 +182,8 @@ describe('湖畔と山峡マップの盤面', () => {
         if (col >= 4 && col <= 8) continue;
         const terrain = map.getTile(gridPosition(col, row))!.terrainType;
         // 例外は、森のあいだに点在する中立都市 4 個((15,2)(23,2)(11,4)(19,5))と、
-        // 西岸で揚陸に使う海岸 2 マス((3,4)(3,5))だけ
-        expect(['forest', 'city', 'beach']).toContain(terrain);
+        // 西岸の中立港 (3,4)・揚陸に使う海岸 (3,5) だけ
+        expect(['forest', 'city', 'beach', 'port']).toContain(terrain);
       }
     }
     for (let col = 3; col <= 26; col += 1) {
@@ -191,10 +223,41 @@ describe('湖畔と山峡マップの盤面', () => {
     // 左と下、どちらの隣も街道
     expect(map.getTile(gridPosition(32, 11))?.terrainType).toBe('road');
     expect(map.getTile(gridPosition(33, 12))?.terrainType).toBe('road');
-    // くねくね道は分岐点から敵軍の陣地の入口 (8,18) まで 44 マス
-    expect(distancesFrom(map, gridPosition(8, 18), 'wheeled').get(SPLIT)).toBe(44);
+    // くねくね道は分岐点から敵軍の陣地の入口 (3,18) まで 51 マス
+    expect(distancesFrom(map, CAMP_GATE, 'wheeled').get(SPLIT)).toBe(51);
     // 自軍の陣地からは分岐点まで 12 マスと近い
     expect(minCost(SPLIT, PLAYER_BASES, 'wheeled')).toBe(12);
+  });
+
+  it('くねくね道は西の海ぎわまで出てから、敵軍の陣地を上から迎えにいく', () => {
+    // 西端は海(col 0〜2)ぞいの街道 2 マスで、そこから南へ折れて陣地の入口 (3,18) へ降りる
+    for (const pos of SHORE_ROAD) {
+      expect(map.getTile(pos)?.terrainType).toBe('road');
+      expect(map.getTile(gridPosition(2, pos.row))?.terrainType).toBe('sea');
+    }
+    expect(map.getTile(CAMP_GATE)?.terrainType).toBe('road');
+    // 入口 (3,18) は敵軍の本拠地の真上の列にあり、そのまま陣地へ入れる
+    expect(distancesFrom(map, CAMP_GATE, 'wheeled').get(ENEMY_HQ)).toBe(5);
+    // 以前の東側の入口 (8,18) はもう街道ではなく、陣地の前の平地になっている
+    expect(map.getTile(gridPosition(8, 18))?.terrainType).toBe('plain');
+    expect(map.getTile(gridPosition(8, 17))?.terrainType).toBe('mountain');
+    // くねくね道は 1 本につながったまま(装輪車両が分岐点から陣地の入口まで通れる)
+    expect(distancesFrom(map, SPLIT, 'wheeled').get(CAMP_GATE)).toBe(51);
+  });
+
+  it('くねくね道ぞいと分岐点のまわりに中立都市が並ぶ', () => {
+    for (const pos of [...ROAD_CITIES, ...SPLIT_CITIES]) {
+      expect(map.getTile(pos)?.terrainType).toBe('city');
+      expect(map.getTile(pos)?.owner).toBe('neutral');
+    }
+    // 分岐点まわりの 2 個は自軍のほうがはるかに近い
+    expect(minCost(gridPosition(30, 10), PLAYER_BASES, 'wheeled')).toBe(16);
+    expect(minCost(gridPosition(32, 12), PLAYER_BASES, 'wheeled')).toBe(14);
+    for (const pos of SPLIT_CITIES) {
+      expect(minCost(pos, PLAYER_BASES, 'infantry')).toBeLessThan(
+        minCost(pos, ENEMY_BASES, 'infantry'),
+      );
+    }
   });
 
   it('拠点は盤面の端(最上段・最下段・左右の端の列)には 1 つも置かない', () => {
@@ -240,11 +303,11 @@ describe('湖畔と山峡マップの拠点', () => {
     expect(economy.getIncome('enemy', map)).toBe(7000);
   });
 
-  it('中立拠点は 26 個(都市 21・研究所 1・空港 1・港 1・駅 2)', () => {
+  it('中立拠点は 31 個(都市 26・研究所 1・空港 1・港 1・駅 2)', () => {
     const neutral = basesOf('neutral');
-    expect(neutral).toHaveLength(26);
+    expect(neutral).toHaveLength(31);
     expect(countByTerrain(neutral)).toEqual({
-      city: 21,
+      city: 26,
       laboratory: 1,
       airport: 1,
       port: 1,
@@ -259,28 +322,33 @@ describe('湖畔と山峡マップの拠点', () => {
     );
   });
 
-  it('西岸の中立港は山に囲まれた入り江にあり、車両はどうやっても近づけない', () => {
-    const westPort = gridPosition(3, 12);
-    expect(map.getTile(westPort)?.terrainType).toBe('port');
-    expect(map.getTile(westPort)?.owner).toBe('neutral');
-    for (const movementType of ['vehicle', 'wheeled'] as const) {
-      expect(minCost(westPort, [...PLAYER_BASES, ...ENEMY_BASES], movementType)).toBe(
-        Infinity,
-      );
-    }
-    expect(minCost(westPort, ENEMY_BASES, 'infantry')).toBe(13);
+  it('西岸の中立港は研究所の左どなりの海岸にあり、海ぞいの敵軍のほうが近い', () => {
+    expect(map.getTile(WEST_PORT)?.terrainType).toBe('port');
+    expect(map.getTile(WEST_PORT)?.owner).toBe('neutral');
+    // 川より南の入り江ではなく北の海岸線に移したので、陸路でも歩いて取りにいける
+    expect(minCost(WEST_PORT, PLAYER_BASES, 'infantry')).toBe(28);
+    expect(minCost(WEST_PORT, ENEMY_BASES, 'infantry')).toBe(26);
+    // 海路は同じ西の海に面する敵軍の港のほうが近い(18 対 34)
+    expect(distancesFrom(map, ENEMY_PORT, 'sea').get(WEST_PORT)).toBe(18);
+    expect(distancesFrom(map, PLAYER_PORT, 'sea').get(WEST_PORT)).toBe(34);
   });
 });
 
 describe('湖畔と山峡マップの北西の窪地', () => {
-  it('3x3 の窪地は山の輪にすっぽり囲まれている', () => {
-    // 輪(col 4〜8・row 2〜6)の縁はすべて山
+  it('3x3 の窪地は山に囲まれ、南の縁だけが川に接する海岸になっている', () => {
+    // 縁(col 4〜8・row 2〜6)は、南の縁の (5〜7,6) を除いてすべて山
+    const beach = new Set(POCKET_BEACH.map((pos) => `${pos.col},${pos.row}`));
     for (let col = 4; col <= 8; col += 1) {
       for (let row = 2; row <= 6; row += 1) {
         const isInside = col >= 5 && col <= 7 && row >= 3 && row <= 5;
         if (isInside) continue;
-        expect(map.getTile(gridPosition(col, row))?.terrainType).toBe('mountain');
+        const expected = beach.has(`${col},${row}`) ? 'beach' : 'mountain';
+        expect(map.getTile(gridPosition(col, row))?.terrainType).toBe(expected);
       }
+    }
+    // 南の縁の海岸は、そのまま川(row 7)に接している
+    for (const pos of POCKET_BEACH) {
+      expect(map.getTile(gridPosition(pos.col, 7))?.terrainType).toBe('river');
     }
     // 窪地の中身は中立の研究所 1・都市 2・空港 1
     expect(map.getTile(POCKET_LABORATORY)?.terrainType).toBe('laboratory');
@@ -293,25 +361,40 @@ describe('湖畔と山峡マップの北西の窪地', () => {
     }
   });
 
-  it('窪地へ入れるのは歩兵と飛行ユニットだけで、自軍のほうが近い', () => {
+  it('山を越えて入れるのは歩兵と飛行ユニットだけで、自軍のほうが近い', () => {
     const bases = [...PLAYER_BASES, ...ENEMY_BASES];
-    for (const movementType of ['vehicle', 'wheeled'] as const) {
-      expect(minCost(POCKET_LABORATORY, bases, movementType)).toBe(Infinity);
-    }
+    // 装輪車両は山も川も越えられないので、どうやっても窪地へは入れない
+    expect(minCost(POCKET_LABORATORY, bases, 'wheeled')).toBe(Infinity);
     expect(minCost(POCKET_LABORATORY, bases, 'air')).toBeLessThan(Infinity);
     // 北の森を西へ歩く自軍のほうが、山を北上する敵軍より近い
     expect(minCost(POCKET_LABORATORY, PLAYER_BASES, 'infantry')).toBe(24);
-    expect(minCost(POCKET_LABORATORY, ENEMY_BASES, 'infantry')).toBe(27);
+    expect(minCost(POCKET_LABORATORY, ENEMY_BASES, 'infantry')).toBe(26);
     expect(minCost(POCKET_AIRPORT, PLAYER_BASES, 'infantry')).toBe(23);
-    expect(minCost(POCKET_AIRPORT, ENEMY_BASES, 'infantry')).toBe(27);
+    expect(minCost(POCKET_AIRPORT, ENEMY_BASES, 'infantry')).toBe(26);
+  });
+
+  it('研究所で生まれた新型戦車は、南の海岸から水路へ出て運び出せる', () => {
+    // 窪地の中は装軌車両でも動ける(研究所から南の海岸まで 3)
+    const fromLab = distancesFrom(map, POCKET_LABORATORY, 'vehicle');
+    expect(fromLab.get(gridPosition(6, 6))).toBe(3);
+    // 輸送艦は中立港 (3,4) から窪地の海岸へ着けられる
+    const seaFromWestPort = distancesFrom(map, WEST_PORT, 'sea');
+    for (const pos of POCKET_BEACH) {
+      expect(seaFromWestPort.get(pos)).toBeLessThan(Infinity);
+    }
+    // 輸送艦がなくても、新型戦車は自力で川を渡渉して北の森へ抜けられる(移動力 6 で 3 ターン)
+    expect(getUnitData('newTank').movementType).toBe('vehicle');
+    expect(getUnitData('newTank').movement).toBe(6);
+    expect(fromLab.get(gridPosition(3, 6))).toBe(15);
+    // 川を遡れば装軌車両は外から窪地へも入れる(そのぶん研究所は守りにくい)
+    expect(minCost(POCKET_LABORATORY, PLAYER_BASES, 'vehicle')).toBe(56);
   });
 
   it('敵軍は西岸の海岸へ揚陸して窪地を狙える', () => {
     const sea = distancesFrom(map, ENEMY_PORT, 'sea');
-    for (const pos of [gridPosition(3, 4), gridPosition(3, 5)]) {
-      expect(map.getTile(pos)?.terrainType).toBe('beach');
-      expect(sea.get(pos)).toBeLessThan(Infinity);
-    }
+    expect(map.getTile(gridPosition(3, 5))?.terrainType).toBe('beach');
+    expect(sea.get(gridPosition(3, 5))).toBe(17);
+    expect(sea.get(WEST_PORT)).toBe(18);
   });
 });
 
@@ -405,6 +488,7 @@ describe('湖畔と山峡マップの線路と 2 つの中立駅', () => {
     }
     expect(minCost(SE_STATION, ENEMY_BASES, 'infantry')).toBe(26);
     expect(minCost(SE_STATION, ENEMY_BASES, 'vehicle')).toBe(40);
+    expect(minCost(SE_STATION, ENEMY_BASES, 'wheeled')).toBe(66);
   });
 
   it('線路のまわりは森と平地なので、装軌車両は列車砲に随伴できる', () => {
@@ -451,8 +535,8 @@ describe('湖畔と山峡マップの先手番ハンデ', () => {
   it('相手の本拠地までの距離は、両軍でおおむね釣り合っている', () => {
     expect(minCost(ENEMY_HQ, PLAYER_BASES, 'infantry')).toBe(42);
     expect(minCost(PLAYER_HQ, ENEMY_BASES, 'infantry')).toBe(43);
-    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'vehicle')).toBe(60);
-    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'vehicle')).toBe(58);
+    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'vehicle')).toBe(61);
+    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'vehicle')).toBe(59);
   });
 });
 
