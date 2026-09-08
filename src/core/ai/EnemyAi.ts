@@ -18,7 +18,11 @@
 // 思考パターンによっては、3 の前進に次の味付けが加わる。
 //   - indirectStandoff: 間接攻撃ユニットは敵へ近づかず、射程に収めるマスへ構える
 //   - regroupRadius: 味方から離れすぎるマスへは進まず、隊列を保って押し上げる
+//   - advance: 'defendBase': 戦闘ユニットは攻め上がらず、自軍の拠点のそばで構えて守る
 // 生産では nightVisionFloor により、夜戦で視界の狭いユニットを候補から外せる。
+// indirectPriority では自走砲・ロケット砲を優先して買う。
+// また avoidUnfavorableAttack では、1 の攻撃のうち相性で不利な組み合わせ
+// (反撃のほうが重い攻撃)を、撃破できる場合を除いてしかけない。
 //
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
@@ -205,6 +209,13 @@ const OWN_PRODUCTION_SITE_PENALTY = 2;
  * 目標そのものが拠点のときでも隣のマスへ退いて、歩兵に道を空ける。
  */
 const UNCAPTURED_BASE_PENALTY = 12;
+
+/**
+ * 守りの思考パターンで、戦闘ユニットが守る拠点から離れてよい距離(マス)。
+ * この範囲の内側はどこも「守れている」と見なすため、拠点の上に乗って生産をふさいだり、
+ * 何体もが拠点の隣を奪い合って動けなくなったりせず、拠点の周りに散って構えられる。
+ */
+const GUARD_POST_RADIUS = 2;
 
 /**
  * 間合いを取る間接攻撃ユニットが、最小射程より内側へ入り込むときの 1 マスあたりの重み。
@@ -429,6 +440,11 @@ export class EnemyAi {
           continue;
         }
         const counter = this.estimateCounter(unit, target, from, damage, willKill);
+        // 守りの思考パターンでは、相性で不利な戦闘(反撃のほうが重い攻撃)はしかけない。
+        // 撃破できるなら反撃を受けないため、不利な相性でも手を出す
+        if (this.behavior.avoidUnfavorableAttack && !willKill && counter >= damage) {
+          continue;
+        }
 
         // 撃破を最優先し、次に与ダメージ、被反撃は減点、防御地形は微加点する
         let score = damage - counter + this.terrainDefense(from) * 0.5;
@@ -568,13 +584,13 @@ export class EnemyAi {
    * どちらの場合も行動済みにする。
    * 夜戦で敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
    *
-   * 間合いを取る思考パターンの間接攻撃ユニットだけは「近づく」のではなく
-   * 「見えている敵を射程に収めるマスへ構える」ため、目標との遠近の測り方が変わる。
+   * 目標との遠近の測り方は思考パターンで変わる(moveGoalCost)。間合いを取る間接攻撃
+   * ユニットは「見えている敵を射程に収めるマス」、守り型の戦闘ユニットは
+   * 「守る自軍拠点のそば」を近いと見なす。
    */
   private moveOrWait(unit: Unit, vision: Visibility): AiAction {
-    const standoff = this.standoffAnchor(unit, vision);
-    const targetPos = standoff ?? this.approachTarget(unit, vision);
-    if (!targetPos) {
+    const goalCost = this.moveGoalCost(unit, vision);
+    if (!goalCost) {
       unit.hasActed = true;
       return { kind: 'wait', unit };
     }
@@ -585,11 +601,6 @@ export class EnemyAi {
       this.units,
       this.movementOptions(vision),
     );
-    // 目標との「遠さ」の測り方。間合いを取る間接攻撃ユニットは射程に収まっていれば 0 とし、
-    // それ以外は思考パターンに従った距離('path' なら実際に通れるマスをたどった長さ)で測る。
-    const goalCost = standoff
-      ? (pos: GridPosition) => this.standoffCost(unit, pos, standoff)
-      : this.approachDistance(unit, targetPos);
 
     // 集結する思考パターンでは、味方から離れすぎるマスは候補から外す
     return this.stepTowards(
@@ -598,6 +609,36 @@ export class EnemyAi {
       this.regroupCandidates(unit, range.tiles),
       vision,
     );
+  }
+
+  /**
+   * 前進先を選ぶときの、目標との「遠さ」(小さいほど良い)を測る関数を返す。
+   * 進む先が無ければ null(その場で待機になる)。測り方は思考パターンで 3 通りに分かれる。
+   *
+   *   - 間合い(indirectStandoff): 見えている敵を射程に収めていれば 0
+   *   - 守り('defendBase'): 守る自軍拠点までの距離(そこから 2 マス以内はどこも 0)
+   *   - 接近(既定): 目標までの距離('path' なら通れるマスをたどった経路の長さ)
+   */
+  private moveGoalCost(
+    unit: Unit,
+    vision: Visibility,
+  ): ((pos: GridPosition) => number) | null {
+    const standoff = this.standoffAnchor(unit, vision);
+    if (standoff) {
+      return (pos) => this.standoffCost(unit, pos, standoff);
+    }
+
+    const post = this.guardPost(unit, vision);
+    if (post) {
+      const distance = this.approachDistance(unit, post);
+      // 拠点の上に乗らなくても、そばで構えていれば守りは果たせる。守備範囲の内側を
+      // すべて同じ遠さと見なすことで、自軍の工場・本拠地をふさがずに守れる
+      // (同じ遠さなら生産拠点を避ける減点と地形防御の加点で止まる場所が決まる)
+      return (pos) => Math.max(0, distance(pos) - GUARD_POST_RADIUS);
+    }
+
+    const target = this.approachTarget(unit, vision);
+    return target ? this.approachDistance(unit, target) : null;
   }
 
   /**
@@ -1185,6 +1226,54 @@ export class EnemyAi {
   }
 
   /**
+   * 守りの思考パターン('defendBase')で、戦闘ユニットが構える自軍拠点を返す。
+   *
+   * 守るのは「基準となる位置からいちばん近い自軍の拠点」で、基準は見えている最寄りの敵
+   * (敵が 1 体も見えていなければ自分の現在地)。攻めてきた方角の拠点へ自然と寄り、
+   * 敵が見えないあいだは手近な拠点を固めることになる。
+   * 同じ近さの拠点が複数あれば、拠点の格(本拠地 > 工場・港 > 都市)が高いほうを守る。
+   *
+   * 実際に止まるのはこの拠点そのものではなく、そこから GUARD_POST_RADIUS マス以内。
+   * 守り型でないとき・占領役(歩兵は拠点を取りに行く)・自軍の拠点が 1 つも無いときは null。
+   */
+  private guardPost(unit: Unit, vision: Visibility): GridPosition | null {
+    if (this.behavior.advance !== 'defendBase' || unit.canCapture) {
+      return null;
+    }
+    const bases: TileData[] = [];
+    this.map.forEachTile((tile) => {
+      if (tile.owner === this.army && getTerrainData(tile.terrainType).canCapture) {
+        bases.push(tile);
+      }
+    });
+    if (bases.length === 0) {
+      return null;
+    }
+    // たどり着ける拠点だけを守る(艦船が内陸の都市を目指して港から出られない、を防ぐ)。
+    // たどり着ける拠点が 1 つも無ければ、絞り込まずに近い拠点を目指す
+    const field = this.pathField('from', unit.position, unit.movementType);
+    const reachable = bases.filter((tile) => field.get(tile.position) !== undefined);
+    const candidates = reachable.length > 0 ? reachable : bases;
+
+    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    const anchor =
+      enemies.length > 0 ? this.nearestEnemyPosition(unit, enemies) : unit.position;
+    let best = candidates[0];
+    let bestKey = Infinity;
+    for (const tile of candidates) {
+      // 基準からの近さを主、拠点の格を従にした順位付け(近さ 1 マスの差は格の差より重い)
+      const key =
+        manhattanDistance(anchor, tile.position) * 10 -
+        (CAPTURE_PRIORITY[tile.terrainType] ?? 0);
+      if (key < bestKey) {
+        bestKey = key;
+        best = tile;
+      }
+    }
+    return best.position;
+  }
+
+  /**
    * pos から anchor にいる敵を狙える度合いを「遠さ」(小さいほど良い)として返す。
    *
    * 射程(最小〜最大)に収まっていれば 0。遠すぎれば足りないマス数、
@@ -1203,6 +1292,8 @@ export class EnemyAi {
    *
    * - 'captureAndCharge' の思考パターンでは、敵が見えているかによらず
    *   占領できるユニットは未所有の拠点(中立優先)、それ以外は相手の本拠地を目標にする。
+   * - 'defendBase'(守り型)では、占領できるユニットは未所有の拠点(中立優先)を目標にする。
+   *   それ以外の戦闘ユニットの行き先は guardPost が決めるため、ここは通らない。
    * - 既定('nearestEnemy')では、見えている敵がいればその最寄りの敵、
    *   いなければ(夜戦の索敵中など)自軍所有でない最寄りの拠点を目標にする。
    *
@@ -1213,6 +1304,14 @@ export class EnemyAi {
       const charge = this.chargeTarget(unit);
       if (charge) {
         return charge;
+      }
+    }
+    // 守り型でも占領役(歩兵)は拠点を取りに行く。守るのは戦闘ユニットの役目で、
+    // その行き先は guardPost が決めるため、ここへ来るのは守る拠点が 1 つも無いときだけ
+    if (this.behavior.advance === 'defendBase' && unit.canCapture) {
+      const capture = this.nearestCaptureTarget(unit);
+      if (capture) {
+        return capture;
       }
     }
     const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
@@ -1405,6 +1504,9 @@ export class EnemyAi {
    *   そろったあとは 'infantryFirst' と同じ判断に進む。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
    *
+   * indirectPriority の思考パターンでは、頭数がそろったあとの生産で
+   * 間接攻撃ユニット(自走砲・ロケット砲・列車砲)を先に買う(preferredIndirect)。
+   *
    * さらに saveForUpgrade の思考パターンでは、いま買える最強の種別をすでに持っていて
    * 「より高価でまだ 1 体も持っていない種別」が残っていれば、そのターンは見送って資金を貯める。
    * ただし戦力で相手に負けている(劣勢の)あいだは貯めず、いま買えるものを買って頭数を戻す。
@@ -1452,6 +1554,14 @@ export class EnemyAi {
       }
     }
 
+    // 遠距離を優先する思考パターンでは、自走砲・ロケット砲を先に買う
+    if (this.behavior.indirectPriority) {
+      const indirect = this.preferredIndirect(tile, candidates);
+      if (indirect) {
+        return indirect;
+      }
+    }
+
     const affordable = candidates.find((type) =>
       this.production.canProduce(this.army, tile, type),
     );
@@ -1478,6 +1588,40 @@ export class EnemyAi {
       return null;
     }
     return affordable;
+  }
+
+  /**
+   * 遠距離を優先する思考パターンで、この拠点で先に買う間接攻撃ユニットを返す
+   * (優先しない・買えるものが無ければ null)。
+   *
+   * 買うのは候補のうち「いま買えるいちばん高価な間接攻撃ユニット」。ただし優先するのは
+   * 自軍の間接攻撃ユニットが直接攻撃の戦闘ユニットより多くならないあいだだけで、
+   * 多くなったら通常どおりの選び方に戻る。遠距離ばかりが並んで前に立つ戦車・偵察車が
+   * いなくなると、間合いに踏み込まれたときに何もできなくなってしまうため。
+   *
+   * 数えるのは戦う頭数なので、占領役(歩兵)と輸送ユニットは直接攻撃ユニットに数えない。
+   *
+   * @param candidates 生産候補(高価な順)
+   */
+  private preferredIndirect(
+    tile: TileData,
+    candidates: readonly UnitType[],
+  ): UnitType | null {
+    const own = this.units.getUnitsByArmy(this.army);
+    const indirect = own.filter((unit) => unit.isIndirect).length;
+    const direct = own.filter(
+      (unit) => !unit.isIndirect && !unit.canCapture && !unit.isFerry,
+    ).length;
+    if (indirect > direct) {
+      return null;
+    }
+    return (
+      candidates.find(
+        (type) =>
+          getUnitData(type).minAttackRange >= 2 &&
+          this.production.canProduce(this.army, tile, type),
+      ) ?? null
+    );
   }
 
   /**
