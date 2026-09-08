@@ -20,7 +20,12 @@ export type AiAdvancePolicy =
   /** 見えている最寄りの敵へ近づく(敵が見えなければ自軍所有でない最寄りの拠点へ) */
   | 'nearestEnemy'
   /** 占領できるユニットは未所有の拠点(中立優先)へ、それ以外は敵本拠地へ突き進む */
-  | 'captureAndCharge';
+  | 'captureAndCharge'
+  /**
+   * 占領できるユニットは未所有の拠点(中立優先)へ向かうが、それ以外は攻め上がらず
+   * 自軍の拠点のそばで構えて守る。攻めてきた敵は攻撃の判断(優先順位 1)で迎え撃つ。
+   */
+  | 'defendBase';
 
 /** 目標までの距離の測り方 */
 export type AiRouting =
@@ -74,6 +79,16 @@ export interface AiBehavior {
    * いま買えるものを買って頭数を戻す。
    */
   readonly saveForUpgrade: boolean;
+  /**
+   * 間接攻撃(遠距離)ユニットを優先して生産するかどうか。
+   *
+   * true のとき、歩兵・編成表の頭数がそろったあとの生産で、その拠点で作れる
+   * 間接攻撃ユニット(自走砲・ロケット砲・列車砲)のうち、いま買える最も高価なものを先に買う。
+   * ただし優先するのは「自軍の間接攻撃ユニットが直接攻撃の戦闘ユニットより多くならない」
+   * あいだだけで、多くなったあとは通常どおり強力なユニットを買う。
+   * 遠距離を軸にしつつ、前に立つ戦車・偵察車も切らさないための歯止め。
+   */
+  readonly indirectPriority: boolean;
   /** 進軍の方針 */
   readonly advance: AiAdvancePolicy;
   /** 目標までの距離の測り方 */
@@ -83,6 +98,14 @@ export interface AiBehavior {
    * true でも敵本拠地の占領(勝利に直結する)より優先することはない。
    */
   readonly preferNeutralCapture: boolean;
+  /**
+   * 相性で不利な戦闘をしかけないかどうか。
+   *
+   * true のとき、想定される反撃が与ダメージ以上になる攻撃(相手のほうが有利な組み合わせ)は
+   * しかけない。ただし相手を撃破できる攻撃は反撃を受けないため、不利な相性でもしかける。
+   * 攻撃を見送ったユニットは、そのまま占領・接近の判断へ進む。
+   */
+  readonly avoidUnfavorableAttack: boolean;
   /**
    * 間接攻撃(遠距離)ユニットが間合いを取るかどうか。
    *
@@ -123,9 +146,11 @@ export const DEFAULT_AI_BEHAVIOR: AiBehavior = {
   roster: [],
   powerCostRatio: 0,
   saveForUpgrade: false,
+  indirectPriority: false,
   advance: 'nearestEnemy',
   routing: 'direct',
   preferNeutralCapture: false,
+  avoidUnfavorableAttack: false,
   indirectStandoff: false,
   nightVisionFloor: 0,
   regroupRadius: 0,

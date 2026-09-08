@@ -49,9 +49,11 @@ const CHARGE_BEHAVIOR: AiBehavior = {
   roster: [],
   powerCostRatio: 0.5,
   saveForUpgrade: false,
+  indirectPriority: false,
   advance: 'captureAndCharge',
   routing: 'path',
   preferNeutralCapture: true,
+  avoidUnfavorableAttack: false,
   indirectStandoff: false,
   nightVisionFloor: 0,
   regroupRadius: 0,
@@ -70,12 +72,34 @@ const HUNTER_BEHAVIOR: AiBehavior = {
   ],
   powerCostRatio: 0.3,
   saveForUpgrade: true,
+  indirectPriority: false,
   advance: 'captureAndCharge',
   routing: 'path',
   preferNeutralCapture: true,
+  avoidUnfavorableAttack: false,
   indirectStandoff: true,
   nightVisionFloor: 2,
   regroupRadius: 2,
+};
+
+/**
+ * 城塞長バルドの思考パターン(自陣を固めて受け止める守り型)。
+ * 生産まわりを確かめるテストでは、歩兵の目標数だけ 0 に差し替えて使う。
+ */
+const DEFEND_BEHAVIOR: AiBehavior = {
+  production: 'infantryFirst',
+  infantryQuota: 8,
+  roster: [],
+  powerCostRatio: 0,
+  saveForUpgrade: false,
+  indirectPriority: true,
+  advance: 'defendBase',
+  routing: 'path',
+  preferNeutralCapture: true,
+  avoidUnfavorableAttack: true,
+  indirectStandoff: false,
+  nightVisionFloor: 0,
+  regroupRadius: 0,
 };
 
 /** 行動ログから指定種別のものだけ取り出す */
@@ -1034,6 +1058,203 @@ describe('EnemyAi.run(間合いと隊列)', () => {
 
     expect(moves).toHaveLength(1);
     expect(moves[0].to).toEqual(gridPosition(6, 0));
+  });
+});
+
+describe('EnemyAi.run(守りの思考パターン)', () => {
+  it('戦闘ユニットは敵へ突撃せず、自軍の拠点のそばまで下がる', () => {
+    // (0,0) 敵軍の工場 / (3,0) 敵中戦車 / (10,0) 自軍歩兵。中戦車からは攻撃も占領もできない
+    const def: MapDefinition = {
+      name: 't',
+      terrain: ['F.........c'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: [
+        { col: 3, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: 10, row: 0, unitType: 'infantry', army: 'player' },
+      ],
+    };
+
+    const defend = actionsOfKind(
+      setup(def, { behavior: DEFEND_BEHAVIOR }).ai.run(),
+      'move',
+    );
+    expect(defend).toHaveLength(1);
+    // 敵から離れて工場のそば(2 マス以内)まで下がる。ただし工場そのものには乗らない
+    // (居座っているあいだ、その工場では生産できなくなるため)
+    expect(defend[0].to.row).toBe(0);
+    expect(defend[0].to.col).toBeGreaterThanOrEqual(1);
+    expect(defend[0].to.col).toBeLessThanOrEqual(2);
+
+    // 既定の思考パターンは最寄りの敵(東)へ近づく
+    const standard = actionsOfKind(setup(def).ai.run(), 'move');
+    expect(standard).toHaveLength(1);
+    expect(standard[0].to).toEqual(gridPosition(8, 0));
+  });
+
+  it('守る拠点は、見えている敵にいちばん近い自軍拠点を選ぶ', () => {
+    // (0,0) と (10,0) が敵軍の都市。(5,0) の敵中戦車は、敵の来ている側の都市を守る
+    const twoCities = (enemyCol: number): MapDefinition => ({
+      name: 't',
+      terrain: [
+        'c.........c',
+        '...........',
+        '...........',
+        '...........',
+        '...........',
+      ],
+      owners: [
+        { col: 0, row: 0, owner: 'enemy' },
+        { col: 10, row: 0, owner: 'enemy' },
+      ],
+      units: [
+        { col: 5, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: enemyCol, row: 4, unitType: 'infantry', army: 'player' },
+      ],
+    });
+
+    // 自軍歩兵が東(10,4)にいれば東の都市へ、西(0,4)にいれば西の都市へ向かう
+    const east = actionsOfKind(
+      setup(twoCities(10), { behavior: DEFEND_BEHAVIOR }).ai.run(),
+      'move',
+    );
+    expect(east).toHaveLength(1);
+    expect(east[0].to).toEqual(gridPosition(10, 0));
+
+    const west = actionsOfKind(
+      setup(twoCities(0), { behavior: DEFEND_BEHAVIOR }).ai.run(),
+      'move',
+    );
+    expect(west).toHaveLength(1);
+    expect(west[0].to).toEqual(gridPosition(0, 0));
+  });
+
+  it('占領役の歩兵は守りに縛られず、拠点を取りに向かう', () => {
+    // (0,0) 中立都市 / (5,0) 敵歩兵 / (10,0) 敵軍の工場(守る拠点)
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['c.........F'],
+        owners: [{ col: 10, row: 0, owner: 'enemy' }],
+        units: [{ col: 5, row: 0, unitType: 'infantry', army: 'enemy' }],
+      },
+      { behavior: DEFEND_BEHAVIOR },
+    );
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    // 守る拠点(東)ではなく、中立都市のある西へ移動力 3 ぶん進む
+    expect(moves).toHaveLength(1);
+    expect(moves[0].to).toEqual(gridPosition(2, 0));
+  });
+
+  it('相性で不利な戦闘(反撃のほうが重い攻撃)はしかけない', () => {
+    // 敵歩兵の隣に自軍の中戦車。歩兵の攻撃は通りが悪く、反撃のほうが重い
+    const def: MapDefinition = {
+      name: 't',
+      terrain: ['...'],
+      units: [
+        { col: 0, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
+      ],
+    };
+
+    expect(
+      actionsOfKind(setup(def, { behavior: DEFEND_BEHAVIOR }).ai.run(), 'attack'),
+    ).toHaveLength(0);
+
+    // 既定の思考パターンは相性を気にせず攻撃する
+    const standard = actionsOfKind(setup(def).ai.run(), 'attack');
+    expect(standard).toHaveLength(1);
+    // 与ダメージより反撃のほうが重い(不利な戦闘だった)ことを確かめる
+    expect(standard[0].result.counterDamage).toBeGreaterThan(
+      standard[0].result.damageDealt,
+    );
+  });
+
+  it('不利な相性でも、撃破できるなら攻撃する', () => {
+    const { units, ai } = setup(
+      {
+        name: 't',
+        terrain: ['...'],
+        units: [
+          { col: 0, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 1, row: 0, unitType: 'mediumTank', army: 'player' },
+        ],
+      },
+      { behavior: DEFEND_BEHAVIOR },
+    );
+    // 残り HP 1 の中戦車なら歩兵でも撃破でき、撃破すれば反撃も受けない
+    units.getUnitAt(gridPosition(1, 0))!.currentHp = 1;
+
+    const attacks = actionsOfKind(ai.run(), 'attack');
+
+    expect(attacks).toHaveLength(1);
+    expect(attacks[0].result.defenderDefeated).toBe(true);
+  });
+
+  it('頭数がそろったあとは、遠距離ユニットを優先して生産する', () => {
+    // 敵軍の工場と中戦車 1 台。資金 12000 なら既定では中戦車を買うところ
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F.......', '........'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [
+          { col: 0, row: 1, unitType: 'mediumTank', army: 'enemy' },
+          { col: 7, row: 1, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { behavior: { ...DEFEND_BEHAVIOR, infantryQuota: 0 }, funds: 12000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    // ロケット砲(15000)には資金が足りないため、買える中で最も高価な間接攻撃ユニットを選ぶ
+    expect(produced[0].result.unit.unitType).toBe('artillery');
+  });
+
+  it('遠距離ユニットが前に立つ戦力を上回ったら、通常どおり強力なユニットを買う', () => {
+    // 自走砲 2 両に対して中戦車 1 両。遠距離が多すぎるため、今回は戦車を買い足す
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F.......', '........'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [
+          { col: 0, row: 1, unitType: 'mediumTank', army: 'enemy' },
+          { col: 1, row: 1, unitType: 'artillery', army: 'enemy' },
+          { col: 2, row: 1, unitType: 'artillery', army: 'enemy' },
+          { col: 7, row: 1, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { behavior: { ...DEFEND_BEHAVIOR, infantryQuota: 0 }, funds: 12000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  it('歩兵の目標数に届くまでは、遠距離より先に歩兵を生産する', () => {
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F.......', '........'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [
+          { col: 0, row: 1, unitType: 'mediumTank', army: 'enemy' },
+          { col: 7, row: 1, unitType: 'infantry', army: 'player' },
+        ],
+      },
+      { behavior: DEFEND_BEHAVIOR, funds: 12000 },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('infantry');
   });
 });
 

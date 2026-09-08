@@ -61,9 +61,11 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       roster: [],
       powerCostRatio: 0,
       saveForUpgrade: false,
+      indirectPriority: false,
       advance: 'nearestEnemy',
       routing: 'direct',
       preferNeutralCapture: false,
+      avoidUnfavorableAttack: false,
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
@@ -88,11 +90,13 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       // 工場・本拠地なら最強は重戦車 18000 なので、9000 未満の安いユニットは見送って資金を貯める
       powerCostRatio: 0.5,
       saveForUpgrade: false,
+      indirectPriority: false,
       advance: 'captureAndCharge',
       // 稜線や海に阻まれても、通れるマスをたどって回り込む
       routing: 'path',
       preferNeutralCapture: true,
-      // 突撃長は間合いも隊列も気にせず、まっすぐ本拠地へ向かう
+      // 突撃長は不利な相性でもかまわず殴りかかり、間合いも隊列も気にせず本拠地へ向かう
+      avoidUnfavorableAttack: false,
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
@@ -123,9 +127,11 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       // 軽戦車 → 中戦車 → 重戦車と、手持ちにない一段上のユニットを狙って資金を貯める。
       // ただし戦力で負けているあいだは貯めず、いま買えるものを買って頭数を戻す
       saveForUpgrade: true,
+      indirectPriority: false,
       advance: 'captureAndCharge',
       routing: 'path',
       preferNeutralCapture: true,
+      avoidUnfavorableAttack: false,
       // 自走砲・ロケット砲は敵へ詰めず、射程に収めるマスへ構えてから撃つ
       indirectStandoff: true,
       // 夜戦では視界 2 マス未満のユニット(重戦車・自走砲・ロケット砲など)を買わない。
@@ -133,6 +139,43 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       nightVisionFloor: 2,
       // 味方から 2 マス以内を保って進む。足の速いユニットだけが突出しない
       regroupRadius: 2,
+    },
+  },
+  {
+    id: 'bastion',
+    name: 'バルド',
+    title: '城塞長',
+    difficulty: '中級〜上級',
+    emblemColor: 0x5a8fd0,
+    description:
+      '攻め込まず、自陣を固めて受け止める指揮官。まず歩兵 8 体で拠点を広げ、そのあとは自走砲やロケット砲などの遠距離ユニットを先に生産する(戦車・偵察車も買うが、遠距離が前に立つ戦力を上回るまでは後回し)。戦闘ユニットは本拠地へ突撃せず、自軍の拠点のそばで構えて近づいた敵だけを迎え撃つ。相性で不利な戦い(反撃のほうが重くなる攻撃)はしかけず、撃破できるときだけ手を出す。',
+    // 特別な力を持たない指揮官。強さの違いは思考パターンだけにある
+    attackBonus: 0,
+    behavior: {
+      // 占領役を厚めにそろえてから戦力を整える。拠点が増えるほど守る場所も収入も増える
+      production: 'infantryFirst',
+      // 突撃長ガルム(6 体)より多い。守りを固めつつ拠点を広げるための頭数
+      infantryQuota: 8,
+      roster: [],
+      // 歩兵がそろったあとは、その拠点の最強ユニットの 15%(工場なら 2700)未満は買わない。
+      // 偵察車(3500)は買えるが歩兵(1000)の買い足しは止まり、余った資金が
+      // 自走砲・戦車へ回る。守りを固める頭数は歩兵の目標数のほうで確保する
+      powerCostRatio: 0.15,
+      saveForUpgrade: false,
+      // 歩兵がそろったあとは自走砲・ロケット砲を優先して買う。
+      // ただし直接攻撃の戦闘ユニットを上回るまでで、戦車・偵察車も切らさない
+      indirectPriority: true,
+      // 戦闘ユニットは攻め上がらず、自軍の拠点のそばで構える
+      advance: 'defendBase',
+      routing: 'path',
+      preferNeutralCapture: true,
+      // 相性で不利な戦闘はしかけない(撃破できるときだけ手を出す)
+      avoidUnfavorableAttack: true,
+      // 拠点のそばで構えたまま撃つため、敵を追って間合いを取りには行かない
+      indirectStandoff: false,
+      // 夜戦でも遠距離ユニット(視界 1)を軸にするため、視界での絞り込みはしない
+      nightVisionFloor: 0,
+      regroupRadius: 0,
     },
   },
   {
@@ -153,9 +196,11 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       roster: [],
       powerCostRatio: 0,
       saveForUpgrade: false,
+      indirectPriority: false,
       advance: 'nearestEnemy',
       routing: 'direct',
       preferNeutralCapture: false,
+      avoidUnfavorableAttack: false,
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,

@@ -67,6 +67,40 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
     expect(hunter?.behavior.nightVisionFloor).toBeGreaterThan(0);
   });
 
+  it('自陣を固めて受け止める守り型の思考パターンのキャラクターがいる', () => {
+    const defender = AI_CHARACTERS.find(
+      (character) => character.behavior.advance === 'defendBase',
+    );
+    expect(defender).toBeDefined();
+    // 歩兵を多めにそろえて拠点を広げ(突撃長ガルムの 6 体より多い)、
+    // そのあとは自走砲・ロケット砲などの遠距離ユニットを優先して生産する
+    expect(defender?.behavior.production).toBe('infantryFirst');
+    expect(defender?.behavior.infantryQuota).toBeGreaterThan(6);
+    expect(defender?.behavior.indirectPriority).toBe(true);
+    // 相性で不利な戦いはしかけない(撃破できるときだけ手を出す)
+    expect(defender?.behavior.avoidUnfavorableAttack).toBe(true);
+    // 特別な力(攻撃補正)は持たず、強さの違いは思考パターンだけにある
+    expect(defender?.attackBonus).toBe(0);
+  });
+
+  it('遠距離を優先するのは守り型だけで、他の指揮官はこれまでどおり生産する', () => {
+    for (const character of AI_CHARACTERS) {
+      if (character.behavior.advance !== 'defendBase') {
+        expect(character.behavior.indirectPriority).toBe(false);
+      }
+    }
+  });
+
+  it('攻撃補正を持たない指揮官が、補正を持つ指揮官より前に並んでいる', () => {
+    // 一覧は「特別な力を持たない指揮官 → 攻撃補正を持つ指揮官」の順に並べる
+    const bonuses = AI_CHARACTERS.map((character) => character.attackBonus);
+    const firstWithBonus = bonuses.findIndex((bonus) => bonus > 0);
+    if (firstWithBonus >= 0) {
+      expect(bonuses.slice(0, firstWithBonus).every((bonus) => bonus === 0)).toBe(true);
+      expect(bonuses.slice(firstWithBonus).every((bonus) => bonus > 0)).toBe(true);
+    }
+  });
+
   it('編成表の体数は 1 以上で、同じ種別が重複していない', () => {
     for (const character of AI_CHARACTERS) {
       const types = character.behavior.roster.map((entry) => entry.unitType);
