@@ -111,9 +111,9 @@ describe('港での生産', () => {
     expect(() => production.produce('player', factory, 'submarine')).toThrow();
   });
 
-  it('生産コストは戦艦35000・潜水艦30000・護衛艦22000・輸送艦16500', () => {
+  it('生産コストは戦艦35000・潜水艦24000・護衛艦22000・輸送艦16500', () => {
     expect(getUnitData('battleship').cost).toBe(35000);
-    expect(getUnitData('submarine').cost).toBe(30000);
+    expect(getUnitData('submarine').cost).toBe(24000);
     expect(getUnitData('escortShip').cost).toBe(22000);
     expect(getUnitData('transportShip').cost).toBe(16500);
   });

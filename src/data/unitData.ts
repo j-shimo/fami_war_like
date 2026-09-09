@@ -462,7 +462,7 @@ export const UNIT_DATA: Readonly<Record<UnitType, UnitData>> = {
     movementType: 'sea',
     minAttackRange: 1,
     maxAttackRange: 1,
-    cost: 30000,
+    cost: 24000,
     canCapture: false,
     capacity: 0,
     carriableTypes: [],
