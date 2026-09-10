@@ -58,8 +58,12 @@ const LOW_STATION = gridPosition(8, 13);
 const MID_LABORATORY = gridPosition(16, 8);
 const SOUTH_LABORATORY = gridPosition(13, 15);
 
-/** 車両が線路側と街道側を行き来できる 2 か所の門(中間駅と南の峠) */
+/** 車両が山の壁を越えられる 3 か所の門(北岸のすき間・中間駅・南の峠) */
+const NORTH_GAP: readonly GridPosition[] = [gridPosition(8, 1), gridPosition(9, 1)];
 const SOUTH_PASS = gridPosition(11, 14);
+
+/** 陣地の駅のすぐ東で街道が線路を渡る踏切 */
+const LEVEL_CROSSING: readonly GridPosition[] = [gridPosition(6, 1), gridPosition(7, 1)];
 
 /** 上の島の南岸の海岸(乗船地)と、その向かいの下の島の海岸(揚陸地) */
 const UPPER_BEACH: readonly GridPosition[] = [
@@ -124,6 +128,43 @@ function minCost(
     if (cost !== undefined) best = Math.min(best, cost);
   }
   return best;
+}
+
+/** 座標をキー文字列にする(街道づたいの距離表を引くために使う) */
+function key(pos: GridPosition): string {
+  return `${pos.col},${pos.row}`;
+}
+
+/**
+ * 街道(道路と拠点)と踏切だけをたどったときの、start からの最短マス数。
+ * 平地や森を突っ切る近道は数えず、「街道を車で走ったらどれだけ回り込むか」を測る。
+ */
+function streetDistance(start: GridPosition): Map<string, number> {
+  const crossing = new Set(LEVEL_CROSSING.map(key));
+  const passable = (pos: GridPosition): boolean => {
+    const tile = map.getTile(pos);
+    if (!tile) return false;
+    if (tile.terrainType === 'road') return true;
+    if (getTerrainData(tile.terrainType).canCapture) return true;
+    return tile.terrainType === 'railway' && crossing.has(key(pos));
+  };
+  const distances = new Map<string, number>([[key(start), 0]]);
+  const queue: GridPosition[] = [start];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const distance = distances.get(key(current))!;
+    for (const next of [
+      gridPosition(current.col + 1, current.row),
+      gridPosition(current.col - 1, current.row),
+      gridPosition(current.col, current.row + 1),
+      gridPosition(current.col, current.row - 1),
+    ]) {
+      if (!map.isInBounds(next) || !passable(next) || distances.has(key(next))) continue;
+      distances.set(key(next), distance + 1);
+      queue.push(next);
+    }
+  }
+  return distances;
 }
 
 /** 所有者ごとの拠点(占領可能地形)を集める */
@@ -292,10 +333,10 @@ describe('二島鉄路マップの線路と 3 つの駅', () => {
     expect(fromCamp.get(LOW_STATION)!).toBeLessThanOrEqual(movement * 2);
   });
 
-  it('線路と街道のあいだは山の壁で、車両が通れるのは中間駅と南の峠だけ', () => {
+  it('線路と街道のあいだは山の壁で、車両が越えられるのは北岸のすき間と中間駅と南の峠だけ', () => {
     // 壁の代表点はすべて山
     for (const pos of [
-      gridPosition(8, 1),
+      gridPosition(9, 2),
       gridPosition(11, 3),
       gridPosition(15, 6),
       gridPosition(15, 8),
@@ -305,21 +346,28 @@ describe('二島鉄路マップの線路と 3 つの駅', () => {
     ]) {
       expect(map.getTile(pos)?.terrainType).toBe('mountain');
     }
-    // 2 つの門は駅と街道
+    // 3 つの門は、壁の北端と北岸のあいだのすき間(街道)・中間駅・南の峠
+    for (const pos of NORTH_GAP) {
+      expect(map.getTile(pos)?.terrainType).toBe('road');
+    }
     expect(map.getTile(MID_STATION)?.terrainType).toBe('station');
     expect(map.getTile(SOUTH_PASS)?.terrainType).toBe('road');
     // 街道側の代表点(東の街道の北東角)へは、ふだんは車両でたどり着ける
     const eastRoad = gridPosition(21, 3);
     expect(minCost(eastRoad, PLAYER_BASES, 'vehicle')).toBeLessThan(Infinity);
     expect(minCost(eastRoad, PLAYER_BASES, 'wheeled')).toBeLessThan(Infinity);
-    // 2 つの門を山で塞ぐと、車両は島の東側へ 1 マスも回れなくなる
+    // 3 つの門をすべて山で塞ぐと、車両は島の東側へ 1 マスも回れなくなる
+    const gates = [...NORTH_GAP, MID_STATION, SOUTH_PASS];
     const blocked = MapManager.fromDefinition({
       ...TWIN_ISLAND_RAIL_MAP,
-      terrain: TWIN_ISLAND_RAIL_MAP.terrain.map((line, row) => {
-        const gate = [MID_STATION, SOUTH_PASS].find((pos) => pos.row === row);
-        if (!gate) return line;
-        return `${line.slice(0, gate.col)}m${line.slice(gate.col + 1)}`;
-      }),
+      terrain: TWIN_ISLAND_RAIL_MAP.terrain.map((line, row) =>
+        gates
+          .filter((pos) => pos.row === row)
+          .reduce(
+            (acc, pos) => `${acc.slice(0, pos.col)}m${acc.slice(pos.col + 1)}`,
+            line,
+          ),
+      ),
     });
     for (const movementType of ['vehicle', 'wheeled'] as const) {
       expect(
@@ -332,22 +380,41 @@ describe('二島鉄路マップの線路と 3 つの駅', () => {
     );
   });
 
-  it('街道は線路をぐるりと囲み、2 つの駅で線路とつながっている', () => {
-    // 中間駅の東の支道と、下の駅の南の街道
-    for (const pos of [gridPosition(15, 7), gridPosition(16, 7), gridPosition(8, 14)]) {
-      expect(map.getTile(pos)?.terrainType).toBe('road');
-    }
-    // 西の街道(col 5)は陣地から下の駅の手前まで一本につながっている
+  it('陣地から南下する街道は無く、街道は島の東側をぐるりと回り込む 1 本道になっている', () => {
+    // 陣地から真南へ下りる街道(旧 col 5)はもう無い。線路の西どなりは道の無い谷。
     for (let row = 3; row <= 12; row += 1) {
-      const terrain = map.getTile(gridPosition(5, row))?.terrainType;
-      expect(['road', 'city']).toContain(terrain);
+      expect(map.getTile(gridPosition(5, row))?.terrainType).not.toBe('road');
+    }
+    for (let col = 5; col <= 8; col += 1) {
+      expect(map.getTile(gridPosition(col, 12))?.terrainType).not.toBe('road');
+    }
+    // 陣地の街道は駅のすぐ東の踏切で線路を渡り、北岸 (8〜16,1) を東へ走る
+    for (const pos of LEVEL_CROSSING) {
+      expect(map.getTile(pos)?.terrainType).toBe('railway');
+    }
+    for (let col = 8; col <= 16; col += 1) {
+      expect(map.getTile(gridPosition(col, 1))?.terrainType).toBe('road');
+    }
+    // col 16 を南下して、東の街道(row 3)と中間駅の支道 (15,7) に合流する
+    for (let row = 1; row <= 7; row += 1) {
+      expect(map.getTile(gridPosition(16, row))?.terrainType).toBe('road');
+    }
+    for (let col = 16; col <= 21; col += 1) {
+      expect(map.getTile(gridPosition(col, 3))?.terrainType).toBe('road');
+    }
+    for (const pos of [gridPosition(15, 7), gridPosition(8, 14)]) {
+      expect(map.getTile(pos)?.terrainType).toBe('road');
     }
     // 東の街道(row 14)は南の峠を通って下の駅の下まで届く
     for (let col = 8; col <= 21; col += 1) {
       expect(map.getTile(gridPosition(col, 14))?.terrainType).toBe('road');
     }
-    // 街道づたいなら、装輪車両でも陣地から下の駅まで 14 で着ける
-    expect(minCost(LOW_STATION, PLAYER_BASES, 'wheeled')).toBe(14);
+    // 街道は 1 本につながっていて、陣地から下の駅までは 44 マスの大回りになる
+    // (線路づたいなら 27 マス。島の下側へ手早く降りられるのは列車砲だけ)
+    expect(streetDistance(PLAYER_HQ).get(key(LOW_STATION))).toBe(44);
+    expect(distancesFrom(map, PLAYER_STATION, 'rail').get(LOW_STATION)).toBe(27);
+    // 道が消えたぶん、装輪車両が下の駅へ着くまでの移動コストは 14 から 31 に伸びた
+    expect(minCost(LOW_STATION, PLAYER_BASES, 'wheeled')).toBe(31);
   });
 
   it('研究所は中間駅のわきと、下の駅から右へ進んだところに 1 つずつある', () => {
@@ -393,8 +460,8 @@ describe('二島鉄路マップの海峡', () => {
     expect(distancesFrom(map, UPPER_NEUTRAL_PORT, 'sea').get(gridPosition(8, 20))).toBe(
       8,
     );
-    // 中立港は自軍の陣地から歩兵 15(乗船地のすぐわき)
-    expect(minCost(UPPER_NEUTRAL_PORT, PLAYER_BASES, 'infantry')).toBe(15);
+    // 中立港は自軍の陣地から歩兵 16(乗船地のすぐわき)
+    expect(minCost(UPPER_NEUTRAL_PORT, PLAYER_BASES, 'infantry')).toBe(16);
   });
 });
 
@@ -435,13 +502,19 @@ describe('二島鉄路マップの中立都市と先手番ハンデ', () => {
     expect(nearestFor(ENEMY_BASES)).toBeGreaterThan(movement);
   });
 
-  it('街道側の中立都市は山の壁の向こうにあり、取りにいくには駅か峠を抜ける', () => {
+  it('街道側の中立都市は山の壁の向こうだが、街道が東回りなので車両でも取りにいける', () => {
     for (const pos of EAST_CITIES) {
       // 壁の向こうなので、どれも線路側の中立都市より遠い
       expect(minCost(pos, PLAYER_BASES, 'infantry')).toBeGreaterThan(
         Math.min(...WEST_CITIES.map((west) => minCost(west, PLAYER_BASES, 'infantry'))),
       );
+      // 街道でつながっているので、装軌車両でも装輪車両でもたどり着ける
       expect(minCost(pos, PLAYER_BASES, 'vehicle')).toBeLessThan(Infinity);
+      expect(minCost(pos, PLAYER_BASES, 'wheeled')).toBeLessThan(Infinity);
+    }
+    // いっぽう線路側の谷は道が消えて森と尾根だけになり、装輪車両では 2 個に近づけない
+    for (const pos of [gridPosition(3, 11), gridPosition(7, 11)]) {
+      expect(minCost(pos, PLAYER_BASES, 'wheeled')).toBe(Infinity);
     }
   });
 });
