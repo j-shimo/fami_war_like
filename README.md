@@ -9,6 +9,7 @@ TypeScript + Phaser + Vite で開発し、ブラウザで遊べるWebゲーム�
 |---|---|
 | [企画書](docs/Proposal.md) | プロジェクトの方向性・コンセプト・スコープ |
 | [商用化企画書](docs/CommercialProposal.md) | 商用化の検討資料。現状の棚卸し・企画案・課題 |
+| [商用化企画書(スライド)](docs/CommercialProposal.pptx) | 上記を提出用にまとめたプレゼン資料(20 枚) |
 | [ゲームデザイン](docs/GameDesign.md) | ルールの詳細定義 |
 | [ユニット仕様](docs/UnitSpec.md) | ユニットのパラメータと相性表 |
 | [地形仕様](docs/TerrainSpec.md) | 地形の移動コストと防御補正 |

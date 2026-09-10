@@ -24,6 +24,7 @@
 |---|---|
 | `docs/Proposal.md` | 企画書。プロジェクトの方向性・スコープ(最上位ドキュメント) |
 | `docs/CommercialProposal.md` | 商用化企画書。現状の棚卸し・商用化の企画案・課題 |
+| `docs/CommercialProposal.pptx` | 商用化企画書の提出用スライド(20 枚)。内容は上記 md と対応させる |
 | `docs/GameDesign.md` | ゲームデザイン。ルールの詳細定義 |
 | `docs/UnitSpec.md` | ユニット仕様。パラメータと相性表 |
 | `docs/TerrainSpec.md` | 地形仕様。移動コストと防御補正 |
