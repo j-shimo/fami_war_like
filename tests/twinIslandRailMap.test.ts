@@ -62,6 +62,23 @@ const SOUTH_LABORATORY = gridPosition(13, 15);
 const NORTH_GAP: readonly GridPosition[] = [gridPosition(8, 1), gridPosition(9, 1)];
 const SOUTH_PASS = gridPosition(11, 14);
 
+/** 行ごとの、線路(駅を含む)のいちばん西の列。谷に平地が残っていないかを測るために使う */
+const RAIL_COLUMN_BY_ROW: ReadonlyMap<number, number> = new Map([
+  [1, 5],
+  [2, 7],
+  [3, 8],
+  [4, 9],
+  [5, 10],
+  [6, 11],
+  [7, 12],
+  [8, 14],
+  [9, 13],
+  [10, 12],
+  [11, 11],
+  [12, 10],
+  [13, 8],
+]);
+
 /** 陣地の駅のすぐ東で街道が線路を渡る踏切 */
 const LEVEL_CROSSING: readonly GridPosition[] = [gridPosition(6, 1), gridPosition(7, 1)];
 
@@ -413,8 +430,50 @@ describe('二島鉄路マップの線路と 3 つの駅', () => {
     // (線路づたいなら 27 マス。島の下側へ手早く降りられるのは列車砲だけ)
     expect(streetDistance(PLAYER_HQ).get(key(LOW_STATION))).toBe(44);
     expect(distancesFrom(map, PLAYER_STATION, 'rail').get(LOW_STATION)).toBe(27);
-    // 道が消えたぶん、装輪車両が下の駅へ着くまでの移動コストは 14 から 31 に伸びた
-    expect(minCost(LOW_STATION, PLAYER_BASES, 'wheeled')).toBe(31);
+    // 西の谷の平地を森と尾根に変えたぶん、下の駅へ着くまでの移動コストはさらに伸びて
+    // 装軌車両 16 → 26・装輪車両 31 → 45 になった(街道が残っていたころはどちらも 14)
+    expect(minCost(LOW_STATION, PLAYER_BASES, 'vehicle')).toBe(26);
+    expect(minCost(LOW_STATION, PLAYER_BASES, 'wheeled')).toBe(45);
+  });
+
+  it('線路の西の谷には平地が 1 マスも無く、車両が南へ下れるのは中立都市 (7,11) の鞍部だけ', () => {
+    // 線路(と駅)より西のマスに平地は 1 つも残っていない
+    map.forEachTile((tile) => {
+      if (tile.terrainType !== 'plain') return;
+      const rail = RAIL_COLUMN_BY_ROW.get(tile.position.row);
+      if (rail === undefined) return;
+      expect(tile.position.col).toBeGreaterThan(rail);
+    });
+    // 線路の西がわに沿う尾根。ここが山なので、車両は線路ぎわを南下できない
+    for (const pos of [
+      gridPosition(7, 3),
+      gridPosition(8, 4),
+      gridPosition(9, 5),
+      gridPosition(10, 6),
+      gridPosition(11, 7),
+      gridPosition(13, 8),
+      gridPosition(12, 9),
+      gridPosition(11, 10),
+      gridPosition(9, 11),
+      gridPosition(10, 11),
+      gridPosition(9, 12),
+    ]) {
+      expect(map.getTile(pos)?.terrainType).toBe('mountain');
+    }
+    // row 11 の尾根で、装軌車両が通れるのは中立都市 (3,11)(7,11) の 2 マスだけ
+    for (let col = 3; col <= 10; col += 1) {
+      const pos = gridPosition(col, 11);
+      const passable = map.getMoveCost(pos, 'vehicle') !== null;
+      expect(passable).toBe(col === 3 || col === 7);
+    }
+    // 西岸の (3,11) は南が山と海で行き止まりなので、谷を下り切れる鞍部は (7,11) だけになる
+    const valley = distancesFrom(map, gridPosition(7, 10), 'vehicle');
+    expect(valley.get(gridPosition(7, 11))).not.toBeUndefined();
+    expect(valley.get(LOW_STATION)).not.toBeUndefined();
+    // 装輪車両は森にも山にも入れないので、谷そのものへ踏み込めない
+    for (const pos of [gridPosition(5, 9), gridPosition(7, 10), gridPosition(7, 12)]) {
+      expect(minCost(pos, PLAYER_BASES, 'wheeled')).toBe(Infinity);
+    }
   });
 
   it('研究所は中間駅のわきと、下の駅から右へ進んだところに 1 つずつある', () => {
@@ -512,8 +571,8 @@ describe('二島鉄路マップの中立都市と先手番ハンデ', () => {
       expect(minCost(pos, PLAYER_BASES, 'vehicle')).toBeLessThan(Infinity);
       expect(minCost(pos, PLAYER_BASES, 'wheeled')).toBeLessThan(Infinity);
     }
-    // いっぽう線路側の谷は道が消えて森と尾根だけになり、装輪車両では 2 個に近づけない
-    for (const pos of [gridPosition(3, 11), gridPosition(7, 11)]) {
+    // いっぽう線路側の谷は道も平地も無い森と尾根なので、装輪車両では 3 個に近づけない
+    for (const pos of [gridPosition(4, 9), gridPosition(3, 11), gridPosition(7, 11)]) {
       expect(minCost(pos, PLAYER_BASES, 'wheeled')).toBe(Infinity);
     }
   });
