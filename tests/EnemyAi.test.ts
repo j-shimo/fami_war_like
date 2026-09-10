@@ -267,6 +267,26 @@ describe('EnemyAi.run', () => {
     expect(units.getUnitAt(gridPosition(5, 0))?.unitType).toBe('mediumTank');
   });
 
+  it('攻撃できない敵しか見えていないときは、その敵ではなく拠点を目標に前進する', () => {
+    // 海の潜水艦(5,1)は中戦車では攻撃できない相手。目標にすると海岸に貼りついたまま
+    // 攻撃も前進もできなくなるため、中立都市(2,0)のほうへ向かう
+    const { units, ai } = setup({
+      name: 'unattackable',
+      terrain: ['..c.....', '~~~~~~~~'],
+      units: [
+        { col: 5, row: 0, unitType: 'mediumTank', army: 'enemy' },
+        { col: 5, row: 1, unitType: 'submarine', army: 'player' },
+      ],
+    });
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    // 占領できない中戦車は拠点の上で止まらないため、1 マス手前の(3,0)まで進む
+    expect(moves[0].to).toEqual(gridPosition(3, 0));
+    expect(units.getUnitAt(gridPosition(3, 0))?.unitType).toBe('mediumTank');
+  });
+
   it('占領できないユニットは、未占領の拠点の上では足を止めず 1 マス手前で止まる', () => {
     // 1 マスには 1 体しか立てないため、戦車が中立都市に居座ると自軍の歩兵が占領できなくなる。
     // 目標が都市そのものでも、隣のマスで止まって歩兵に道を空ける
@@ -328,14 +348,45 @@ describe('EnemyAi.run', () => {
     expect(tank.hasActed).toBe(true);
   });
 
-  it('資金があれば、空の生産拠点で最も高価なユニットを生産する', () => {
+  it('占領役の歩兵が目標数に届くまでは、高価なユニットより歩兵を先に生産する', () => {
+    // 資金は十分にあるが、歩兵が 1 体もいないうちは占領役をそろえる。
+    // 収入の多いマップで戦車だけを買い続け、拠点を 1 つも占領できなくなるのを防ぐ
+    const { units, ai } = setup(
+      {
+        name: 'infantry-floor',
+        // 生産した歩兵が工場から出ていくよう、占領先の中立都市を並べてある
+        terrain: ['F.c.c.c..'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { funds: 40000 },
+    );
+
+    const bought: string[] = [];
+    for (let turn = 1; turn <= 4; turn++) {
+      for (const unit of units.getUnitsByArmy('enemy')) {
+        unit.hasActed = false;
+      }
+      const produced = actionsOfKind(ai.run(), 'produce');
+      bought.push(...produced.map((action) => action.result.unit.unitType));
+    }
+
+    // 既定の目標数は 3 体。そろったあとは通常どおり最も高価なユニット(重戦車)を買う
+    expect(bought).toEqual(['infantry', 'infantry', 'infantry', 'heavyTank']);
+  });
+
+  it('歩兵がそろっていれば、空の生産拠点で最も高価なユニットを生産する', () => {
     // col0 に敵軍の工場(空)。資金 10000 で工場で最も高価な対空戦車(8000)を生産する。
-    // 生産したユニットの行き先になるよう、端に中立都市を置いてある
+    // 生産したユニットの行き先になるよう、端に中立都市を置いてある。
+    // 占領役の歩兵は目標数(既定は 3 体)を満たしているので、生産は強力なユニットへ回る
     const { units, economy, ai } = setup({
       name: 't',
-      terrain: ['F.c'],
+      terrain: ['F.c..'],
       owners: [{ col: 0, row: 0, owner: 'enemy' }],
-      units: [{ col: 2, row: 0, unitType: 'infantry', army: 'enemy' }],
+      units: [
+        { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
+      ],
     });
 
     const actions = ai.run();
@@ -495,12 +546,18 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
   it('相手に飛行ユニットがいなければ、対空ロケット砲も買わない', () => {
     // 資金 13500。工場で買えるいちばん高価なユニットは対空ロケット砲(13000)だが、
     // 相手が戦車だけなら攻撃できないので、次に高価な中戦車(12000)を買う
+    // (占領役の歩兵は目標数を満たしている)
     const { ai } = setup(
       {
         name: 'factory-production',
         terrain: ['F..........'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
-        units: [{ col: 10, row: 0, unitType: 'mediumTank', army: 'player' }],
+        units: [
+          { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 10, row: 0, unitType: 'mediumTank', army: 'player' },
+        ],
       },
       { funds: 13500 },
     );
@@ -515,11 +572,17 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
     // 資金 14000 で工場で買えるいちばん高価なユニットは対空ロケット砲(13000)。
     // 空港のあるマップではそれを買うが、空港がなければ飛行ユニットが出てこないため
     // 生産候補から外れ、次に高価な中戦車(12000)を買う。
+    const infantrySquad = [
+      { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+      { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+      { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+    ] as const;
     const withAirport = setup(
       {
         name: 'airport',
         terrain: ['F.........A'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [...infantrySquad],
       },
       { funds: 14000 },
     );
@@ -531,6 +594,7 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
         name: 'no-airport',
         terrain: ['F.........c'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [...infantrySquad],
       },
       { funds: 14000 },
     );
@@ -1316,6 +1380,92 @@ describe('EnemyAi.run(輸送)', () => {
     expect(actionsOfKind(actions, 'move')).not.toHaveLength(0);
   });
 
+  it('移動範囲の外にいる輸送艦へは、乗船地点まで歩いて向かう', () => {
+    // 輸送艦は港(0,0)、歩兵は 7 マス離れた(7,0)。1 ターンでは届かないため歩いて合流する。
+    // 海の潜水艦(7,1)は歩兵では攻撃できない相手で、これを目標にすると
+    // 海岸に貼りついたまま輸送艦のところへ行かなくなってしまう
+    const { units, ai } = setup({
+      name: 'ferry-far',
+      terrain: ['P.b.....', '~~~~~~~~', 'b.c.....'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: [
+        { col: 0, row: 0, unitType: 'transportShip', army: 'enemy' },
+        { col: 7, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 7, row: 1, unitType: 'submarine', army: 'player' },
+      ],
+    });
+
+    // 1 ターン目は輸送艦へ向かって前進する(移動力 3 ぶん)
+    const infantry = units.getUnitAt(gridPosition(7, 0))!;
+    ai.run();
+    expect(infantry.position).toEqual(gridPosition(4, 0));
+
+    // 2 ターン目に浜辺(2,0)で待つ輸送艦へ乗り込む
+    for (const unit of units.getUnitsByArmy('enemy')) {
+      unit.hasActed = false;
+    }
+    const boards = actionsOfKind(ai.run(), 'board');
+
+    expect(boards).toHaveLength(1);
+    expect(boards[0].unit).toBe(infantry);
+  });
+
+  it('まだ輸送艦が着いていない乗船地点には立たず、隣を空けて待つ', () => {
+    // 歩兵は浜辺(2,0)の上にいる。そこに居座ると輸送艦が入れず、海の上で止まったまま
+    // 永久に乗り込めなくなるため、輸送艦が着くまでは隣のマスへどく
+    const { units, ai } = setup({
+      name: 'berth-reserve',
+      terrain: ['..b.....', '~~~~~~~~', 'b.c.....'],
+      units: [
+        { col: 7, row: 1, unitType: 'transportShip', army: 'enemy' },
+        { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+      ],
+    });
+    const infantry = units.getUnitAt(gridPosition(2, 0))!;
+
+    ai.run();
+
+    expect(infantry.position).not.toEqual(gridPosition(2, 0));
+
+    // 空いた浜辺へ輸送艦が着き、次のターンに乗り込める
+    for (const unit of units.getUnitsByArmy('enemy')) {
+      unit.hasActed = false;
+    }
+    const boards = actionsOfKind(ai.run(), 'board');
+
+    expect(boards).toHaveLength(1);
+    expect(boards[0].unit).toBe(infantry);
+  });
+
+  it('空の輸送艦は、渡る必要のない味方ではなく海を渡りたい歩兵を迎えに行く', () => {
+    // 直線距離では対岸の中戦車(6,2)のほうが近いが、渡る必要があるのは自陣の歩兵(0,0)。
+    // 中戦車を迎えに目の前の浜辺(5,2)へ着けてしまうと、歩兵は置き去りで海を渡れない
+    const { units, ai } = setup({
+      name: 'ferry-pickup',
+      terrain: ['b.......', '~~~~~~~~', '.....b.c'],
+      units: [
+        { col: 5, row: 1, unitType: 'transportShip', army: 'enemy' },
+        { col: 0, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 6, row: 2, unitType: 'mediumTank', army: 'enemy' },
+      ],
+    });
+    const ship = units.getUnitAt(gridPosition(5, 1))!;
+    const infantry = units.getUnitAt(gridPosition(0, 0))!;
+
+    ai.run();
+
+    // 歩兵が待つ浜辺(0,0)の目の前まで寄る(対岸の浜辺(5,2)ではない)
+    expect(ship.position).toEqual(gridPosition(0, 1));
+
+    for (const unit of units.getUnitsByArmy('enemy')) {
+      unit.hasActed = false;
+    }
+    const boards = actionsOfKind(ai.run(), 'board');
+
+    expect(boards).toHaveLength(1);
+    expect(boards[0].unit).toBe(infantry);
+  });
+
   it('海を渡れない輸送車には乗り込まない(荷物のまま岸で止まらないように)', () => {
     const { units, ai } = setup(
       splitMap([
@@ -1442,7 +1592,11 @@ describe('EnemyAi.run(行き先の無いユニットは作らない)', () => {
         name: 'land-target',
         terrain: ['F....c', '~~~~~~', '..c...'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
-        units: [{ col: 1, row: 0, unitType: 'infantry', army: 'enemy' }],
+        units: [
+          { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+        ],
       },
       { funds: 40000 },
     );

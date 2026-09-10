@@ -5,17 +5,18 @@
 // 行動優先順位(ユニット 1 体ごと):
 //   1. 攻撃可能なら攻撃する(移動して攻撃できる場合も含む)
 //   2. 占領可能なら占領する(占領地形へ移動しての占領も含む)
-//   3. 攻撃も占領もできなければ目標地点へ近づく
-//   4. どこへも進めなければ待機する
+//   3. 海を渡る必要のある歩兵は、輸送ユニットへ乗り込む(遠ければ乗船地点まで歩いて向かう)
+//   4. 攻撃も占領も搭乗もできなければ目標地点へ近づく
+//   5. どこへも進めなければ待機する
 // 全ユニットの行動後、資金があれば生産拠点でユニットを生産する。
 //
 // 生産では、その拠点で作れる種別のうち「いまの相手の編成に 1 体も攻撃できないもの」
 // (相手に飛行ユニットがいないときの戦闘機など)を候補から外してから選ぶ。
 //
-// 「3. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
+// 「4. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
 // 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
 // 指定しなければ従来どおりの既定パターン(DEFAULT_AI_BEHAVIOR)で動く。
-// 思考パターンによっては、3 の前進に次の味付けが加わる。
+// 思考パターンによっては、4 の前進に次の味付けが加わる。
 //   - indirectStandoff: 間接攻撃ユニットは敵へ近づかず、射程に収めるマスへ構える
 //   - regroupRadius: 味方から離れすぎるマスへは進まず、隊列を保って押し上げる
 //   - advance: 'defendBase': 戦闘ユニットは攻め上がらず、自軍の拠点のそばで構えて守る
@@ -23,6 +24,10 @@
 // indirectPriority では自走砲・ロケット砲を優先して買う。
 // また avoidUnfavorableAttack では、1 の攻撃のうち相性で不利な組み合わせ
 // (反撃のほうが重い攻撃)を、撃破できる場合を除いてしかけない。
+//
+// 接近の目標にする敵は「その種別を攻撃できる敵」だけに絞る。潜水艦のように撃てない相手を
+// 目標にすると、攻撃も前進もできないまま海岸で足踏みしてしまうため。
+// 撃てる敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する。
 //
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
@@ -223,6 +228,15 @@ const GUARD_POST_RADIUS = 2;
  * 遠いぶんのはみ出し(重み 1)より重く見る。
  */
 const TOO_CLOSE_WEIGHT = 2;
+
+/**
+ * まだ輸送ユニットが着いていない乗船地点に、歩兵が立ってしまうことの減点(経路距離に加算する)。
+ * 1 マスには 1 体しか立てないため、乗船地点(浜辺・自軍の港)を歩兵がふさぐと輸送艦が入れず、
+ * 海の上で止まったまま互いに乗り降りできなくなってしまう。
+ * 歩兵が隣のマスへ 1 歩どく移動コスト(最大 2)より大きくしてあるので、
+ * 輸送艦が着くまでは乗船地点を空けて隣で待ち、着いたらそのマスへ乗り込む。
+ */
+const BERTH_RESERVE_PENALTY = 4;
 
 /**
  * 生産拠点ごとの「海を渡って歩兵を運べる輸送ユニット」。
@@ -691,40 +705,31 @@ export class EnemyAi {
   //
   // 海で分断されたマップ(分断列島マップなど)では、歩兵は自分の足で相手の島へ渡れない。
   // 輸送ユニットが無ければ敵AIは海岸で足踏みしたまま攻め込めないため、
-  // 思考パターンによらず全キャラクター共通の行動として次の 3 つを扱う。
+  // 思考パターンによらず全キャラクター共通の行動として次の 4 つを扱う。
   //
   //   1. 搭乗(tryBoard): 歩いて占領できる拠点がもう無い歩兵が、味方の輸送ユニットへ乗り込む
-  //   2. 輸送(deliver): 積んでいる輸送ユニットが、降ろせる岸へ寄せて歩兵を降ろす
-  //   3. 待ち合わせ(tryRendezvous): 空の輸送ユニットが、歩兵を乗せられる位置で待つ
+  //   2. 合流(approachFerry): 輸送ユニットが移動範囲の外なら、乗船地点まで歩いて向かう
+  //   3. 輸送(deliver): 積んでいる輸送ユニットが、降ろせる岸へ寄せて歩兵を降ろす
+  //   4. 待ち合わせ(tryRendezvous): 空の輸送ユニットが、歩兵を乗せられる位置で待つ
+  //
+  // 歩兵の側(1・2)と輸送ユニットの側(4)が同じ乗船地点を目指すため、双方が寄って落ち合える。
+  // 乗船地点そのものは輸送ユニットのために空けておく(歩兵がふさぐと輸送艦が入れない)。
   //
   // 運ぶ相手は占領できるユニット(歩兵)だけに絞ってある。戦車を輸送艦で揚陸させる判断までは
   // 行わない(そこまで踏み込むと、揚陸地点の選び方そのものが別の思考になるため)。
 
   /**
-   * 味方の輸送ユニットへ乗り込む。乗り込めない・乗り込む必要がなければ null を返す。
+   * 味方の輸送ユニットへ乗り込む。乗り込む必要がなければ null を返す。
    *
-   * 乗り込むのは「自分の足で行ける未所有の拠点の数が、自軍の占領役の数より少ない」ときだけ。
-   * つまり陸続きの拠点を取り切る見込みが立ち、占領役が余ってきてから海を渡る。
-   * 陸だけのマップでは足で行けない拠点が無く、取り切れば未所有の拠点そのものが無くなるため、
-   * 従来どおり誰も船に乗らない。
-   *
-   * 乗り込んだ歩兵は盤面から外れて占領役の数が減るため、
-   * 余っていたぶんだけが順に乗り込み、残りは陸の拠点を取り続ける。
+   * 乗り込むかどうかの判断は wantsToCross が受け持つ。
+   * 乗り込める輸送ユニットがこのターンの移動範囲に無ければ、
+   * 乗船地点へ歩いて向かう(approachFerry)。
    */
   private tryBoard(unit: Unit, vision: Visibility): AiAction | null {
-    if (!unit.canCapture) {
+    if (!this.wantsToCross(unit)) {
       return null;
     }
-    const unowned = this.unownedCaptureTiles();
-    if (unowned.length === 0) {
-      return null;
-    }
-    // 自分の足で行ける拠点が占領役より多いうちは、まず陸の拠点を取りに行く
     const onFoot = this.pathField('from', unit.position, unit.movementType);
-    const walkable = unowned.filter((pos) => onFoot.get(pos) !== undefined).length;
-    if (walkable === unowned.length || walkable >= this.countCapturers()) {
-      return null;
-    }
 
     const transports = findTransportTargets(
       unit,
@@ -736,7 +741,8 @@ export class EnemyAi {
       // 海を渡れない輸送車に乗り込んで、荷物のまま海岸で止まってしまうのを防ぐ
       .filter((candidate) => this.canFerryBeyondFoot(candidate, unit, onFoot));
     if (transports.length === 0) {
-      return null;
+      // このターンの移動範囲に輸送ユニットが無ければ、乗船地点へ歩いて向かう(合流)
+      return this.approachFerry(unit, onFoot, vision);
     }
     const transport = transports.reduce((nearest, candidate) =>
       manhattanDistance(unit.position, candidate.position) <
@@ -778,6 +784,120 @@ export class EnemyAi {
       to: transport.position,
       path: resolved.path,
     };
+  }
+
+  /**
+   * unit が海を渡って占領しに行くべきかを返す(渡る必要がなければ false)。
+   *
+   * 渡るのは「自分の足で行ける未所有の拠点の数が、自軍の占領役の数より少ない」ときだけ。
+   * つまり陸続きの拠点を取り切る見込みが立ち、占領役が余ってきてから海を渡る。
+   * 陸だけのマップでは足で行けない拠点が無く、取り切れば未所有の拠点そのものが無くなるため、
+   * 従来どおり誰も船に乗らない。
+   *
+   * 乗り込んだ歩兵は盤面から外れて占領役の数が減るため、
+   * 余っていたぶんだけが順に乗り込み、残りは陸の拠点を取り続ける。
+   *
+   * 歩兵の側(搭乗・合流)と輸送ユニットの側(待ち合わせの相手選び)の双方が同じ判断を使うため、
+   * 「渡りたい歩兵」と「迎えに行く輸送艦」が食い違わない。
+   */
+  private wantsToCross(unit: Unit): boolean {
+    if (!unit.canCapture) {
+      return false;
+    }
+    const unowned = this.unownedCaptureTiles();
+    if (unowned.length === 0) {
+      return false;
+    }
+    const onFoot = this.pathField('from', unit.position, unit.movementType);
+    const walkable = unowned.filter((pos) => onFoot.get(pos) !== undefined).length;
+    return walkable < unowned.length && walkable < this.countCapturers();
+  }
+
+  /**
+   * 乗り込める輸送ユニットがこのターンの移動範囲に無い歩兵を、乗船地点へ歩いて向かわせる。
+   * 向かう先が無ければ null を返し、通常の接近(moveOrWait)に任せる。
+   *
+   * これが無いと、輸送艦が浜辺で待っていても歩兵は目の前の敵や拠点を目指したままになり、
+   * たまたま輸送艦が移動範囲へ入る位置に立たないかぎり、いつまでも海を渡れない。
+   * 「陸に占領できる拠点がもう無いのに、輸送艦が浜辺に停まったまま誰も乗ってこない」
+   * という詰まり方はこれで起きなくなる。
+   */
+  private approachFerry(
+    unit: Unit,
+    onFoot: PathDistanceField,
+    vision: Visibility,
+  ): AiAction | null {
+    // 乗船地点がいちばん近い輸送ユニットへ向かう
+    let target: { readonly position: GridPosition; readonly reserved: boolean } | null =
+      null;
+    let bestCost = Infinity;
+    for (const ferry of this.units.getUnitsByArmy(this.army)) {
+      if (!ferry.isFerry || !canCarry(ferry, unit)) {
+        continue;
+      }
+      // 自分では行けない土地へ運べる輸送ユニットだけを目指す(搭乗の判断と同じ条件)
+      if (!this.canFerryBeyondFoot(ferry, unit, onFoot)) {
+        continue;
+      }
+      const point = this.boardingPoint(ferry, onFoot);
+      const cost = point ? (onFoot.get(point.position) ?? Infinity) : Infinity;
+      if (point && cost < bestCost) {
+        bestCost = cost;
+        target = point;
+      }
+    }
+    if (!target) {
+      return null;
+    }
+
+    const berth = target.position;
+    const distance = this.routeDistance(unit, berth);
+    // まだ輸送艦が着いていない乗船地点には立たない(ふさぐと輸送艦が入れなくなる)
+    const goalCost = target.reserved
+      ? (pos: GridPosition) =>
+          distance(pos) + (equals(pos, berth) ? BERTH_RESERVE_PENALTY : 0)
+      : distance;
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
+    return this.stepTowards(unit, goalCost, range.tiles, vision);
+  }
+
+  /**
+   * passenger が ferry へ乗り込むために向かう場所(乗船地点)を返す。歩いて行けなければ null。
+   *
+   * - ferry が積み降ろしできる地形(浜辺・自軍の港など)に停まっていれば、その輸送ユニットのマス。
+   *   そのマス自体は輸送ユニットがふさいでいるので隣までしか進めないが、
+   *   次のターンには移動範囲へ入って乗り込める
+   * - 海の上にいる輸送艦なら、その輸送艦が歩兵を待つ浜辺・自軍の港(boardingBerth)。
+   *   輸送艦と歩兵が同じ岸を目指すので、双方が寄って落ち合える
+   * - 陸と空の輸送ユニット(輸送車・輸送ヘリ)は自分から歩兵のそばへ寄るため、迎えに行かない
+   *
+   * reserved は「まだ輸送ユニットが着いていない乗船地点」であることを表す。
+   *
+   * @param onFoot 乗り込む歩兵が現在地から歩いて行ける範囲
+   */
+  private boardingPoint(
+    ferry: Unit,
+    onFoot: PathDistanceField,
+  ): { readonly position: GridPosition; readonly reserved: boolean } | null {
+    if (
+      canLoadOn(ferry, this.map.getTile(ferry.position)?.terrainType) &&
+      onFoot.get(ferry.position) !== undefined
+    ) {
+      return { position: ferry.position, reserved: false };
+    }
+    if (ferry.movementType !== 'sea') {
+      return null;
+    }
+    const berth = this.boardingBerth(ferry);
+    if (!berth || onFoot.get(berth) === undefined) {
+      return null;
+    }
+    return { position: berth, reserved: true };
   }
 
   /**
@@ -1074,15 +1194,23 @@ export class EnemyAi {
     return best;
   }
 
-  /** unit が運べる自軍ユニットのうち、直線距離でいちばん近いものを返す(いなければ null) */
+  /**
+   * unit が運べる自軍ユニットのうち、直線距離でいちばん近いものを返す(いなければ null)。
+   *
+   * 海を渡りたい歩兵(wantsToCross)がいれば、その中から選ぶ。渡りたい相手を差し置いて
+   * 対岸の味方や渡る必要のない味方を迎えに行き、歩兵を置き去りにしてしまうのを防ぐ。
+   * 渡りたい相手が 1 体もいないときだけ、運べる味方全体から選ぶ。
+   */
   private nearestCarriableAlly(unit: Unit): Unit | null {
     const allies = this.units
       .getUnitsByArmy(this.army)
       .filter((ally) => canCarry(unit, ally));
-    if (allies.length === 0) {
+    const crossing = allies.filter((ally) => this.wantsToCross(ally));
+    const candidates = crossing.length > 0 ? crossing : allies;
+    if (candidates.length === 0) {
       return null;
     }
-    return allies.reduce((nearest, ally) =>
+    return candidates.reduce((nearest, ally) =>
       manhattanDistance(unit.position, ally.position) <
       manhattanDistance(unit.position, nearest.position)
         ? ally
@@ -1218,7 +1346,7 @@ export class EnemyAi {
     if (!this.behavior.indirectStandoff || !unit.isIndirect) {
       return null;
     }
-    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    const enemies = this.attackableEnemies(unit, vision);
     if (enemies.length === 0) {
       return null;
     }
@@ -1314,11 +1442,24 @@ export class EnemyAi {
         return capture;
       }
     }
-    const enemies = this.opposingUnits().filter((enemy) => vision.isUnitVisible(enemy));
+    const enemies = this.attackableEnemies(unit, vision);
     if (enemies.length > 0) {
       return this.nearestEnemyPosition(unit, enemies);
     }
     return this.nearestUnownedBase(unit);
+  }
+
+  /**
+   * unit が攻撃できる、見えている敵の一覧を返す。
+   *
+   * 種別として攻撃できない相手(歩兵・戦車にとっての潜水艦など)を目標から外すために使う。
+   * 撃てない敵を「最寄りの敵」として目標にすると、海の潜水艦めがけて海岸に貼りついたまま
+   * 攻撃も前進もできず、何ターンも足踏みしてしまう。
+   */
+  private attackableEnemies(unit: Unit, vision: Visibility): Unit[] {
+    return this.opposingUnits().filter(
+      (enemy) => vision.isUnitVisible(enemy) && canAttackUnit(unit, enemy),
+    );
   }
 
   /**
@@ -1497,9 +1638,12 @@ export class EnemyAi {
    * (usableAgainst)。相手に飛行ユニットが 1 体もいないのに戦闘機を買う、
    * といった無駄づかいを防ぐための絞り込み。
    *
-   * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
-   *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
-   *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
+   * 生存する歩兵が infantryQuota に届くまでは歩兵を生産するのは、
+   * 方針によらず共通(占領役がいないと拠点も収入も増えないため)。そのうえで、
+   *
+   * - 'infantryFirst': 歩兵の目標数を多めに取り、序盤を占領に振る。歩兵がそろったあとは、
+   *   その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上のユニットだけを買い、
+   *   それ未満しか買えないターンは見送って資金を貯める。
    * - 'roster': 編成表(roster)で決めた最低限の頭数を先に補充する。
    *   そろったあとは 'infantryFirst' と同じ判断に進む。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
@@ -1536,9 +1680,11 @@ export class EnemyAi {
       return null;
     }
 
-    // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
+    // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)。
+    // これは生産の方針によらず共通で、いちばん高価なユニットを買う 'strongest' でも
+    // 目標数ぶんの歩兵だけは先にそろえる。占領役が 1 体もいないと拠点が増えず、
+    // 収入も伸びないまま高価なユニットだけが自陣に溜まってしまうため
     if (
-      this.behavior.production === 'infantryFirst' &&
       this.countUnits('infantry') < this.behavior.infantryQuota &&
       this.production.canProduce(this.army, tile, 'infantry')
     ) {
