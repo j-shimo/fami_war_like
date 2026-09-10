@@ -348,14 +348,45 @@ describe('EnemyAi.run', () => {
     expect(tank.hasActed).toBe(true);
   });
 
-  it('資金があれば、空の生産拠点で最も高価なユニットを生産する', () => {
+  it('占領役の歩兵が目標数に届くまでは、高価なユニットより歩兵を先に生産する', () => {
+    // 資金は十分にあるが、歩兵が 1 体もいないうちは占領役をそろえる。
+    // 収入の多いマップで戦車だけを買い続け、拠点を 1 つも占領できなくなるのを防ぐ
+    const { units, ai } = setup(
+      {
+        name: 'infantry-floor',
+        // 生産した歩兵が工場から出ていくよう、占領先の中立都市を並べてある
+        terrain: ['F.c.c.c..'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { funds: 40000 },
+    );
+
+    const bought: string[] = [];
+    for (let turn = 1; turn <= 4; turn++) {
+      for (const unit of units.getUnitsByArmy('enemy')) {
+        unit.hasActed = false;
+      }
+      const produced = actionsOfKind(ai.run(), 'produce');
+      bought.push(...produced.map((action) => action.result.unit.unitType));
+    }
+
+    // 既定の目標数は 3 体。そろったあとは通常どおり最も高価なユニット(重戦車)を買う
+    expect(bought).toEqual(['infantry', 'infantry', 'infantry', 'heavyTank']);
+  });
+
+  it('歩兵がそろっていれば、空の生産拠点で最も高価なユニットを生産する', () => {
     // col0 に敵軍の工場(空)。資金 10000 で工場で最も高価な対空戦車(8000)を生産する。
-    // 生産したユニットの行き先になるよう、端に中立都市を置いてある
+    // 生産したユニットの行き先になるよう、端に中立都市を置いてある。
+    // 占領役の歩兵は目標数(既定は 3 体)を満たしているので、生産は強力なユニットへ回る
     const { units, economy, ai } = setup({
       name: 't',
-      terrain: ['F.c'],
+      terrain: ['F.c..'],
       owners: [{ col: 0, row: 0, owner: 'enemy' }],
-      units: [{ col: 2, row: 0, unitType: 'infantry', army: 'enemy' }],
+      units: [
+        { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+        { col: 4, row: 0, unitType: 'infantry', army: 'enemy' },
+      ],
     });
 
     const actions = ai.run();
@@ -515,12 +546,18 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
   it('相手に飛行ユニットがいなければ、対空ロケット砲も買わない', () => {
     // 資金 13500。工場で買えるいちばん高価なユニットは対空ロケット砲(13000)だが、
     // 相手が戦車だけなら攻撃できないので、次に高価な中戦車(12000)を買う
+    // (占領役の歩兵は目標数を満たしている)
     const { ai } = setup(
       {
         name: 'factory-production',
         terrain: ['F..........'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
-        units: [{ col: 10, row: 0, unitType: 'mediumTank', army: 'player' }],
+        units: [
+          { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 10, row: 0, unitType: 'mediumTank', army: 'player' },
+        ],
       },
       { funds: 13500 },
     );
@@ -535,11 +572,17 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
     // 資金 14000 で工場で買えるいちばん高価なユニットは対空ロケット砲(13000)。
     // 空港のあるマップではそれを買うが、空港がなければ飛行ユニットが出てこないため
     // 生産候補から外れ、次に高価な中戦車(12000)を買う。
+    const infantrySquad = [
+      { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+      { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+      { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+    ] as const;
     const withAirport = setup(
       {
         name: 'airport',
         terrain: ['F.........A'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [...infantrySquad],
       },
       { funds: 14000 },
     );
@@ -551,6 +594,7 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
         name: 'no-airport',
         terrain: ['F.........c'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [...infantrySquad],
       },
       { funds: 14000 },
     );
@@ -1548,7 +1592,11 @@ describe('EnemyAi.run(行き先の無いユニットは作らない)', () => {
         name: 'land-target',
         terrain: ['F....c', '~~~~~~', '..c...'],
         owners: [{ col: 0, row: 0, owner: 'enemy' }],
-        units: [{ col: 1, row: 0, unitType: 'infantry', army: 'enemy' }],
+        units: [
+          { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 2, row: 0, unitType: 'infantry', army: 'enemy' },
+          { col: 3, row: 0, unitType: 'infantry', army: 'enemy' },
+        ],
       },
       { funds: 40000 },
     );

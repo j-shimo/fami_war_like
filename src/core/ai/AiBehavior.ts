@@ -10,7 +10,7 @@ import type { UnitType } from '@/core/units/UnitType';
 export type AiProductionPolicy =
   /** 買える中で最も高価(強力)なユニットをその都度生産する */
   | 'strongest'
-  /** 歩兵が infantryQuota に届くまでは歩兵をそろえ、その後に強力なユニットを狙う */
+  /** 序盤を占領に振り、歩兵を多めにそろえてから強力なユニットを狙う */
   | 'infantryFirst'
   /** 編成表(roster)で決めた最低限の頭数をそろえ、その後に強力なユニットを狙う */
   | 'roster';
@@ -50,9 +50,14 @@ export interface AiBehavior {
   /** 生産の方針 */
   readonly production: AiProductionPolicy;
   /**
-   * そろえたい歩兵の数(production が 'infantryFirst' のときだけ使う)。
-   * 生存している歩兵がこの数に届くまでは、生産拠点では歩兵だけを生産する。
+   * そろえたい歩兵の数(0 なら歩兵の頭数を気にしない)。
+   * 生存している歩兵がこの数に届くまでは、歩兵を生産できる拠点では歩兵だけを生産する。
    * 歩兵が撃破されて数が減れば、また歩兵の生産に戻る。
+   *
+   * 生産の方針(production)によらず共通で効く。占領役が 1 体もいないと拠点が増えず、
+   * 収入も伸びないまま高価なユニットだけが自陣に溜まってしまうため、
+   * 'strongest'(いちばん高価なユニットを買う)でも最低限の占領役はここでそろえる。
+   * 'infantryFirst' はこの数を多めに取り、序盤を占領に振る方針を表す。
    */
   readonly infantryQuota: number;
   /**
@@ -142,7 +147,9 @@ export interface AiBehavior {
  */
 export const DEFAULT_AI_BEHAVIOR: AiBehavior = {
   production: 'strongest',
-  infantryQuota: 0,
+  // いちばん高価なユニットを買う方針でも、占領役の歩兵 3 体だけは先にそろえる。
+  // 0 にすると収入の多いマップでは歩兵を 1 体も買わず、拠点を 1 つも占領できなくなる
+  infantryQuota: 3,
   roster: [],
   powerCostRatio: 0,
   saveForUpgrade: false,

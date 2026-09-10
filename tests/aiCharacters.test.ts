@@ -41,6 +41,19 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
     expect(DEFAULT_AI_CHARACTER.behavior).toEqual(DEFAULT_AI_BEHAVIOR);
   });
 
+  it('どの指揮官も、占領役の歩兵を最低 3 体はそろえる', () => {
+    for (const character of AI_CHARACTERS) {
+      // 歩兵の頭数は「歩兵の目標数(infantryQuota)」か「編成表(roster)の歩兵」で確保する。
+      // どちらも 0 だと、収入の多いマップでは高価なユニットばかりを買って
+      // 拠点を 1 つも占領できないまま自陣に戦力が溜まってしまう
+      const fromRoster =
+        character.behavior.roster.find((entry) => entry.unitType === 'infantry')?.count ??
+        0;
+      const floor = Math.max(character.behavior.infantryQuota, fromRoster);
+      expect(floor).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it('中立都市の制圧と本拠地への突撃を狙う思考パターンのキャラクターがいる', () => {
     const charger = AI_CHARACTERS.find(
       (character) => character.behavior.advance === 'captureAndCharge',

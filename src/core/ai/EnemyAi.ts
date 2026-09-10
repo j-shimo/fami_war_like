@@ -1638,9 +1638,12 @@ export class EnemyAi {
    * (usableAgainst)。相手に飛行ユニットが 1 体もいないのに戦闘機を買う、
    * といった無駄づかいを防ぐための絞り込み。
    *
-   * - 'infantryFirst': 生存する歩兵が infantryQuota に届くまでは歩兵を生産する。
-   *   そろったあとは、その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上の
-   *   ユニットだけを買い、それ未満しか買えないターンは見送って資金を貯める。
+   * 生存する歩兵が infantryQuota に届くまでは歩兵を生産するのは、
+   * 方針によらず共通(占領役がいないと拠点も収入も増えないため)。そのうえで、
+   *
+   * - 'infantryFirst': 歩兵の目標数を多めに取り、序盤を占領に振る。歩兵がそろったあとは、
+   *   その拠点で作れる最強ユニットのコストに対して powerCostRatio 以上のユニットだけを買い、
+   *   それ未満しか買えないターンは見送って資金を貯める。
    * - 'roster': 編成表(roster)で決めた最低限の頭数を先に補充する。
    *   そろったあとは 'infantryFirst' と同じ判断に進む。
    * - 'strongest': 買える中でいちばん高価(強力)なユニットを生産する。
@@ -1677,9 +1680,11 @@ export class EnemyAi {
       return null;
     }
 
-    // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)
+    // 歩兵がそろうまでは占領役の頭数を優先する(歩兵を作れない拠点は通常どおり)。
+    // これは生産の方針によらず共通で、いちばん高価なユニットを買う 'strongest' でも
+    // 目標数ぶんの歩兵だけは先にそろえる。占領役が 1 体もいないと拠点が増えず、
+    // 収入も伸びないまま高価なユニットだけが自陣に溜まってしまうため
     if (
-      this.behavior.production === 'infantryFirst' &&
       this.countUnits('infantry') < this.behavior.infantryQuota &&
       this.production.canProduce(this.army, tile, 'infantry')
     ) {
