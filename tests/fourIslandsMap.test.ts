@@ -73,33 +73,48 @@ function countInIsland(
 
 /** 自軍の陣地(本拠地 1・工場 2・空港 2) */
 const PLAYER_BASES: readonly GridPosition[] = [
-  { col: 4, row: 10 }, // 本拠地
-  { col: 3, row: 8 }, // 工場(北)
-  { col: 3, row: 12 }, // 工場(南)
-  { col: 5, row: 7 }, // 空港(北)
-  { col: 5, row: 13 }, // 空港(南)
+  { col: 4, row: 8 }, // 本拠地
+  { col: 5, row: 6 }, // 工場(北)
+  { col: 5, row: 10 }, // 工場(南)
+  { col: 8, row: 6 }, // 空港(北)
+  { col: 8, row: 10 }, // 空港(南)
 ];
+
+/** 両軍の空港(北・南の順)。北の空港は北の中立島、南の空港は南の中立島の担当になる */
+const AIRPORTS = {
+  player: [
+    { col: 8, row: 6 },
+    { col: 8, row: 10 },
+  ],
+  enemy: [
+    { col: 26, row: 6 },
+    { col: 26, row: 10 },
+  ],
+} as const;
 
 /** 中立島の空港(北・南) */
 const NEUTRAL_AIRPORTS: readonly GridPosition[] = [
-  { col: 13, row: 3 },
-  { col: 13, row: 17 },
+  { col: 17, row: 3 },
+  { col: 17, row: 13 },
 ];
+
+/** 自軍・敵軍の本拠地 */
+const PLAYER_HQ: GridPosition = { col: 4, row: 8 };
+const ENEMY_HQ: GridPosition = { col: 30, row: 8 };
 
 /**
  * 先手番ハンデの調整として、敵軍の島にだけ追加してある中立都市の位置。
- * 自軍の島の対称位置 (4,9)/(4,11) は平地のまま。
+ * 自軍の島の対称位置 (4,7) は平地のまま。
  */
-const HANDICAP_CITIES: readonly GridPosition[] = [
-  { col: 22, row: 9 },
-  { col: 22, row: 11 },
-];
+const HANDICAP_CITIES: readonly GridPosition[] = [{ col: 30, row: 7 }];
 
 describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
-  it('縦21・横27 のサイズで生成できる', () => {
+  it('縦17・横35 の横長サイズで生成できる', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
-    expect(map.cols).toBe(27);
-    expect(map.rows).toBe(21);
+    expect(map.cols).toBe(35);
+    expect(map.rows).toBe(17);
+    // 横長のマップであること
+    expect(map.cols).toBeGreaterThan(map.rows);
   });
 
   it('初期ユニットは配置しない(0 体で開始する)', () => {
@@ -109,8 +124,8 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
     expect(manager.getUnitsByArmy('enemy')).toHaveLength(0);
   });
 
-  it('初期資金は 20000(戦闘機 1 機ぶん)で始まる', () => {
-    expect(FOUR_ISLANDS_MAP.initialFunds).toBe(20000);
+  it('初期資金は 0 で、収入だけで滑り出す(1 ターン目は輸送ヘリに 500 G 足りない)', () => {
+    expect(FOUR_ISLANDS_MAP.initialFunds).toBe(0);
   });
 
   it('自軍・敵軍は本拠地 1・工場 2・空港 2 の計 5 拠点を所有して開始する', () => {
@@ -137,12 +152,13 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
 
   it('自軍は左の島、敵軍は右の島に本拠地を構える', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
-    const playerHq = map.getTile({ col: 4, row: 10 });
+    const playerHq = map.getTile(PLAYER_HQ);
     expect(playerHq?.terrainType).toBe('headquarters');
     expect(playerHq?.owner).toBe('player');
-    const enemyHq = map.getTile({ col: 22, row: 10 });
+    const enemyHq = map.getTile(ENEMY_HQ);
     expect(enemyHq?.terrainType).toBe('headquarters');
     expect(enemyHq?.owner).toBe('enemy');
+    expect(PLAYER_HQ.col).toBeLessThan(ENEMY_HQ.col);
   });
 
   it('港が 1 つも無く、海上ユニットは生産できない', () => {
@@ -175,10 +191,8 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
     const islands = islandsOf(map);
     expect(islands).toHaveLength(4);
     // 自軍の島から歩いて行ける範囲に、敵軍の本拠地も中立島の空港も含まれない
-    const reachable = floodFill(map, { col: 4, row: 10 }, (col, row) =>
-      isLand(map, col, row),
-    );
-    expect(reachable.has('22,10')).toBe(false);
+    const reachable = floodFill(map, PLAYER_HQ, (col, row) => isLand(map, col, row));
+    expect(reachable.has(`${ENEMY_HQ.col},${ENEMY_HQ.row}`)).toBe(false);
     for (const { col, row } of NEUTRAL_AIRPORTS) {
       expect(reachable.has(`${col},${row}`)).toBe(false);
     }
@@ -188,7 +202,7 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
     for (const airport of NEUTRAL_AIRPORTS) {
       const island = floodFill(map, airport, (col, row) => isLand(map, col, row));
-      // 中立島は両軍の島(125 マス)より小さい
+      // 中立島は両軍の島(121 マス)より小さい
       expect(island.size).toBeLessThan(50);
       expect(
         countInIsland(
@@ -206,15 +220,61 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
       ).toBe(3);
     }
     // 北の島は盤面の上半分、南の島は下半分にある
-    expect(NEUTRAL_AIRPORTS[0].row).toBeLessThan(10);
-    expect(NEUTRAL_AIRPORTS[1].row).toBeGreaterThan(10);
+    expect(NEUTRAL_AIRPORTS[0].row).toBeLessThan(8);
+    expect(NEUTRAL_AIRPORTS[1].row).toBeGreaterThan(8);
   });
 
-  it('両軍の島の中立都市は自軍 5 個・敵軍 7 個(先手番ハンデの調整)', () => {
+  it('北と南の中立島は、形も都市の並べ方も別のものにしてある', () => {
+    const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
+    const [north, south] = NEUTRAL_AIRPORTS.map((airport) =>
+      floodFill(map, airport, (col, row) => isLand(map, col, row)),
+    );
+    // 北は横長の砂州(9x4)・南は小さな菱形の岩島(5x5)で、広さも形も違う
+    expect(north.size).not.toBe(south.size);
+    const extent = (island: Set<string>): { cols: number; rows: number } => {
+      const cells = [...island].map((cell) => cell.split(',').map(Number));
+      const cols = cells.map(([col]) => col);
+      const rows = cells.map(([, row]) => row);
+      return {
+        cols: Math.max(...cols) - Math.min(...cols) + 1,
+        rows: Math.max(...rows) - Math.min(...rows) + 1,
+      };
+    };
+    const northExtent = extent(north);
+    const southExtent = extent(south);
+    // 北は横長(幅 > 高さ)、南は正方形に近い縦長の島
+    expect(northExtent.cols).toBeGreaterThan(northExtent.rows);
+    expect(southExtent.cols).toBeLessThanOrEqual(southExtent.rows);
+
+    // 都市の並びが、上下の反転でも平行移動でも重ならないこと(完全に別の配置)
+    const cityOffsets = (island: Set<string>): string[] => {
+      const cells = [...island]
+        .map((cell) => cell.split(',').map(Number))
+        .filter(([col, row]) => map.getTile({ col, row })?.terrainType === 'city');
+      const baseCol = Math.min(...cells.map(([col]) => col));
+      const baseRow = Math.min(...cells.map(([, row]) => row));
+      return cells.map(([col, row]) => `${col - baseCol},${row - baseRow}`).sort();
+    };
+    const northCities = cityOffsets(north);
+    const southCities = cityOffsets(south);
+    expect(northCities).not.toEqual(southCities);
+    // 上下に反転させても一致しない
+    const flipped = [...south]
+      .map((cell) => cell.split(',').map(Number))
+      .filter(([col, row]) => map.getTile({ col, row })?.terrainType === 'city');
+    const maxRow = Math.max(...flipped.map(([, row]) => row));
+    const minCol = Math.min(...flipped.map(([col]) => col));
+    const flippedOffsets = flipped
+      .map(([col, row]) => `${col - minCol},${maxRow - row}`)
+      .sort();
+    expect(northCities).not.toEqual(flippedOffsets);
+  });
+
+  it('両軍の島の中立都市は自軍 5 個・敵軍 6 個(先手番ハンデの調整)', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
     for (const { hq, cities } of [
-      { hq: { col: 4, row: 10 }, cities: 5 },
-      { hq: { col: 22, row: 10 }, cities: 7 },
+      { hq: PLAYER_HQ, cities: 5 },
+      { hq: ENEMY_HQ, cities: 6 },
     ]) {
       const island = floodFill(map, hq, (col, row) => isLand(map, col, row));
       expect(
@@ -227,15 +287,16 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
     }
   });
 
-  it('敵軍のハンデ都市は本拠地の目の前にあり、序盤に確実に取り切れる', () => {
+  it('敵軍のハンデ都市は 1 個だけで、本拠地の隣にある', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
+    expect(HANDICAP_CITIES).toHaveLength(1);
     for (const pos of HANDICAP_CITIES) {
       const tile = map.getTile(pos);
       expect(tile?.terrainType).toBe('city');
       // 中立都市なので、敵軍が歩兵で占領して初めて収入になる
       expect(tile?.owner).toBe('neutral');
-      // 敵軍本拠地 (22,10) の隣
-      expect(Math.abs(pos.col - 22) + Math.abs(pos.row - 10)).toBe(1);
+      // 敵軍本拠地 (30,8) の隣
+      expect(Math.abs(pos.col - ENEMY_HQ.col) + Math.abs(pos.row - ENEMY_HQ.row)).toBe(1);
     }
   });
 
@@ -248,7 +309,7 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
     for (const cell of island) {
       const [col, row] = cell.split(',').map(Number);
       if (map.getTile({ col, row })?.terrainType !== 'city') continue;
-      // どの陣地からも歩兵で 5 マス以上(1 ターンでは届かない)離れている
+      // どの陣地からも歩兵で 5 マス以上(移動力 3 では 1 ターンで届かない)離れている
       const nearest = Math.min(
         ...fields.map((field) => field.get({ col, row }) ?? Number.POSITIVE_INFINITY),
       );
@@ -258,27 +319,43 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
 
   it('両軍の空港から中立島の空港までの距離は等しい(12 マス・輸送ヘリで 2 ターン)', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
-    const airports = {
-      player: [
-        { col: 5, row: 7 },
-        { col: 5, row: 13 },
-      ],
-      enemy: [
-        { col: 21, row: 7 },
-        { col: 21, row: 13 },
-      ],
-    };
-    for (const [north, south] of [airports.player, airports.enemy]) {
+    for (const [north, south] of [AIRPORTS.player, AIRPORTS.enemy]) {
       // 北の空港からは北の中立島へ、南の空港からは南の中立島へ、どちらも 12 マス
       expect(distancesFrom(map, north, 'air').get(NEUTRAL_AIRPORTS[0])).toBe(12);
       expect(distancesFrom(map, south, 'air').get(NEUTRAL_AIRPORTS[1])).toBe(12);
     }
   });
 
-  it('盤面はハンデ都市の 2 マスを除いて左右対称である', () => {
+  it('中立島へは輸送ヘリで必ず 2 ターン以上かかる(1 ターンでは歩兵を降ろせない)', () => {
+    const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
+    // 輸送ヘリの移動力。1 ターンで進めるのはこのコストぶんまで
+    const transportHelicopterMovement = 6;
+    for (const airports of [AIRPORTS.player, AIRPORTS.enemy]) {
+      for (const airport of airports) {
+        const byAir = distancesFrom(map, airport, 'air');
+        for (const neutralAirport of NEUTRAL_AIRPORTS) {
+          const island = floodFill(map, neutralAirport, (col, row) =>
+            isLand(map, col, row),
+          );
+          // 島のどのマスへ降ろすにせよ、輸送ヘリはその隣まで飛ばないといけない。
+          // 隣接マスまでの距離が移動力を超えていれば、1 ターン目には降ろせない
+          const nearest = Math.min(
+            ...[...island].map((cell) => {
+              const [col, row] = cell.split(',').map(Number);
+              return byAir.get({ col, row }) ?? Number.POSITIVE_INFINITY;
+            }),
+          );
+          expect(nearest - 1).toBeGreaterThan(transportHelicopterMovement);
+        }
+      }
+    }
+  });
+
+  it('盤面はハンデ都市の 1 マスを除いて左右対称である', () => {
     const rows = FOUR_ISLANDS_MAP.terrain.length;
     const cols = FOUR_ISLANDS_MAP.terrain[0].length;
     const handicap = new Set(HANDICAP_CITIES.map(({ col, row }) => `${col},${row}`));
+    expect(cols).toBe(35);
     for (let row = 0; row < rows; row++) {
       expect(FOUR_ISLANDS_MAP.terrain[row]).toHaveLength(cols);
       for (let col = 0; col < cols; col++) {
@@ -336,11 +413,11 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
       expect(hasCoast).toBe(true);
     }
     // 飛行ユニットは自軍の空港から敵軍の本拠地まで海を越えて届く
-    const byAir = distancesFrom(map, { col: 5, row: 7 }, 'air');
-    expect(byAir.get({ col: 22, row: 10 })).toBeDefined();
+    const byAir = distancesFrom(map, AIRPORTS.player[0], 'air');
+    expect(byAir.get(ENEMY_HQ)).toBeDefined();
   });
 
-  it('中立で占領可能な拠点が存在する(空港 2・都市 18)', () => {
+  it('中立で占領可能な拠点が存在する(空港 2・都市 17)', () => {
     const map = MapManager.fromDefinition(FOUR_ISLANDS_MAP);
     const neutral = { airport: 0, city: 0 };
     map.forEachTile((tile) => {
@@ -350,6 +427,6 @@ describe('FOUR_ISLANDS_MAP(四島空戦マップ)', () => {
       if (tile.terrainType === 'city') neutral.city += 1;
     });
     expect(neutral.airport).toBe(2);
-    expect(neutral.city).toBe(18);
+    expect(neutral.city).toBe(17);
   });
 });

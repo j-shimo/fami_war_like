@@ -82,10 +82,10 @@ describe('分断列島マップでの敵軍AIの海越え', () => {
 
 describe('四島空戦マップでの敵軍AIの海越え', () => {
   // 港が 1 つも無いマップなので、AI が海を渡る足は空港で作る輸送ヘリだけになる。
-  // 歩兵が敵軍本拠地 (22,10) から歩いて行ける範囲(＝敵軍の島)の外へ降ろせていれば、海を越えたことになる。
+  // 歩兵が敵軍本拠地 (30,8) から歩いて行ける範囲(＝敵軍の島)の外へ降ろせていれば、海を越えたことになる。
   const homeIsland = distancesFrom(
     MapManager.fromDefinition(FOUR_ISLANDS_MAP),
-    { col: 22, row: 10 },
+    { col: 30, row: 8 },
     'infantry',
   );
 
