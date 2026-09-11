@@ -5,6 +5,7 @@ import { DEFAULT_MAP_GROUP, type MapGroup, type PlayerSide } from '@/core/mode/G
 import { CAPE_LABORATORY_MAP } from '@/data/maps/capeLaboratoryMap';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
+import { FOUR_ISLANDS_MAP } from '@/data/maps/fourIslandsMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import { LAKESIDE_GORGE_MAP } from '@/data/maps/lakesideGorgeMap';
@@ -118,6 +119,12 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       definition: INNER_SEA_MAP,
       description:
         '収入 13000 の自軍と 4000 の敵軍で始まる 16x12 の地上戦マップ。前線工場から偵察車が 2 ターンで敵陣へ届く狭い盤面で、中央のレンズ型の内海が戦場を北の街道ルートと南の森ルート(装輪車両は通行不可)に完全に分断する。中立拠点はすべて自軍から遠く、うち 4 個は敵軍が 1 ターンで届く。中央の中立都市 6 個も敵軍寄りで、特に北ルートは敵軍が先に届く。',
+    },
+    {
+      id: 'fourIslands',
+      definition: FOUR_ISLANDS_MAP,
+      description:
+        '海に囲まれた 4 つの島が並ぶ 27x21 のマップ。左が先手の自軍・右が後手の敵軍の島で、真ん中の上下に中立の空港 1 個と中立都市 3 個を持つ小島が 1 つずつ浮かぶ。港が 1 つも無いので島を渡れるのは飛行ユニットだけで、歩兵を運べるのは空港で作る輸送ヘリだけ。道路も無く陸地は平地と森だけなので、歩兵以外の地上ユニットは自分の島から出られない守備専用になる。両軍とも本拠地 1・工場 2・空港 2(収入 5000)・初期資金 20000 の対等な立ち上がりで、空港 2 つは北と南の中立島からどちらも 12 マス(輸送ヘリで 2 ターン)。島の南北の端に中立都市が 5 個ずつあり、後手の敵軍は本拠地の隣に中立都市が 2 個多い。',
     },
     {
       id: 'ringLaboratory',
