@@ -13,15 +13,15 @@ import { ARC_ISLAND_ROAD_MAP } from '@/data/maps/arcIslandRoadMap';
 import { getTerrainData } from '@/data/terrainData';
 import { getUnitData } from '@/data/unitData';
 
-/** 先手の自軍(下の腕の左端)。本拠地 1 + 工場 3 + 港 2 + 空港 1 */
-const PLAYER_HQ = gridPosition(5, 18);
+/** 先手の自軍(下の岬)。本拠地 1 + 工場 3 + 港 2 + 空港 1 */
+const PLAYER_HQ = gridPosition(5, 20);
 const PLAYER_FACTORIES: readonly GridPosition[] = [
-  gridPosition(4, 18),
-  gridPosition(6, 18),
-  gridPosition(5, 19),
+  gridPosition(4, 20),
+  gridPosition(6, 20),
+  gridPosition(5, 21),
 ];
-const PLAYER_PORTS: readonly GridPosition[] = [gridPosition(3, 18), gridPosition(5, 16)];
-const PLAYER_AIRPORT = gridPosition(5, 20);
+const PLAYER_PORTS: readonly GridPosition[] = [gridPosition(5, 18), gridPosition(6, 19)];
+const PLAYER_AIRPORT = gridPosition(5, 22);
 const PLAYER_BASES: readonly GridPosition[] = [
   PLAYER_HQ,
   ...PLAYER_FACTORIES,
@@ -29,15 +29,15 @@ const PLAYER_BASES: readonly GridPosition[] = [
   PLAYER_AIRPORT,
 ];
 
-/** 後手の敵軍(上の腕の左端)。拠点の並びは自軍と上下対称 */
-const ENEMY_HQ = gridPosition(5, 5);
+/** 後手の敵軍(上の岬)。拠点の並びは自軍と上下対称 */
+const ENEMY_HQ = gridPosition(5, 3);
 const ENEMY_FACTORIES: readonly GridPosition[] = [
-  gridPosition(4, 5),
-  gridPosition(6, 5),
-  gridPosition(5, 4),
+  gridPosition(4, 3),
+  gridPosition(6, 3),
+  gridPosition(5, 2),
 ];
-const ENEMY_PORTS: readonly GridPosition[] = [gridPosition(3, 5), gridPosition(5, 7)];
-const ENEMY_AIRPORT = gridPosition(5, 3);
+const ENEMY_PORTS: readonly GridPosition[] = [gridPosition(5, 5), gridPosition(6, 4)];
+const ENEMY_AIRPORT = gridPosition(5, 1);
 const ENEMY_BASES: readonly GridPosition[] = [
   ENEMY_HQ,
   ...ENEMY_FACTORIES,
@@ -45,27 +45,27 @@ const ENEMY_BASES: readonly GridPosition[] = [
   ENEMY_AIRPORT,
 ];
 
-/** 弧に沿った街道。上の腕(row 5)・下の腕(row 18)と、右の背を縦に走る col 23 */
+/** 弧に沿った街道。上の岬(row 3)・下の岬(row 20)と、右の背を縦に走る col 23 */
 const ROAD_TOP: readonly GridPosition[] = Array.from({ length: 17 }, (_, i) =>
-  gridPosition(7 + i, 5),
+  gridPosition(7 + i, 3),
 );
 const ROAD_BOTTOM: readonly GridPosition[] = Array.from({ length: 17 }, (_, i) =>
-  gridPosition(7 + i, 18),
+  gridPosition(7 + i, 20),
 );
 /** 敵軍側の縦棒(街道の終点は (23,9)) */
-const ROAD_SPINE_NORTH: readonly GridPosition[] = Array.from({ length: 4 }, (_, i) =>
-  gridPosition(23, 6 + i),
+const ROAD_SPINE_NORTH: readonly GridPosition[] = Array.from({ length: 6 }, (_, i) =>
+  gridPosition(23, 4 + i),
 );
 /** 自軍側の縦棒(街道の終点は (23,14)) */
-const ROAD_SPINE_SOUTH: readonly GridPosition[] = Array.from({ length: 4 }, (_, i) =>
+const ROAD_SPINE_SOUTH: readonly GridPosition[] = Array.from({ length: 6 }, (_, i) =>
   gridPosition(23, 14 + i),
 );
 const ROAD_END_PLAYER = gridPosition(23, 14);
 const ROAD_END_ENEMY = gridPosition(23, 9);
 
-/** 右の背の真ん中を断ち切る 4 列の森・山地帯(row 10〜13・col 20〜26) */
+/** 右の背の真ん中を断ち切る 4 列の森・山地帯(row 10〜13・col 20〜29) */
 const BELT: readonly GridPosition[] = Array.from({ length: 4 }, (_, row) =>
-  Array.from({ length: 7 }, (_, col) => gridPosition(20 + col, 10 + row)),
+  Array.from({ length: 10 }, (_, col) => gridPosition(20 + col, 10 + row)),
 ).flat();
 
 /** 自軍の街道の先、森・山地帯へ入る直前に固まっている中立拠点 7 個 */
@@ -79,7 +79,8 @@ const CLUSTER_CITIES: readonly GridPosition[] = [
   gridPosition(24, 17),
 ];
 const CLUSTER_AIRPORT = gridPosition(21, 16);
-const CLUSTER_PORT = gridPosition(26, 15);
+/** 湾に面した内周の中立港 */
+const CLUSTER_PORT = gridPosition(20, 15);
 const CLUSTER: readonly GridPosition[] = [
   ...CLUSTER_LABORATORIES,
   ...CLUSTER_CITIES,
@@ -87,8 +88,12 @@ const CLUSTER: readonly GridPosition[] = [
   CLUSTER_PORT,
 ];
 
-/** 自軍の陣地の少し左上、湾の口にある中立港 */
-const HOME_NEUTRAL_PORT = gridPosition(3, 16);
+/** 下の岬の先端にある中立港 */
+const CAPE_NEUTRAL_PORT = gridPosition(1, 18);
+
+/** 岬の先端(西の端で 1 マスになる場所) */
+const CAPE_TIP_ENEMY = gridPosition(2, 7);
+const CAPE_TIP_PLAYER = gridPosition(2, 16);
 
 const map = MapManager.fromDefinition(ARC_ISLAND_ROAD_MAP);
 
@@ -131,47 +136,73 @@ function key(pos: GridPosition): string {
   return `${pos.col},${pos.row}`;
 }
 
+/** 移動力 movement のユニットが distance マスを進むのに必要なターン数 */
+function turnsFor(distance: number, movement: number): number {
+  return Math.ceil(distance / movement);
+}
+
 describe('弧島街道マップの盤面', () => {
-  it('30x24 の盤面で、陸地は「C」を左右反転した弧になっている', () => {
+  it('30x24 の盤面で、陸地は左向きの三日月になっている', () => {
     expect(map.cols).toBe(30);
     expect(map.rows).toBe(24);
     expect(map.name).toBe('弧島街道マップ');
-    // 上の腕(row 4〜7)・下の腕(row 16〜19)は col 3〜26 がすべて陸
-    for (const row of [4, 5, 6, 7, 16, 17, 18, 19]) {
-      for (let col = 3; col <= 26; col += 1) {
+    // 右の背(col 20〜29)は上から下まですべて陸
+    for (let row = 0; row < map.rows; row += 1) {
+      for (let col = 20; col <= 29; col += 1) {
         expect(map.getMoveCost(gridPosition(col, row), 'infantry')).not.toBeNull();
       }
     }
-    // 右の背(row 8〜15)は col 20〜26 が陸
+    // 弧の内側(湾)は水。真ん中(row 8〜15)は col 0〜19 がすべて水になる
     for (let row = 8; row <= 15; row += 1) {
-      for (let col = 20; col <= 26; col += 1) {
-        expect(map.getMoveCost(gridPosition(col, row), 'infantry')).not.toBeNull();
-      }
-    }
-    // 「C」の開き口にあたる左の真ん中(row 8〜15・col 0〜18)はすべて水
-    for (let row = 8; row <= 15; row += 1) {
-      for (let col = 0; col <= 18; col += 1) {
+      for (let col = 0; col <= 19; col += 1) {
         expect(map.getTile(gridPosition(col, row))?.terrainType).toBe('sea');
       }
     }
   });
 
-  it('開き口から入り込んだ湾は外海とひと続きで、両軍の港はどちらも水に面している', () => {
-    // 湾の真ん中から外海の四隅まで、海上ユニットが 1 つながりで進める
-    const water = distancesFrom(map, gridPosition(10, 12), 'sea');
-    for (const corner of [
-      gridPosition(0, 0),
-      gridPosition(29, 0),
-      gridPosition(0, 23),
-      gridPosition(29, 23),
-    ]) {
-      expect(water.get(corner)).toBeLessThan(Infinity);
+  it('岬は西へ行くほど細くなり、先端は 1 マスで終わる(三日月の先端)', () => {
+    // 先端の 1 マスは陸で、その西どなりは水
+    for (const tip of [CAPE_TIP_ENEMY, CAPE_TIP_PLAYER]) {
+      expect(map.getMoveCost(tip, 'infantry')).not.toBeNull();
+      expect(map.getTile(gridPosition(tip.col - 1, tip.row))?.terrainType).toBe('sea');
     }
-    // 開始時の港・中立港はどれも海に隣接している(船を出せる)
+    // 西の端(col 1)に残る陸は、上の岬が row 4〜6・下の岬が row 17〜19 の 3 マスずつ
+    const landRowsAtCol1: number[] = [];
+    for (let row = 0; row < map.rows; row += 1) {
+      if (map.getMoveCost(gridPosition(1, row), 'infantry') !== null)
+        landRowsAtCol1.push(row);
+    }
+    expect(landRowsAtCol1).toEqual([4, 5, 6, 17, 18, 19]);
+    // col 0 はすべて水(湾の口)
+    for (let row = 0; row < map.rows; row += 1) {
+      expect(map.getTile(gridPosition(0, row))?.terrainType).toBe('sea');
+    }
+  });
+
+  it('島の外側には水が無く、外周をぐるりと回る海路は存在しない', () => {
+    // 海は弧の内側(col 19 以西)にしか無い。右の背の外(col 20 以東)は 1 マスも水が無い
+    map.forEachTile((tile) => {
+      if (tile.terrainType === 'sea') expect(tile.position.col).toBeLessThanOrEqual(19);
+    });
+    // 島の外側の縁(最上段・最下段)も col 4 以東はすべて陸
+    for (let col = 4; col < map.cols; col += 1) {
+      for (const row of [0, map.rows - 1]) {
+        expect(map.getMoveCost(gridPosition(col, row), 'infantry')).not.toBeNull();
+      }
+    }
+    // 水はすべて湾とその口でひと続き(孤立した水たまりを作らない)
+    const water = distancesFrom(map, gridPosition(10, 12), 'sea');
+    map.forEachTile((tile) => {
+      if (tile.terrainType === 'sea')
+        expect(water.get(tile.position)).toBeLessThan(Infinity);
+    });
+  });
+
+  it('開始時の港も中立港も、すべて湾に面している', () => {
     for (const port of [
       ...PLAYER_PORTS,
       ...ENEMY_PORTS,
-      HOME_NEUTRAL_PORT,
+      CAPE_NEUTRAL_PORT,
       CLUSTER_PORT,
     ]) {
       expect(map.getTile(port)?.terrainType).toBe('port');
@@ -212,19 +243,19 @@ describe('弧島街道マップの街道と森・山地帯', () => {
       expect(map.getTile(pos)?.terrainType).toBe('road');
     }
     // 街道は両軍の工場のとなりから始まる
-    expect(map.getTile(gridPosition(6, 5))?.terrainType).toBe('factory');
-    expect(map.getTile(gridPosition(6, 18))?.terrainType).toBe('factory');
+    expect(map.getTile(gridPosition(6, 3))?.terrainType).toBe('factory');
+    expect(map.getTile(gridPosition(6, 20))?.terrainType).toBe('factory');
     // 森・山地帯(row 10〜13)には街道が 1 マスも無い
     for (const pos of BELT) {
       expect(map.getTile(pos)?.terrainType).not.toBe('road');
     }
-    // 街道の終点までは両軍とも歩兵で 22 マスとまったく同じ
+    // 街道の終点までは両軍とも歩兵で 23 マスとまったく同じ
     expect(map.getTile(ROAD_END_PLAYER)?.terrainType).toBe('road');
     expect(map.getTile(ROAD_END_ENEMY)?.terrainType).toBe('road');
     expect(minCost(ROAD_END_PLAYER, PLAYER_BASES, 'infantry')).toBe(
       minCost(ROAD_END_ENEMY, ENEMY_BASES, 'infantry'),
     );
-    expect(minCost(ROAD_END_PLAYER, PLAYER_BASES, 'infantry')).toBe(20);
+    expect(minCost(ROAD_END_PLAYER, PLAYER_BASES, 'infantry')).toBe(23);
   });
 
   it('森・山地帯は森と山だけでできていて、拠点も 1 つも無い', () => {
@@ -248,27 +279,36 @@ describe('弧島街道マップの街道と森・山地帯', () => {
   });
 
   it('陸路は弧をぐるりと回る長旅で、装輪車両はそもそも相手の陣地へ行けない', () => {
-    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'infantry')).toBe(43);
-    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'infantry')).toBe(43);
-    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'vehicle')).toBe(52);
-    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'vehicle')).toBe(52);
-    // 弧は左で切れていて迂回路が無いため、装輪車両の陸路は両軍とも存在しない
+    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'infantry')).toBe(48);
+    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'infantry')).toBe(48);
+    expect(minCost(ENEMY_HQ, PLAYER_BASES, 'vehicle')).toBe(53);
+    expect(minCost(PLAYER_HQ, ENEMY_BASES, 'vehicle')).toBe(53);
+    // 弧は湾の口で切れていて迂回路が無いため、装輪車両の陸路は両軍とも存在しない
     expect(minCost(ENEMY_HQ, PLAYER_BASES, 'wheeled')).toBe(Infinity);
     expect(minCost(PLAYER_HQ, ENEMY_BASES, 'wheeled')).toBe(Infinity);
   });
 
   it('湾を渡る海路と空路は、陸路よりはるかに短い', () => {
-    // 湾ごしの直線距離は 13 マスしかない
+    // 湾ごしの縦の直線距離は 17 マス
+    expect(PLAYER_HQ.col).toBe(ENEMY_HQ.col);
     expect(
       Math.abs(PLAYER_HQ.col - ENEMY_HQ.col) + Math.abs(PLAYER_HQ.row - ENEMY_HQ.row),
-    ).toBe(13);
-    // 湾を突っ切る海路は港から港まで 9(輸送艦は移動力 5 なので 2 ターン)
-    const seaFromPlayerPort = distancesFrom(map, gridPosition(5, 16), 'sea');
-    expect(seaFromPlayerPort.get(gridPosition(5, 7))).toBe(9);
+    ).toBe(17);
+    // 輸送ヘリ(移動力 6)で本拠地から本拠地までちょうど 3 ターン
+    const transportHelicopter = getUnitData('transportHelicopter').movement;
+    expect(transportHelicopter).toBe(6);
+    expect(distancesFrom(map, PLAYER_HQ, 'air').get(ENEMY_HQ)).toBe(17);
+    expect(turnsFor(17, transportHelicopter)).toBe(3);
+    expect(2 * transportHelicopter).toBeLessThan(17);
+    // 湾を突っ切る海路は港から港まで 13(輸送艦は移動力 5 なので 3 ターン)
+    const seaFromPlayerPort = distancesFrom(map, gridPosition(5, 18), 'sea');
+    expect(seaFromPlayerPort.get(gridPosition(5, 5))).toBe(13);
     expect(getUnitData('transportShip').movement).toBe(5);
-    // 空路は自軍の空港から敵軍の本拠地まで 15(戦闘機は移動力 10 なので 2 ターン)
-    expect(distancesFrom(map, PLAYER_AIRPORT, 'air').get(ENEMY_HQ)).toBe(15);
+    expect(turnsFor(13, getUnitData('transportShip').movement)).toBe(3);
+    // 空路は自軍の空港から敵軍の本拠地まで 19(戦闘機は移動力 10 なので 2 ターン)
+    expect(distancesFrom(map, PLAYER_AIRPORT, 'air').get(ENEMY_HQ)).toBe(19);
     expect(getUnitData('fighter').movement).toBe(10);
+    expect(turnsFor(19, getUnitData('fighter').movement)).toBe(2);
   });
 });
 
@@ -285,7 +325,7 @@ describe('弧島街道マップの拠点', () => {
     expect(economy.getIncome('enemy', map)).toBe(7000);
   });
 
-  it('工場 3 個は本拠地に隣接し、港 2 個と空港 1 個は本拠地から 1 マス離れている', () => {
+  it('工場 3 個は本拠地に隣接し、港 2 個と空港 1 個は本拠地から 2 マス離れている', () => {
     for (const [hq, factories, ports, airport] of [
       [PLAYER_HQ, PLAYER_FACTORIES, PLAYER_PORTS, PLAYER_AIRPORT],
       [ENEMY_HQ, ENEMY_FACTORIES, ENEMY_PORTS, ENEMY_AIRPORT],
@@ -301,11 +341,23 @@ describe('弧島街道マップの拠点', () => {
     }
   });
 
-  it('中立拠点は 38 個(都市 33・研究所 2・港 2・空港 1)', () => {
+  it('両軍の拠点の並びは、盤面の上下対称になっている', () => {
+    for (const [playerPos, enemyPos] of [
+      [PLAYER_HQ, ENEMY_HQ],
+      [PLAYER_AIRPORT, ENEMY_AIRPORT],
+      ...PLAYER_FACTORIES.map((pos, i) => [pos, ENEMY_FACTORIES[i]] as const),
+      ...PLAYER_PORTS.map((pos, i) => [pos, ENEMY_PORTS[i]] as const),
+    ] as const) {
+      expect(enemyPos.col).toBe(playerPos.col);
+      expect(enemyPos.row).toBe(map.rows - 1 - playerPos.row);
+    }
+  });
+
+  it('中立拠点は 46 個(都市 41・研究所 2・港 2・空港 1)', () => {
     const neutral = basesOf('neutral');
-    expect(neutral).toHaveLength(38);
+    expect(neutral).toHaveLength(46);
     expect(countByTerrain(neutral)).toEqual({
-      city: 33,
+      city: 41,
       laboratory: 2,
       port: 2,
       airport: 1,
@@ -340,34 +392,48 @@ describe('弧島街道マップの街道の先の中立拠点', () => {
     expect(map.getTile(gridPosition(21, 17))?.terrainType).toBe('laboratory');
   });
 
+  it('固まりの中立港は湾に面した内周にあり、そこで作った船はそのまま湾へ出られる', () => {
+    expect(map.getTile(CLUSTER_PORT)?.terrainType).toBe('port');
+    // 港の西どなりが湾。湾の真ん中とひと続きの水面になっている
+    expect(
+      map.getTile(gridPosition(CLUSTER_PORT.col - 1, CLUSTER_PORT.row))?.terrainType,
+    ).toBe('sea');
+    expect(
+      distancesFrom(map, CLUSTER_PORT, 'sea').get(gridPosition(10, 12)),
+    ).toBeLessThan(Infinity);
+    expect(minCost(CLUSTER_PORT, PLAYER_BASES, 'infantry')).toBe(19);
+    expect(minCost(CLUSTER_PORT, ENEMY_BASES, 'infantry')).toBe(28);
+  });
+
   it('固まりはどれも自軍のほうが近いが、陣地からは歩兵 6 ターン以上かかる', () => {
     for (const pos of CLUSTER) {
       const byPlayer = minCost(pos, PLAYER_BASES, 'infantry');
       const byEnemy = minCost(pos, ENEMY_BASES, 'infantry');
       expect(byPlayer).toBeLessThan(byEnemy);
-      // 歩兵の移動力は 3。16 マス以上あるので、着くまでに 6 ターン以上かかる
-      expect(byPlayer).toBeGreaterThanOrEqual(16);
+      // 歩兵の移動力は 3。18 マス以上あるので、着くまでに 6 ターン以上かかる
+      expect(byPlayer).toBeGreaterThanOrEqual(18);
     }
-    expect(minCost(CLUSTER_LABORATORIES[0], PLAYER_BASES, 'infantry')).toBe(17);
-    expect(minCost(CLUSTER_LABORATORIES[1], PLAYER_BASES, 'infantry')).toBe(16);
-    expect(minCost(CLUSTER_LABORATORIES[0], ENEMY_BASES, 'infantry')).toBe(25);
-    expect(minCost(CLUSTER_LABORATORIES[1], ENEMY_BASES, 'infantry')).toBe(27);
+    expect(minCost(CLUSTER_LABORATORIES[0], PLAYER_BASES, 'infantry')).toBe(20);
+    expect(minCost(CLUSTER_LABORATORIES[1], PLAYER_BASES, 'infantry')).toBe(18);
+    expect(minCost(CLUSTER_LABORATORIES[0], ENEMY_BASES, 'infantry')).toBe(27);
+    expect(minCost(CLUSTER_LABORATORIES[1], ENEMY_BASES, 'infantry')).toBe(29);
   });
 
-  it('陣地の少し左上の湾口には中立港があり、自軍が歩兵 1 ターンで届く', () => {
-    expect(map.getTile(HOME_NEUTRAL_PORT)?.terrainType).toBe('port');
-    expect(map.getTile(HOME_NEUTRAL_PORT)?.owner).toBe('neutral');
-    // 自軍の本拠地から見て左上
-    expect(HOME_NEUTRAL_PORT.col).toBeLessThan(PLAYER_HQ.col);
-    expect(HOME_NEUTRAL_PORT.row).toBeLessThan(PLAYER_HQ.row);
-    // 自軍は移動コスト 2(歩兵 1 ターン)、敵軍は陸路 43
-    expect(minCost(HOME_NEUTRAL_PORT, PLAYER_BASES, 'infantry')).toBe(2);
-    expect(minCost(HOME_NEUTRAL_PORT, ENEMY_BASES, 'infantry')).toBe(43);
+  it('下の岬の先端には中立港があり、自軍が歩兵 2 ターンで届く', () => {
+    expect(map.getTile(CAPE_NEUTRAL_PORT)?.terrainType).toBe('port');
+    expect(map.getTile(CAPE_NEUTRAL_PORT)?.owner).toBe('neutral');
+    // 岬の先端(col 1)にあり、自軍の本拠地から見て左上
+    expect(CAPE_NEUTRAL_PORT.col).toBe(1);
+    expect(CAPE_NEUTRAL_PORT.col).toBeLessThan(PLAYER_HQ.col);
+    expect(CAPE_NEUTRAL_PORT.row).toBeLessThan(PLAYER_HQ.row);
+    // 自軍は移動コスト 4(歩兵 2 ターン)、敵軍は陸路 54
+    expect(minCost(CAPE_NEUTRAL_PORT, PLAYER_BASES, 'infantry')).toBe(4);
+    expect(minCost(CAPE_NEUTRAL_PORT, ENEMY_BASES, 'infantry')).toBe(54);
   });
 });
 
 describe('弧島街道マップの先手番ハンデ', () => {
-  it('先に届く中立拠点は自軍 17 個・敵軍 21 個で、後手のほうが 4 個多い', () => {
+  it('先に届く中立拠点は自軍 21 個・敵軍 25 個で、後手のほうが 4 個多い', () => {
     let player = 0;
     let enemy = 0;
     for (const pos of basesOf('neutral')) {
@@ -376,8 +442,8 @@ describe('弧島街道マップの先手番ハンデ', () => {
       if (byPlayer < byEnemy) player += 1;
       if (byEnemy < byPlayer) enemy += 1;
     }
-    expect(player).toBe(17);
-    expect(enemy).toBe(21);
+    expect(player).toBe(21);
+    expect(enemy).toBe(25);
   });
 
   it('研究所 2 個はどちらも自軍が先に届く(先手は新型戦車 2 両ぶんを受け取る)', () => {
