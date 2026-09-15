@@ -113,6 +113,9 @@ const RIVER_WEST_END = gridPosition(33, 22);
 const PLAYER_ARM_EAST_TOP = gridPosition(30, 1);
 const EAST_ISLET_WEST = gridPosition(34, 2);
 
+/** 自軍の島(「 の縦棒)の左下にある中立の研究所 */
+const PLAYER_LABORATORY = gridPosition(4, 12);
+
 /** 各島の代表マス */
 const MID_ISLAND = gridPosition(20, 10);
 const SOUTHWEST_ISLAND = gridPosition(3, 21);
@@ -410,19 +413,44 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     }
   });
 
-  it('占領できる拠点は 78 個で、敵の島へ渡らずに取り切れるだけでも収入で上回れる', () => {
+  it('占領できる拠点は 79 個で、敵の島へ渡らずに取り切れるだけでも収入で上回れる', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     const capturable = collect(
       map,
       (tile) => getTerrainData(tile.terrainType).canCapture,
     );
-    expect(capturable).toHaveLength(78);
+    expect(capturable).toHaveLength(79);
     const neutral = capturable.filter((pos) => map.getTile(pos)?.owner === 'neutral');
-    expect(neutral).toHaveLength(45);
-    // 敵の島の外にある中立拠点は 29 個。自軍の 9 拠点と合わせて 38 拠点で、敵軍の 24 を超える
+    expect(neutral).toHaveLength(46);
+    // 敵の島の外にある中立拠点は 30 個。自軍の 9 拠点と合わせて 39 拠点で、敵軍の 24 を超える
     const outsideEnemyIsland = neutral.filter((pos) => !(pos.row >= 14 && pos.col >= 9));
-    expect(outsideEnemyIsland).toHaveLength(29);
+    expect(outsideEnemyIsland).toHaveLength(30);
     expect(9 + outsideEnemyIsland.length).toBeGreaterThan(24);
+  });
+
+  it('自軍の島の縦棒の左下に、敵の島へ渡らずに取れるただ 1 つの中立研究所がある', () => {
+    const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
+    expect(map.getTile(PLAYER_LABORATORY)?.terrainType).toBe('laboratory');
+    expect(map.getTile(PLAYER_LABORATORY)?.owner).toBe('neutral');
+    // 自軍が歩いて行ける範囲(「 の島 + 真ん中の島)にある研究所はこの 1 個だけ
+    const reachable = floodFill(map, PLAYER_HQ, passable(map, 'infantry'));
+    const laboratories = collect(map, (tile) => tile.terrainType === 'laboratory');
+    expect(laboratories).toHaveLength(3);
+    expect(laboratories.filter((pos) => reachable.has(key(pos)))).toEqual([
+      PLAYER_LABORATORY,
+    ]);
+    // 縦棒(cols 3〜7)のいちばん下の行にあり、街道・中立港・中立都市がとなり合う
+    expect(PLAYER_LABORATORY.row).toBe(12);
+    expect(
+      neighbors(PLAYER_LABORATORY).some(
+        (pos) => map.getTile(pos)?.terrainType === 'road',
+      ),
+    ).toBe(true);
+    expect(map.getTile(gridPosition(3, 11))?.terrainType).toBe('port');
+    expect(map.getTile(gridPosition(6, 12))?.terrainType).toBe('city');
+    // 本拠地からは縦棒の街道づたいに歩兵の移動コスト 23(真ん中の島の駅 8 の 3 倍近い遠征)
+    const distances = distancesFrom(map, PLAYER_HQ, 'infantry');
+    expect(distances.get(PLAYER_LABORATORY)).toBe(23);
   });
 
   it('敵軍だけが初期部隊を持ち、輸送艦は中戦車と対空戦車を積んだまま始まる', () => {
