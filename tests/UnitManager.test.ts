@@ -15,6 +15,64 @@ describe('UnitManager', () => {
     expect(manager.getAllUnits()).toHaveLength(2);
   });
 
+  it('初期配置の cargo は、輸送ユニットに搭乗済みの状態で生成される', () => {
+    const manager = UnitManager.fromPlacements([
+      {
+        col: 1,
+        row: 1,
+        unitType: 'transportShip',
+        army: 'enemy',
+        cargo: ['mediumTank', 'antiAirTank'],
+      },
+    ]);
+    // 盤面に出ているのは輸送艦だけで、積荷は輸送艦の中にいる
+    expect(manager.getAllUnits()).toHaveLength(1);
+    const transport = manager.getUnitAt(gridPosition(1, 1));
+    expect(transport?.unitType).toBe('transportShip');
+    expect(transport?.carried.map((unit) => unit.unitType)).toEqual([
+      'mediumTank',
+      'antiAirTank',
+    ]);
+    expect(transport?.freeCapacity).toBe(0);
+    for (const passenger of transport?.carried ?? []) {
+      expect(passenger.armyType).toBe('enemy');
+      expect(manager.getUnitById(passenger.id)).toBeUndefined();
+    }
+  });
+
+  it('積めない種別・定員超過の cargo はデータ不整合として例外を投げる', () => {
+    // 輸送ヘリが運べるのは歩兵だけ
+    expect(() =>
+      UnitManager.fromPlacements([
+        {
+          col: 1,
+          row: 1,
+          unitType: 'transportHelicopter',
+          army: 'player',
+          cargo: ['mediumTank'],
+        },
+      ]),
+    ).toThrow();
+    // 輸送ヘリの定員は 1 体
+    expect(() =>
+      UnitManager.fromPlacements([
+        {
+          col: 1,
+          row: 1,
+          unitType: 'transportHelicopter',
+          army: 'player',
+          cargo: ['infantry', 'infantry'],
+        },
+      ]),
+    ).toThrow();
+    // 輸送能力を持たないユニットには積めない
+    expect(() =>
+      UnitManager.fromPlacements([
+        { col: 1, row: 1, unitType: 'mediumTank', army: 'player', cargo: ['infantry'] },
+      ]),
+    ).toThrow();
+  });
+
   it('座標からユニットを取得できる', () => {
     const manager = UnitManager.fromPlacements(PLACEMENTS);
     const unit = manager.getUnitAt(gridPosition(1, 1));

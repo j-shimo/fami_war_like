@@ -15,7 +15,7 @@ import {
   visibleMaps,
   type UnlockableMap,
 } from '@/core/progress/MapUnlock';
-import { MAP_LIST, STANDARD_MAP_LIST } from '@/data/maps';
+import { MAP_LIST, mapsInGroup, STANDARD_MAP_LIST } from '@/data/maps';
 
 /**
  * テスト用のマップ一覧(通常 2 枚・テスト 1 枚・激ムズ 2 枚)。
@@ -167,6 +167,59 @@ describe('MapUnlock(激ムズマップの解放判定)', () => {
         clearedProgress('2p', ...required.map((entry) => entry.id)),
         '2p',
       ).some((entry) => entry.id === 'twinContinents'),
+    ).toBe(false);
+  });
+});
+
+describe('MapUnlock(マップ区分ごとの激ムズマップ解放)', () => {
+  it('実際のマップ一覧では、新マップの激ムズマップは新マップの全クリアで解放される', () => {
+    const newGroup = mapsInGroup(MAP_LIST, 'new');
+    // 新マップの区分にも 1P側の激ムズマップ(鉄河列島マップ)が登録されている
+    expect(extraMapsForSide(newGroup, '1p').map((entry) => entry.id)).toEqual([
+      'ironRiverIslands',
+    ]);
+
+    const required = unlockRequiredMaps(newGroup, '1p');
+    expect(required.length).toBeGreaterThan(0);
+    // 通常マップを全クリアしても、新マップの激ムズマップは解放されない
+    const standardCleared = clearedProgress(
+      '1p',
+      ...unlockRequiredMaps(STANDARD_MAP_LIST, '1p').map((entry) => entry.id),
+    );
+    expect(isExtraUnlocked(newGroup, standardCleared, '1p')).toBe(false);
+
+    // 新マップを全クリアすると解放され、一覧に並ぶ
+    const progress = clearedProgress('1p', ...required.map((entry) => entry.id));
+    expect(isExtraUnlocked(newGroup, progress, '1p')).toBe(true);
+    expect(
+      visibleMaps(newGroup, progress, '1p').some(
+        (entry) => entry.id === 'ironRiverIslands',
+      ),
+    ).toBe(true);
+    // 2P側にはこのマップを出さない(2P側向けの激ムズマップは未登録)
+    const progress2p = clearedProgress('2p', ...required.map((entry) => entry.id));
+    expect(
+      visibleMaps(newGroup, progress2p, '2p').some(
+        (entry) => entry.id === 'ironRiverIslands',
+      ),
+    ).toBe(false);
+  });
+
+  it('通常マップの激ムズマップは、新マップのクリア状況に左右されない', () => {
+    const standard = STANDARD_MAP_LIST;
+    const required = unlockRequiredMaps(standard, '1p');
+    const progress = clearedProgress('1p', ...required.map((entry) => entry.id));
+    expect(isExtraUnlocked(standard, progress, '1p')).toBe(true);
+    expect(
+      visibleMaps(standard, progress, '1p').some(
+        (entry) => entry.id === 'twinContinents',
+      ),
+    ).toBe(true);
+    // 新マップの激ムズマップは通常マップの一覧には出さない
+    expect(
+      visibleMaps(standard, progress, '1p').some(
+        (entry) => entry.id === 'ironRiverIslands',
+      ),
     ).toBe(false);
   });
 });

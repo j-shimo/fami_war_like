@@ -8,6 +8,7 @@ import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
 import { FOUR_ISLANDS_MAP } from '@/data/maps/fourIslandsMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
+import { IRON_RIVER_ISLANDS_MAP } from '@/data/maps/ironRiverIslandsMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import { LAKE_RING_ROAD_MAP } from '@/data/maps/lakeRingRoadMap';
 import { LAKESIDE_GORGE_MAP } from '@/data/maps/lakesideGorgeMap';
@@ -67,10 +68,12 @@ export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
 
 /**
  * 選択可能なマップの一覧(表示順)。
- * 激ムズマップ(category: 'extra')はここへ登録しても、通常マップをすべてクリアするまで
- * 選択画面には並ばない(判定は src/core/progress/MapUnlock.ts)。
+ * 激ムズマップ(category: 'extra')はここへ登録しても、同じマップ区分(group)の通常マップを
+ * すべてクリアするまで選択画面には並ばない(判定は src/core/progress/MapUnlock.ts)。
+ * 解放の判定はマップ区分ごとに独立しており、通常マップ(standard)の激ムズマップは
+ * 通常マップを、新マップ(new)の激ムズマップは新マップをすべてクリアすると現れる。
  * 激ムズマップは担当サイドごとに別のマップを用意するため、side でどちらのサイドに出すかを指定する
- * (1P側は双大陸マップ・2P側は対角海マップ)。
+ * (通常マップは 1P側が双大陸マップ・2P側が対角海マップ、新マップは 1P側が鉄河列島マップ)。
  */
 export const MAP_LIST: readonly ResolvedMapEntry[] = (
   [
@@ -183,6 +186,17 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
         '左向きの三日月の形をした島を街道が弧なりに走る 30x24 のマップ。下の岬が先手の自軍・上の岬が後手の敵軍で、両軍とも本拠地 1 + 隣接する工場 3 + 湾に面した港 2 + 2 マス離れた空港 1(収入 7000)・初期資金 0 の対等な立ち上がり。島の外側は盤面の外まで陸が続いており、盤面に写る水面は弧が抱え込んだ湾とその口だけ。島の裏へ回り込む外周の海路は無く、海のぶつかり合いはすべて湾の中で起きる。湾ごしの縦の直線は 17 マスで、輸送ヘリなら本拠地から本拠地まで 3 ターン・戦闘機なら 2 ターン・輸送艦は港から港まで 13 マスで 3 ターン。いっぽう陸路は弧をぐるりと回って歩兵 48・装軌車両 53 マスかかる。街道は弧に沿って両陣地から伸びるが、島の右側の真ん中だけは 4 列の森・山地帯で途切れる。ここを越えられるのは歩兵と装軌車両だけで、森にも山にも入れない装輪車両は輸送艦に乗るしか相手側へ回る道が無い。自軍の街道の先、森・山地帯へ入る直前には中立の研究所 2 個・都市 3 個・空港 1 個・湾に面した港 1 個が固まっており、研究所はどちらも自軍のほうが近い。下の岬の先端にも中立港が 1 個ある。中立拠点は 46 個(都市 41・研究所 2・港 2・空港 1)で、先に届くのは自軍 21 個・敵軍 25 個。',
       // 研究所と、弧に断ち切られた陸路・湾を渡る海路と空路を主題にした新マップ
       group: 'new',
+    },
+    {
+      id: 'ironRiverIslands',
+      definition: IRON_RIVER_ISLANDS_MAP,
+      description:
+        '上の「 の形をした小島と下の大きな島が向かい合う 40x26 の激ムズマップ。自軍は「 の真ん中の陣地 9 拠点・収入 9000 の裸一貫、敵軍は下の島の 6 割(24 拠点)を占領済みの収入 24000 で、戦闘機・爆撃機・戦艦・護衛艦・輸送艦(中戦車と対空戦車を搭載済み)を配置して待ち構える。初期資金は両軍 30000 — 列車砲 1 門ちょうどの額。自軍の駅から真下へ伸びる線路は幅 1 マスの鉄橋になり、中立の駅・都市 5・空港・港を持つ真ん中の島へ陸で渡れるのは自軍だけ。敵軍の陣地へは島の上と左から川が 1 本ずつ流れ込んでおり、川をさかのぼった戦艦は本拠地を射程に収める。敵軍の駅から左へ伸びた線路の終点と、自軍の線路の南端はちょうど 6 マス — 列車砲どうしが撃ち合える距離になっている。',
+      category: 'extra',
+      // 新マップ(区分 new)の激ムズマップ。新マップをすべてクリアすると現れる
+      group: 'new',
+      // 1P側の激ムズマップ(2P側には別のマップを用意する)
+      side: '1p',
     },
     {
       id: 'twinContinents',
