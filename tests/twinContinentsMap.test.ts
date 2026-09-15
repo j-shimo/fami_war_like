@@ -124,17 +124,21 @@ const isEast = (pos: GridPosition): boolean => pos.col >= 24;
 const isStrait = (pos: GridPosition): boolean => pos.col >= 18 && pos.col <= 23;
 
 describe('TWIN_CONTINENTS_MAP(双大陸マップ)', () => {
-  it('縦26・横42 の既存マップで最大の盤面で生成できる', () => {
+  it('縦26・横42 の、横幅が既存マップで最大の盤面で生成できる', () => {
     const map = MapManager.fromDefinition(TWIN_CONTINENTS_MAP);
     expect(map.cols).toBe(42);
     expect(map.rows).toBe(26);
-    // 横幅も総マス数も、ほかのどのマップより広いこと
-    // (縦だけは、上下に島を並べる二島鉄路マップ(30x32)のほうが長い)
+    // 横幅はほかのどのマップより広いこと
+    // (縦と総マス数だけは、縦に長い鉄河列島マップ(40x34)のほうが大きい)
     for (const entry of MAP_LIST) {
       if (entry.id === 'twinContinents') continue;
       const other = MapManager.fromDefinition(entry.definition);
       expect(map.cols).toBeGreaterThan(other.cols);
-      expect(map.cols * map.rows).toBeGreaterThan(other.cols * other.rows);
+      if (entry.id === 'ironRiverIslands') {
+        expect(map.cols * map.rows).toBeLessThan(other.cols * other.rows);
+      } else {
+        expect(map.cols * map.rows).toBeGreaterThan(other.cols * other.rows);
+      }
     }
   });
 
