@@ -16,6 +16,13 @@ export interface UnitPlacement {
   readonly unitType: UnitType;
   /** 所属軍。初期配置では自軍・敵軍のみを指定する */
   readonly army: 'player' | 'enemy';
+  /**
+   * 開始時から搭乗させておく積荷の種別(輸送ユニットだけで指定できる)。
+   * 「中戦車と対空戦車を積んだ輸送艦が浮かんでいる」といった初期配置を
+   * マップデータだけで表すために使う。定員・積める種別は搭乗と同じ規則で検証する
+   * (輸送ヘリ 1 体・輸送艦と列車砲 2 体まで)。
+   */
+  readonly cargo?: readonly UnitType[];
 }
 
 /** 生産で新規ユニットを生成するためのパラメータ */
@@ -38,6 +45,8 @@ export class UnitManager {
    * 初期配置定義から UnitManager を生成する。
    * 同一マスへの重複配置はデータ不整合として例外を投げる。
    * map を渡すとマップ範囲外・進入不可地形への配置も検証する。
+   * cargo を指定した配置は、その積荷を搭乗済みの状態にして開始する
+   * (積めない種別・定員超過はデータ不整合として例外を投げる)。
    */
   static fromPlacements(
     placements: readonly UnitPlacement[],
@@ -71,14 +80,29 @@ export class UnitManager {
       }
       occupied.add(key);
 
-      manager.units.push(
-        new Unit({
-          id: `${placement.army}-${placement.unitType}-${index}`,
-          unitType: placement.unitType,
+      const unit = new Unit({
+        id: `${placement.army}-${placement.unitType}-${index}`,
+        unitType: placement.unitType,
+        armyType: placement.army,
+        position: pos,
+      });
+      manager.units.push(unit);
+
+      // 積荷は盤面には置かず、輸送ユニットの carried に直接積む(搭乗済みの状態で開始する)
+      placement.cargo?.forEach((cargoType, cargoIndex) => {
+        const passenger = new Unit({
+          id: `${placement.army}-${placement.unitType}-${index}-cargo-${cargoIndex}`,
+          unitType: cargoType,
           armyType: placement.army,
           position: pos,
-        }),
-      );
+        });
+        if (!canCarry(unit, passenger)) {
+          throw new Error(
+            `初期配置の積荷を搭乗させられません(col ${placement.col}, row ${placement.row})`,
+          );
+        }
+        unit.carried.push(passenger);
+      });
     });
 
     return manager;

@@ -67,7 +67,13 @@ import {
   type VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
 import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
-import { DEFAULT_MAP_ENTRY, MAP_LIST, STANDARD_MAP_LIST } from '@/data/maps';
+import {
+  DEFAULT_MAP_ENTRY,
+  MAP_LIST,
+  mapsInGroup,
+  STANDARD_MAP_LIST,
+  type ResolvedMapEntry,
+} from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { swapMapSides } from '@/data/maps/sideSwap';
 import { getTerrainData } from '@/data/terrainData';
@@ -2933,6 +2939,9 @@ export class MainScene extends Phaser.Scene {
    * 勝利したマップのクリアを、担当していたサイドの記録として残す。
    * 今回のクリアで、そのサイドの激ムズマップが解放された場合は true を返す
    * (結果画面でその旨を知らせるために使う)。
+   * 激ムズマップの解放はマップ区分ごとに独立しているため、判定は
+   * 遊んでいたマップと同じ区分の一覧だけで行う
+   * (通常マップをクリアしたら通常マップの、新マップをクリアしたら新マップの解放を見る)。
    */
   private recordClear(): boolean {
     const before = readClearProgress();
@@ -2941,7 +2950,13 @@ export class MainScene extends Phaser.Scene {
       side: this.playerSide,
       nightBattle: this.nightBattle,
     });
-    return becameUnlocked(STANDARD_MAP_LIST, before, after, this.playerSide);
+    return becameUnlocked(this.sameGroupMaps(), before, after, this.playerSide);
+  }
+
+  /** 遊んでいたマップと同じマップ区分(通常マップ / 新マップ / 4Pマップ)の一覧 */
+  private sameGroupMaps(): readonly ResolvedMapEntry[] {
+    const entry = MAP_LIST.find((item) => item.id === this.mapId);
+    return entry ? mapsInGroup(MAP_LIST, entry.group) : STANDARD_MAP_LIST;
   }
 
   /**
