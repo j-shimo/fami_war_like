@@ -122,7 +122,7 @@ const PLAYER_LABORATORY = gridPosition(4, 12);
 
 /** 各島の代表マス */
 const MID_ISLAND = gridPosition(20, 10);
-const SOUTHWEST_ISLAND = gridPosition(3, 21);
+const SOUTHWEST_ISLAND = gridPosition(3, 26);
 
 /** 自軍の島の海岸線。凸凹させた入り江・湾・岬の代表マス */
 const PLAYER_COAST_INLETS: readonly GridPosition[] = [
@@ -474,9 +474,12 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     }
   });
 
-  it('左下の島は中立の空港 1・都市 4 を持つ', () => {
+  it('左下の島は 35 マスの小島で、中立の空港 1・都市 4 を持つ', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     const island = floodFill(map, SOUTHWEST_ISLAND, passable(map, 'infantry'));
+    // 敵軍の島(458 マス)の南西の沖に浮かぶ、ずっと小さな島
+    expect(island.size).toBe(35);
+    expect(map.getTile(SOUTHWEST_ISLAND)?.terrainType).toBe('airport');
     const bases = [...island]
       .map((k) => {
         const [col, row] = k.split(',').map(Number);
