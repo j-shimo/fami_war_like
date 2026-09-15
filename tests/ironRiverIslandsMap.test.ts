@@ -67,7 +67,7 @@ function manhattan(a: GridPosition, b: GridPosition): number {
   return Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
 }
 
-/** 自軍の陣地(「 の横棒の真ん中)。本拠地 1・駅 1・工場 3・空港 2・港 2 */
+/** 自軍の陣地(島の横長の部分の真ん中)。本拠地 1・駅 1・工場 3・空港 2・港 2 */
 const PLAYER_HQ = gridPosition(17, 2);
 const PLAYER_STATION = gridPosition(18, 2);
 const PLAYER_PORTS: readonly GridPosition[] = [gridPosition(17, 4), gridPosition(19, 4)];
@@ -82,9 +82,9 @@ const PLAYER_BASES: readonly GridPosition[] = [
   ...PLAYER_PORTS,
 ];
 
-/** 敵軍の陣地(大きい島の右下)。自軍とまったく同じ 9 拠点の構成 */
-const ENEMY_HQ = gridPosition(35, 21);
-const ENEMY_STATION = gridPosition(35, 20);
+/** 敵軍の陣地(大きい島の南東の隅)。自軍とまったく同じ 9 拠点の構成 */
+const ENEMY_HQ = gridPosition(35, 28);
+const ENEMY_STATION = gridPosition(35, 27);
 
 /** 真ん中の島の中立拠点(駅・空港・港) */
 const MID_STATION = gridPosition(18, 9);
@@ -106,25 +106,45 @@ const RAIL_BRIDGE: readonly GridPosition[] = [
 ];
 
 /** 敵軍の陣地へ通じる 2 本の川の末端 */
-const RIVER_NORTH_END = gridPosition(34, 19);
-const RIVER_WEST_END = gridPosition(33, 22);
+const RIVER_NORTH_END = gridPosition(34, 26);
+const RIVER_WEST_END = gridPosition(33, 29);
 
-/** 「 の右上(横棒の東の端)と、右端の小島の西の端 */
+/** 北の川の入り口(島の北岸)と、西の川の入り口(島の西岸) */
+const RIVER_NORTH_MOUTH = gridPosition(29, 14);
+const RIVER_WEST_MOUTH = gridPosition(9, 29);
+
+/** 自軍の島の右上(横長の部分の東の端)と、右端の小島の西の端 */
 const PLAYER_ARM_EAST_TOP = gridPosition(30, 1);
 const EAST_ISLET_WEST = gridPosition(34, 2);
 
-/** 自軍の島(「 の縦棒)の左下にある中立の研究所 */
+/** 自軍の島(細長く下がる部分)の左下にある中立の研究所 */
 const PLAYER_LABORATORY = gridPosition(4, 12);
 
 /** 各島の代表マス */
 const MID_ISLAND = gridPosition(20, 10);
 const SOUTHWEST_ISLAND = gridPosition(3, 21);
 
+/** 自軍の島の海岸線。凸凹させた入り江・湾・岬の代表マス */
+const PLAYER_COAST_INLETS: readonly GridPosition[] = [
+  gridPosition(8, 1),
+  gridPosition(9, 1),
+  gridPosition(27, 1),
+  gridPosition(10, 4),
+  gridPosition(11, 4),
+  gridPosition(23, 4),
+];
+const PLAYER_COAST_CAPES: readonly GridPosition[] = [
+  gridPosition(12, 5),
+  gridPosition(13, 5),
+  gridPosition(25, 5),
+  gridPosition(26, 5),
+];
+
 describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
-  it('縦26・横40 の盤面で生成でき、盤面の外周はすべて海', () => {
+  it('縦34・横40 の盤面で生成でき、盤面の外周はすべて海', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     expect(map.cols).toBe(40);
-    expect(map.rows).toBe(26);
+    expect(map.rows).toBe(34);
     map.forEachTile((tile) => {
       const { col, row } = tile.position;
       const onEdge =
@@ -158,7 +178,7 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     const inBase = (pos: GridPosition): boolean =>
       (pos.row <= 4 && pos.col >= 15 && pos.col <= 20) ||
-      (pos.row >= 20 && pos.col >= 33);
+      (pos.row >= 27 && pos.col >= 33);
     const owned = {
       player: { headquarters: 0, station: 0, factory: 0, airport: 0, port: 0 },
       enemy: { headquarters: 0, station: 0, factory: 0, airport: 0, port: 0 },
@@ -312,6 +332,21 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     }
   });
 
+  it('敵軍の上の線路は駅から駅まで col 35 を一直線に貫く', () => {
+    const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
+    // 陣地の駅 (35,27) から北岸の駅 (35,15) まで、曲がらずに同じ列を northward に上がる
+    expect(ENEMY_NORTH_STATION.col).toBe(ENEMY_STATION.col);
+    for (let row = ENEMY_NORTH_STATION.row; row <= ENEMY_STATION.row; row += 1) {
+      const terrain = map.getTile(gridPosition(ENEMY_STATION.col, row))?.terrainType;
+      expect(terrain === 'railway' || terrain === 'station').toBe(true);
+    }
+    // 駅から駅まで 12 マス。島を縦に貫く長さがあり、列車砲は島の北端まで出られる
+    const between = ENEMY_STATION.row - ENEMY_NORTH_STATION.row;
+    expect(between).toBe(12);
+    const railDistances = distancesFrom(map, ENEMY_STATION, 'rail');
+    expect(railDistances.get(ENEMY_NORTH_STATION)).toBe(between);
+  });
+
   it('両軍の線路の端どうしは 6 マスで、列車砲(射程 2〜6)が撃ち合える', () => {
     const railgun = getUnitData('railgun');
     expect(railgun.minAttackRange).toBe(2);
@@ -350,12 +385,70 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     expect(
       collect(map, (tile) => tile.terrainType === 'river' && tile.position.row === 14),
     ).toHaveLength(1);
-    expect(map.getTile(gridPosition(9, 22))?.terrainType).toBe('river');
+    expect(map.getTile(RIVER_WEST_MOUTH)?.terrainType).toBe('river');
     // 装輪車両は川を渡れない
     expect(map.getMoveCost(RIVER_WEST_END, 'wheeled')).toBeNull();
   });
 
-  it('「 の右上から右端の小島までは輸送ヘリで 1 ターン', () => {
+  it('北の川は上の線路と並んで col 29 をまっすぐ南下し、陣地の手前で東へ折れる', () => {
+    const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
+    // 北岸の入り口 (29,14) から曲がり角 (29,26) まで、同じ列を 13 マス下る
+    expect(RIVER_NORTH_MOUTH.col).toBe(29);
+    for (let row = RIVER_NORTH_MOUTH.row; row <= RIVER_NORTH_END.row; row += 1) {
+      expect(map.getTile(gridPosition(RIVER_NORTH_MOUTH.col, row))?.terrainType).toBe(
+        'river',
+      );
+    }
+    // 曲がり角から末端 (34,26) までは同じ行をまっすぐ東へ
+    for (let col = RIVER_NORTH_MOUTH.col; col <= RIVER_NORTH_END.col; col += 1) {
+      expect(map.getTile(gridPosition(col, RIVER_NORTH_END.row))?.terrainType).toBe(
+        'river',
+      );
+    }
+    // 外洋から末端まで、海上ユニットは川づたいに遡上できる
+    const seaDistances = distancesFrom(map, gridPosition(29, 13), 'sea');
+    expect(seaDistances.get(RIVER_NORTH_END)).toBeDefined();
+  });
+
+  it('自軍の島の海岸線は入り江・湾・岬で凸凹している', () => {
+    const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
+    // 北岸・南岸に海が食い込む入り江と湾がある
+    for (const pos of PLAYER_COAST_INLETS) {
+      expect(map.getTile(pos)?.terrainType).toBe('sea');
+    }
+    // 南岸からは陸が海へ突き出す岬がある
+    const land = passable(map, 'infantry');
+    for (const pos of PLAYER_COAST_CAPES) {
+      expect(land(pos)).toBe(true);
+    }
+    // 岬も入り江も島の一部で、本拠地から歩いて行ける(切り離された小島ではない)
+    const reachable = floodFill(map, PLAYER_HQ, land);
+    for (const pos of PLAYER_COAST_CAPES) {
+      expect(reachable.has(key(pos))).toBe(true);
+    }
+    // 島の東の先端は row ごとに違う列で終わり、階段状に細くなる
+    const eastEdge = (row: number): number =>
+      Math.max(
+        ...[...reachable]
+          .map((k) => k.split(',').map(Number))
+          .filter(([, r]) => r === row)
+          .map(([col]) => col),
+      );
+    expect(eastEdge(1)).toBeGreaterThan(eastEdge(3));
+    expect(eastEdge(3)).toBeGreaterThan(eastEdge(4));
+    // 島を囲む行のうち、陸の列がそろっている行は 1 つも無い(まっすぐな海岸線が無い)
+    const spans = [1, 2, 3, 4].map((row) =>
+      [...reachable]
+        .map((k) => k.split(',').map(Number))
+        .filter(([, r]) => r === row)
+        .map(([col]) => col)
+        .sort((a, b) => a - b)
+        .join(','),
+    );
+    expect(new Set(spans).size).toBe(spans.length);
+  });
+
+  it('自軍の島の右上から右端の小島までは輸送ヘリで 1 ターン', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     const helicopter = getUnitData('transportHelicopter');
     const distances = distancesFrom(map, PLAYER_ARM_EAST_TOP, 'air');
@@ -432,7 +525,7 @@ describe('IRON_RIVER_ISLANDS_MAP(鉄河列島マップ)', () => {
     const map = MapManager.fromDefinition(IRON_RIVER_ISLANDS_MAP);
     expect(map.getTile(PLAYER_LABORATORY)?.terrainType).toBe('laboratory');
     expect(map.getTile(PLAYER_LABORATORY)?.owner).toBe('neutral');
-    // 自軍が歩いて行ける範囲(「 の島 + 真ん中の島)にある研究所はこの 1 個だけ
+    // 自軍が歩いて行ける範囲(自軍の島 + 真ん中の島)にある研究所はこの 1 個だけ
     const reachable = floodFill(map, PLAYER_HQ, passable(map, 'infantry'));
     const laboratories = collect(map, (tile) => tile.terrainType === 'laboratory');
     expect(laboratories).toHaveLength(3);
