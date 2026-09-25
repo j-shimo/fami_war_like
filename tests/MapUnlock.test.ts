@@ -196,13 +196,38 @@ describe('MapUnlock(マップ区分ごとの激ムズマップ解放)', () => {
         (entry) => entry.id === 'ironRiverIslands',
       ),
     ).toBe(true);
-    // 2P側にはこのマップを出さない(2P側向けの激ムズマップは未登録)
+    // 2P側にはこのマップを出さない(2P側には蛇河大島マップを出す)
     const progress2p = clearedProgress('2p', ...required.map((entry) => entry.id));
     expect(
       visibleMaps(newGroup, progress2p, '2p').some(
         (entry) => entry.id === 'ironRiverIslands',
       ),
     ).toBe(false);
+  });
+
+  it('新マップの 2P側の激ムズマップ(蛇河大島マップ)は、2P側で新マップを全クリアすると解放される', () => {
+    const newGroup = mapsInGroup(MAP_LIST, 'new');
+    expect(extraMapsForSide(newGroup, '2p').map((entry) => entry.id)).toEqual([
+      'serpentRiverIsland',
+    ]);
+    const required = unlockRequiredMaps(newGroup, '2p');
+    expect(required.length).toBeGreaterThan(0);
+
+    // 1P側で新マップを全クリアしても、2P側の激ムズマップは解放されない
+    const progress1p = clearedProgress('1p', ...required.map((entry) => entry.id));
+    expect(isExtraUnlocked(newGroup, progress1p, '2p')).toBe(false);
+    expect(
+      visibleMaps(newGroup, progress1p, '1p').some(
+        (entry) => entry.id === 'serpentRiverIsland',
+      ),
+    ).toBe(false);
+
+    // 2P側で新マップを全クリアすると解放され、2P側の一覧にだけ並ぶ
+    const progress2p = clearedProgress('2p', ...required.map((entry) => entry.id));
+    expect(isExtraUnlocked(newGroup, progress2p, '2p')).toBe(true);
+    const visible = visibleMaps(newGroup, progress2p, '2p').map((entry) => entry.id);
+    expect(visible).toContain('serpentRiverIsland');
+    expect(visible).not.toContain('ironRiverIslands');
   });
 
   it('通常マップの激ムズマップは、新マップのクリア状況に左右されない', () => {

@@ -19,6 +19,7 @@ import { RAIL_BRIDGE_MAP } from '@/data/maps/railBridgeMap';
 import { RIDGE_MAP } from '@/data/maps/ridgeMap';
 import { RING_LABORATORY_MAP } from '@/data/maps/ringLaboratoryMap';
 import { SEA_MAP } from '@/data/maps/seaMap';
+import { SERPENT_RIVER_ISLAND_MAP } from '@/data/maps/serpentRiverIslandMap';
 import { STRAIT_MAP } from '@/data/maps/straitMap';
 import { TEST_MAP } from '@/data/maps/testMap';
 import { TWIN_CONTINENTS_MAP } from '@/data/maps/twinContinentsMap';
@@ -73,7 +74,7 @@ export function resolveMapEntry(entry: MapEntry): ResolvedMapEntry {
  * 解放の判定はマップ区分ごとに独立しており、通常マップ(standard)の激ムズマップは
  * 通常マップを、新マップ(new)の激ムズマップは新マップをすべてクリアすると現れる。
  * 激ムズマップは担当サイドごとに別のマップを用意するため、side でどちらのサイドに出すかを指定する
- * (通常マップは 1P側が双大陸マップ・2P側が対角海マップ、新マップは 1P側が鉄河列島マップ)。
+ * (通常マップは 1P側が双大陸マップ・2P側が対角海マップ、新マップは 1P側が鉄河列島マップ・2P側が蛇河大島マップ)。
  */
 export const MAP_LIST: readonly ResolvedMapEntry[] = (
   [
@@ -195,8 +196,19 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       category: 'extra',
       // 新マップ(区分 new)の激ムズマップ。新マップをすべてクリアすると現れる
       group: 'new',
-      // 1P側の激ムズマップ(2P側には別のマップを用意する)
+      // 1P側の激ムズマップ(2P側には蛇河大島マップを用意している)
       side: '1p',
+    },
+    {
+      id: 'serpentRiverIsland',
+      definition: SERPENT_RIVER_ISLAND_MAP,
+      description:
+        '港の無い 1 つの大きな島を、北から東へ回り込んで南へ抜ける川が東西に分ける 38x28 の激ムズマップ。自軍は左下の陣地 7 拠点(本拠地・工場 4・空港 2)・収入 7000・初期資金 0 の裸一貫で、しかも後手。敵軍は右上の本拠地・工場 3・駅・空港 2・都市 4 の 11 拠点(収入 11000)に、戦闘機・爆撃機 2・中戦車・ロケット砲・対空戦車を配置して待ち構える。盤面で唯一の駅を持つ敵軍だけが列車砲を作れ、線路の南端は中央の橋を射程に収める。自軍の本拠地からは、島の北を回る北ルートと、中央の T 字路の先で中央ルート・下ルートに分かれる道がくねりながら東へ伸び、装輪車両が川を越えられるのは 3 本の街道の橋だけ。中立都市は 45 個で、先に届くのは自軍 23 個・敵軍 22 個。',
+      category: 'extra',
+      // 新マップ(区分 new)の激ムズマップ。新マップをすべてクリアすると現れる
+      group: 'new',
+      // 2P側の激ムズマップ(1P側には鉄河列島マップを用意している)
+      side: '2p',
     },
     {
       id: 'twinContinents',
