@@ -74,6 +74,10 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
     const ironRiver = MAP_LIST.find((entry) => entry.id === 'ironRiverIslands');
     expect(ironRiver?.side).toBe('1p');
     expect(ironRiver?.group).toBe('new');
+    // 蛇河大島マップは新マップの区分の、2P側の激ムズマップ
+    const serpentRiver = MAP_LIST.find((entry) => entry.id === 'serpentRiverIsland');
+    expect(serpentRiver?.side).toBe('2p');
+    expect(serpentRiver?.group).toBe('new');
     // 解放判定はマップ区分ごとに独立しているので、同じ区分に同じサイドの激ムズマップが
     // 2 枚並ばないこと(1 区分・1 サイドにつき多くても 1 枚)
     for (const group of ['standard', 'new', 'four'] as const) {
@@ -83,11 +87,13 @@ describe('MAP_LIST(マップ選択の一覧)', () => {
         ).toBeLessThanOrEqual(1);
       }
     }
-    // 通常マップの区分にはサイドごとにちょうど 1 枚ずつある
-    for (const side of ['1p', '2p'] as const) {
-      expect(
-        extras.filter((entry) => entry.group === 'standard' && entry.side === side),
-      ).toHaveLength(1);
+    // 通常マップ・新マップの区分にはサイドごとにちょうど 1 枚ずつある
+    for (const group of ['standard', 'new'] as const) {
+      for (const side of ['1p', '2p'] as const) {
+        expect(
+          extras.filter((entry) => entry.group === group && entry.side === side),
+        ).toHaveLength(1);
+      }
     }
   });
 
