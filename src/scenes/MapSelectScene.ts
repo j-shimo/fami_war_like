@@ -1123,15 +1123,38 @@ export class MapSelectScene extends Phaser.Scene {
    * 新規開始時はこの画面で選んでいるものを使う。
    */
   private startGame(entry: ResolvedMapEntry, save?: SaveData): void {
+    if (save) {
+      MapSelectScene.resumeGame(this, entry, save);
+      return;
+    }
     this.scene.start('MainScene', {
       map: entry.definition,
       mapId: entry.id,
-      nightBattle: save ? save.nightBattle : this.nightBattle,
-      aiCharacterId: save ? save.aiCharacterId : this.aiCharacterId,
-      playerCharacterId: save ? save.playerCharacterId : this.playerCharacterId,
-      // 担当サイド・操作の設定も、再開時は中断データに保存されたものを使う
-      playerSide: save ? save.playerSide : this.mode.side,
-      versusMode: save ? save.versusMode : this.mode.versus,
+      nightBattle: this.nightBattle,
+      aiCharacterId: this.aiCharacterId,
+      playerCharacterId: this.playerCharacterId,
+      playerSide: this.mode.side,
+      versusMode: this.mode.versus,
+    });
+  }
+
+  /**
+   * 中断データからゲームを再開する。マップ選択画面のカードからの再開と、
+   * モード選択画面の「中断から再開」の両方から使う。
+   * 戦闘モード・指揮官・担当サイド・操作の設定は中断データに保存されたものを使う。
+   * ゲームを終えたり中断したりして戻ってきたときに、遊んでいたマップの区分の一覧を開くよう、
+   * 直前の区分もそのマップの区分に合わせておく。
+   */
+  static resumeGame(scene: Phaser.Scene, entry: ResolvedMapEntry, save: SaveData): void {
+    MapSelectScene.lastGroup = entry.group;
+    scene.scene.start('MainScene', {
+      map: entry.definition,
+      mapId: entry.id,
+      nightBattle: save.nightBattle,
+      aiCharacterId: save.aiCharacterId,
+      playerCharacterId: save.playerCharacterId,
+      playerSide: save.playerSide,
+      versusMode: save.versusMode,
       save,
     });
   }

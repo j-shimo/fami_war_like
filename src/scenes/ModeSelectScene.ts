@@ -16,10 +16,18 @@ import {
 } from '@/core/progress/ClearProgress';
 import { resetClearData } from '@/core/progress/DataReset';
 import { isNewGroupUnlocked, remainingForNewGroup } from '@/core/progress/MapUnlock';
+import { readSuspendData } from '@/core/save/SaveStorage';
 import { readGameMode, writeGameMode } from '@/core/settings/SettingsStorage';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { MAP_LIST, STANDARD_MAP_LIST, mapsInGroup } from '@/data/maps';
 import { ConfirmWindow } from '@/rendering/ConfirmWindow';
+import { MapSelectScene } from '@/scenes/MapSelectScene';
+import {
+  findResumeTarget,
+  resumeDetailLine,
+  resumeMapLine,
+  type ResumeTarget,
+} from '@/ui/suspendInfo';
 
 /** 切替ボタン(担当サイド・操作の設定)の寸法と間隔 */
 const TOGGLE_HEIGHT = 30;
@@ -39,23 +47,49 @@ const VERSUS_BUTTON_WIDTH = 200;
 
 /** マップ選択画面への入口ボタンの寸法と並べ方 */
 const MENU_BUTTON_WIDTH = 420;
-const MENU_BUTTON_HEIGHT = 52;
-const MENU_BUTTON_GAP = 14;
 const MENU_TOP = 224;
 
 /** 行の左に置く見出しラベルと、ボタン列との間隔 */
 const ROW_LABEL_GAP = 12;
 
-/** クリアデータのリセットボタンの寸法と縦位置(マップ区分の入口の下) */
+/** 下段のメニュー(マップ区分の入口とリセットボタン)の縦方向の配置 */
+interface MenuLayout {
+  /** 入口ボタン 1 つの高さ */
+  readonly buttonHeight: number;
+  /** 入口ボタンどうしの間隔 */
+  readonly buttonGap: number;
+  /** リセットボタンの中心の縦位置 */
+  readonly resetCenterY: number;
+}
+
+/** 入口が 3 つ(通常 / 新 / 4P)のときの配置 */
+const MENU_LAYOUT: MenuLayout = { buttonHeight: 52, buttonGap: 14, resetCenterY: 434 };
+
+/**
+ * 先頭に「中断から再開」を足して入口が 4 つになるときの配置。
+ * 画面の高さに収まるよう、ボタンを少し低くして間隔を詰め、リセットボタンを下へずらす。
+ */
+const MENU_LAYOUT_WITH_RESUME: MenuLayout = {
+  buttonHeight: 44,
+  buttonGap: 10,
+  resetCenterY: 454,
+};
+
+/** クリアデータのリセットボタンの寸法(マップ区分の入口の下) */
 const RESET_BUTTON_WIDTH = 180;
 const RESET_BUTTON_HEIGHT = 30;
-const RESET_ROW_CENTER_Y = 434;
 /** リセット後の案内文の縦位置(ボタンの下) */
 const RESET_NOTICE_Y = 462;
 /** リセットボタンの色(取り消せない操作だと分かるよう、ほかのボタンと変える) */
 const RESET_FILL = 0x2a2030;
 const RESET_STROKE = 0xd0704a;
 const RESET_LABEL_COLOR = '#ffb08a';
+
+/** 「中断から再開」ボタンの色(すぐ続きを遊べる入口だと分かるよう、金色で目立たせる) */
+const RESUME_FILL = 0x3a3220;
+const RESUME_HOVER_FILL = 0x4a4028;
+const RESUME_STROKE = 0xffd479;
+const RESUME_TITLE_COLOR = '#ffd479';
 
 /** 選択中・未選択のボタンの色 */
 const SELECTED_FILL = 0x2d3b5a;
@@ -124,11 +158,14 @@ interface ToggleButton<T> {
  * 新マップの入口は、通常マップをすべてクリアするまで「未解放」として開かない
  * (1P側・2P側のどちらかでクリアしていれば解放される)。
  *
+ * 中断データがあるときは、マップ区分の入口の先頭に「中断から再開」を出し、
+ * 押すとマップ選択を経ずに中断したマップの続きから再開する。
+ *
  * 画面下部には「データリセット」ボタンを置き、確認のうえでクリアデータ
  * (クリア状況と中断データ)を消して最初から遊べる状態へ戻せるようにする。
  *
  * 選んだ担当サイド・操作の設定はゲーム設定として保存し、次回の起動時にも引き継ぐ。
- * 詳細は docs/GameDesign.md「モード選択」「データリセット」を参照。
+ * 詳細は docs/GameDesign.md「モード選択」「データリセット」「中断と再開」を参照。
  */
 export class ModeSelectScene extends Phaser.Scene {
   /** 現在選んでいる遊び方(担当サイド・操作の設定) */
@@ -143,6 +180,10 @@ export class ModeSelectScene extends Phaser.Scene {
   private confirmWindow: ConfirmWindow | null = null;
   /** 直前の操作でクリアデータを消したか(消した直後だけ画面に案内を出す) */
   private resetDone = false;
+  /** 「中断から再開」で再開する対象(再開できる中断データが無ければ null) */
+  private resumeTarget: ResumeTarget | null = null;
+  /** 下段のメニューの配置(「中断から再開」を出すかどうかで変わる) */
+  private menuLayout: MenuLayout = MENU_LAYOUT;
 
   constructor() {
     super('ModeSelectScene');
@@ -165,6 +206,9 @@ export class ModeSelectScene extends Phaser.Scene {
     this.mode = readGameMode();
     // 新マップの入口を開くかどうかの判定に使う(通常マップのクリア状況)
     this.clearProgress = readClearProgress();
+    // 中断データがあり、遊んでいたマップで再開できるときだけ「中断から再開」を出す
+    this.resumeTarget = findResumeTarget(readSuspendData(), MAP_LIST);
+    this.menuLayout = this.resumeTarget ? MENU_LAYOUT_WITH_RESUME : MENU_LAYOUT;
     this.sideButtons = [];
     this.versusButtons = [];
 
@@ -207,7 +251,8 @@ export class ModeSelectScene extends Phaser.Scene {
    */
   private createResetButton(width: number): void {
     const left = width / 2 - RESET_BUTTON_WIDTH / 2;
-    const top = RESET_ROW_CENTER_Y - RESET_BUTTON_HEIGHT / 2;
+    const centerY = this.menuLayout.resetCenterY;
+    const top = centerY - RESET_BUTTON_HEIGHT / 2;
 
     const button = this.add
       .rectangle(left, top, RESET_BUTTON_WIDTH, RESET_BUTTON_HEIGHT, RESET_FILL)
@@ -215,7 +260,7 @@ export class ModeSelectScene extends Phaser.Scene {
       .setStrokeStyle(2, RESET_STROKE)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(width / 2, RESET_ROW_CENTER_Y, 'データリセット', {
+      .text(width / 2, centerY, 'データリセット', {
         fontFamily: 'sans-serif',
         fontSize: '13px',
         fontStyle: 'bold',
@@ -334,12 +379,23 @@ export class ModeSelectScene extends Phaser.Scene {
     this.updateVersusSelector();
   }
 
-  /** マップ選択画面への入口ボタン(通常 / 新 / 4P)を縦に並べる */
+  /**
+   * マップ選択画面への入口ボタン(通常 / 新 / 4P)を縦に並べる。
+   * 再開できる中断データがあれば、その先頭に「中断から再開」を置く。
+   */
   private createMapMenu(width: number): void {
     const left = width / 2 - MENU_BUTTON_WIDTH / 2;
+    const { buttonHeight, buttonGap } = this.menuLayout;
+    let row = 0;
 
-    MAP_MENU.forEach((item, index) => {
-      const y = MENU_TOP + index * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP);
+    if (this.resumeTarget) {
+      this.createResumeButton(left, MENU_TOP, this.resumeTarget);
+      row += 1;
+    }
+
+    MAP_MENU.forEach((item) => {
+      const y = MENU_TOP + row * (buttonHeight + buttonGap);
+      row += 1;
       // 未解放の区分(新マップ)は解放条件を示し、押しても先へ進めない
       const unlocked = this.isGroupUnlocked(item.group);
       // まだ 1 枚も用意していない区分は、進んだ先が空であることを先に伝える
@@ -348,21 +404,26 @@ export class ModeSelectScene extends Phaser.Scene {
       const caption = unlocked ? (ready ? item.caption : '準備中') : this.lockedCaption();
 
       const button = this.add
-        .rectangle(left, y, MENU_BUTTON_WIDTH, MENU_BUTTON_HEIGHT, UNSELECTED_FILL)
+        .rectangle(left, y, MENU_BUTTON_WIDTH, buttonHeight, UNSELECTED_FILL)
         .setOrigin(0, 0)
         .setStrokeStyle(2, open ? UNSELECTED_STROKE : LOCKED_STROKE)
         .setInteractive({ useHandCursor: open });
 
       this.add
-        .text(left + 16, y + 14, unlocked ? item.title : `${item.title}(未解放)`, {
-          fontFamily: 'sans-serif',
-          fontSize: '17px',
-          fontStyle: 'bold',
-          color: open ? '#ffffff' : LOCKED_TITLE_COLOR,
-        })
-        .setOrigin(0, 0);
+        .text(
+          left + 16,
+          y + buttonHeight / 2,
+          unlocked ? item.title : `${item.title}(未解放)`,
+          {
+            fontFamily: 'sans-serif',
+            fontSize: '17px',
+            fontStyle: 'bold',
+            color: open ? '#ffffff' : LOCKED_TITLE_COLOR,
+          },
+        )
+        .setOrigin(0, 0.5);
       this.add
-        .text(left + MENU_BUTTON_WIDTH - 16, y + MENU_BUTTON_HEIGHT / 2, caption, {
+        .text(left + MENU_BUTTON_WIDTH - 16, y + buttonHeight / 2, caption, {
           fontFamily: 'sans-serif',
           fontSize: '12px',
           color: open ? '#c8c8d8' : LOCKED_CAPTION_COLOR,
@@ -385,6 +446,53 @@ export class ModeSelectScene extends Phaser.Scene {
       button.on(Phaser.Input.Events.POINTER_DOWN, () => {
         this.scene.start('MapSelectScene', { group: item.group });
       });
+    });
+  }
+
+  /**
+   * 「中断から再開」ボタンを置く。右側に遊んでいたマップ名・ターン数・中断日時を出し、
+   * 押すとマップ選択画面を経ずに中断データから再開する。
+   */
+  private createResumeButton(left: number, y: number, target: ResumeTarget): void {
+    const { buttonHeight } = this.menuLayout;
+    const right = left + MENU_BUTTON_WIDTH - 16;
+
+    const button = this.add
+      .rectangle(left, y, MENU_BUTTON_WIDTH, buttonHeight, RESUME_FILL)
+      .setOrigin(0, 0)
+      .setStrokeStyle(2, RESUME_STROKE)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(left + 16, y + buttonHeight / 2, '▶ 中断から再開', {
+        fontFamily: 'sans-serif',
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: RESUME_TITLE_COLOR,
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(right, y + buttonHeight / 2 - 9, resumeMapLine(target), {
+        fontFamily: 'sans-serif',
+        fontSize: '12px',
+        color: '#ffffff',
+      })
+      .setOrigin(1, 0.5);
+    this.add
+      .text(right, y + buttonHeight / 2 + 8, resumeDetailLine(target.save), {
+        fontFamily: 'sans-serif',
+        fontSize: '11px',
+        color: '#c8c8d8',
+      })
+      .setOrigin(1, 0.5);
+
+    button.on(Phaser.Input.Events.POINTER_OVER, () => {
+      button.setFillStyle(RESUME_HOVER_FILL);
+    });
+    button.on(Phaser.Input.Events.POINTER_OUT, () => {
+      button.setFillStyle(RESUME_FILL);
+    });
+    button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+      MapSelectScene.resumeGame(this, target.entry, target.save);
     });
   }
 
