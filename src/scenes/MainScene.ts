@@ -122,7 +122,7 @@ import { VolumeWindow } from '@/rendering/VolumeWindow';
 import { EnemyAnimationWindow } from '@/rendering/EnemyAnimationWindow';
 import { UnitGuideWindow } from '@/rendering/UnitGuideWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
-import { drawUnitIcon } from '@/rendering/unitIcon';
+import { addUnitIconLabel, drawUnitIcon } from '@/rendering/unitIcon';
 
 /** 占領地形の所有者を示す枠の色 */
 const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
@@ -884,14 +884,20 @@ export class MainScene extends Phaser.Scene {
       graphics.strokeCircle(x, y, radius);
 
       // 軍色トークンの上に種別のシルエットアイコンを描く
-      drawUnitIcon(unit.unitType, {
+      const iconContext = {
         graphics,
         cx: x,
         cy: y,
         radius,
         color: 0xffffff,
         alpha: unit.hasActed ? 0.5 : 1,
-      });
+      };
+      drawUnitIcon(unit.unitType, iconContext);
+      // 形の似た種別(固定翼機・戦車・対空砲)には 1 文字の種別ラベルを添える
+      const iconLabel = addUnitIconLabel(this, unit.unitType, iconContext);
+      if (iconLabel) {
+        this.unitLayer.add(iconLabel);
+      }
 
       // HP が減っている場合のみ、HP バーと数値を表示する
       if (unit.currentHp < unit.maxHp) {

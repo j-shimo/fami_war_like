@@ -9,7 +9,7 @@ import Phaser from 'phaser';
 import { gridToWorldCenter } from '@/core/map/coordinates';
 import type { GridPosition } from '@/core/map/GridPosition';
 import type { UnitType } from '@/core/units/UnitType';
-import { drawUnitIcon } from '@/rendering/unitIcon';
+import { addUnitIconLabel, drawUnitIcon } from '@/rendering/unitIcon';
 import { HIT_STOP_MS, LUNGE_BACK_MS, LUNGE_OUT_MS } from '@/rendering/attackSequence';
 import { ENCOUNTER_MARK_DELAY_MS, MOVE_STEP_MS } from '@/rendering/moveSequence';
 
@@ -57,10 +57,17 @@ export class BattleEffects {
     graphics.fillCircle(0, 0, radius);
     graphics.lineStyle(2, 0xffffff, 0.9);
     graphics.strokeCircle(0, 0, radius);
-    drawUnitIcon(unitType, { graphics, cx: 0, cy: 0, radius, color: 0xffffff, alpha: 1 });
+    const iconContext = { graphics, cx: 0, cy: 0, radius, color: 0xffffff, alpha: 1 };
+    drawUnitIcon(unitType, iconContext);
+    // 盤面と同じく種別ラベルを添えて、演出中も見分けられるようにする
+    const iconLabel = addUnitIconLabel(this.scene, unitType, iconContext);
 
     const { x, y } = gridToWorldCenter(pos, this.tileSize);
-    const token = this.scene.add.container(x, y, [graphics]);
+    const token = this.scene.add.container(
+      x,
+      y,
+      iconLabel ? [graphics, iconLabel] : [graphics],
+    );
     this.layer.add(token);
     return token;
   }

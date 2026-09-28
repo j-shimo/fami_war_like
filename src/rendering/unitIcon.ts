@@ -5,6 +5,8 @@
 // 軍勢を示す色つきトークン(円)は呼び出し側(MainScene)が描き、
 // このモジュールはその上に重ねるシルエットのみを担当する。
 // 戦車 3 種(軽・中・重)と新型戦車は共通の車体シルエットを大きさで描き分ける。
+// シルエットが似て見分けにくい固定翼機 3 種・戦車 4 種・対空の自走砲/ロケット砲には、
+// トークン右上に 1 文字の種別バッジを添えて見分けやすくする(UNIT_ICON_LABEL)。
 
 import Phaser from 'phaser';
 
@@ -515,6 +517,63 @@ function drawSubmarine(ctx: UnitIconContext): void {
   g.lineStyle(Math.max(1.5, r * 0.08), color, alpha * 0.7);
   g.lineBetween(cx - r * 0.8, cy - r * 0.16, cx - r * 0.34, cy - r * 0.16);
   g.lineBetween(cx + r * 0.34, cy - r * 0.16, cx + r * 0.8, cy - r * 0.16);
+}
+
+/**
+ * シルエットだけでは見分けにくい種別に添える 1 文字ラベル。
+ * バッジが小さいため、2 文字以上にすると潰れて読めなくなる点に注意する。
+ */
+export const UNIT_ICON_LABEL: Partial<Record<UnitType, string>> = {
+  // 固定翼機 3 種はどれも右向きの機体で形が似ているため、役割の頭文字で描き分ける
+  fighter: '戦',
+  bomber: '爆',
+  attackAircraft: '攻',
+  // 戦車 4 種は共通の車体シルエットを大きさで描き分けているだけなので、階級を添える
+  lightTank: '軽',
+  mediumTank: '中',
+  heavyTank: '重',
+  newTank: '新',
+  // 対空の自走砲・ロケット砲は、対地の自走砲・ロケット砲と見分けられるよう「空」を添える。
+  // 対空 2 種どうしは履帯とタイヤのシルエットで見分けられる
+  antiAirArtillery: '空',
+  antiAirRocketArtillery: '空',
+};
+
+/**
+ * 種別ラベルのバッジ(トークン右上の暗い円)を graphics に描き、その上に載せる文字を返す。
+ * 文字は Graphics では描けないため Text オブジェクトを作って返し、
+ * 呼び出し側でユニットと同じレイヤー(コンテナ)へ追加してもらう。
+ * ラベルを持たない種別では何も描かず undefined を返す。
+ */
+export function addUnitIconLabel(
+  scene: Phaser.Scene,
+  unitType: UnitType,
+  ctx: UnitIconContext,
+): Phaser.GameObjects.Text | undefined {
+  const label = UNIT_ICON_LABEL[unitType];
+  if (label === undefined) {
+    return undefined;
+  }
+  const { graphics: g, cx, cy, radius: r, alpha } = ctx;
+  // 右上へ少しはみ出す位置に置き、シルエットと重なりすぎないようにする
+  const badgeX = cx + r * 0.78;
+  const badgeY = cy - r * 0.78;
+  const badgeRadius = r * 0.56;
+  g.fillStyle(0x12121e, alpha * 0.9);
+  g.fillCircle(badgeX, badgeY, badgeRadius);
+  g.lineStyle(1, 0xffffff, alpha * 0.8);
+  g.strokeCircle(badgeX, badgeY, badgeRadius);
+  return scene.add
+    .text(badgeX, badgeY, label, {
+      fontFamily: 'sans-serif',
+      fontSize: `${Math.max(8, Math.round(r * 0.84))}px`,
+      fontStyle: 'bold',
+      color: '#ffffff',
+      // 画数の多い漢字(戦・爆)が拡大表示でつぶれないよう、高解像度で描く
+      resolution: 2,
+    })
+    .setOrigin(0.5, 0.5)
+    .setAlpha(alpha);
 }
 
 /**
