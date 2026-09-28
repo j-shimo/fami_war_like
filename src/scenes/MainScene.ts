@@ -893,7 +893,7 @@ export class MainScene extends Phaser.Scene {
         alpha: unit.hasActed ? 0.5 : 1,
       };
       drawUnitIcon(unit.unitType, iconContext);
-      // 形の似た固定翼機には「戦」「爆」「攻」の種別ラベルを添える
+      // 形の似た種別(固定翼機・戦車・対空砲)には 1 文字の種別ラベルを添える
       const iconLabel = addUnitIconLabel(this, unit.unitType, iconContext);
       if (iconLabel) {
         this.unitLayer.add(iconLabel);

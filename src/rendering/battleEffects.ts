@@ -59,7 +59,7 @@ export class BattleEffects {
     graphics.strokeCircle(0, 0, radius);
     const iconContext = { graphics, cx: 0, cy: 0, radius, color: 0xffffff, alpha: 1 };
     drawUnitIcon(unitType, iconContext);
-    // 盤面と同じく、固定翼機には種別ラベルを添えて演出中も見分けられるようにする
+    // 盤面と同じく種別ラベルを添えて、演出中も見分けられるようにする
     const iconLabel = addUnitIconLabel(this.scene, unitType, iconContext);
 
     const { x, y } = gridToWorldCenter(pos, this.tileSize);
