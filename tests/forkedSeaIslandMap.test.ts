@@ -466,9 +466,10 @@ describe('叉海大島マップ(4P マップ)', () => {
       p1.filter((cost) => cost <= 6).length,
     );
     // 4P は陣地のすぐ隣の都市を初めから持つ代わりに、中立都市へは 1 ターンでは届かない。
-    // 近くの中立都市 4 個は 2〜3 ターン(移動コスト 4〜7)の距離にある
+    // 近くの中立都市 4 個は、1 個だけが 2 ターン(移動コスト 4〜6)・残り 3 個は 3 ターン(7〜8)
     expect(p4[0]).toBeGreaterThan(3);
-    expect(p4.filter((cost) => cost <= 7)).toHaveLength(4);
+    expect(p4.filter((cost) => cost <= 6)).toHaveLength(1);
+    expect(p4.filter((cost) => cost > 6 && cost <= 8)).toHaveLength(3);
     // 初めから持つ都市を含めれば、2 ターンまでに手にできる都市の数は 3P より多い
     let ownedCities = 0;
     map.forEachTile((tile) => {
