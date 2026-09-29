@@ -6,6 +6,7 @@ import { ARC_ISLAND_ROAD_MAP } from '@/data/maps/arcIslandRoadMap';
 import { CAPE_LABORATORY_MAP } from '@/data/maps/capeLaboratoryMap';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
+import { FOUR_CAMPS_ISLAND_MAP } from '@/data/maps/fourCampsIslandMap';
 import { FOUR_ISLANDS_MAP } from '@/data/maps/fourIslandsMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
 import { IRON_RIVER_ISLANDS_MAP } from '@/data/maps/ironRiverIslandsMap';
@@ -227,6 +228,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       category: 'extra',
       // 2P側の激ムズマップ(1P側には双大陸マップを用意している)
       side: '2p',
+    },
+    {
+      id: 'fourCampsIsland',
+      definition: FOUR_CAMPS_ISLAND_MAP,
+      description:
+        '4 つの軍勢が 1 つの大きな島の四隅に陣取る 32x24 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、4 軍とも本拠地 1 + 工場 3(収入 4000)・初期資金 0 から始まり、手番は 1P → 2P → 3P → 4P の順に回る。左端は海。1P と 2P の間には車両の越えられない山脈がそびえ、島の真ん中を東西に横切る川が北の 1P・2P と南の 3P・4P を分ける。3P の陣地は堀のように川に囲まれ、出入りできる橋は 2 本だけ。1P〜3P・2P〜4P の街道はくねりながら橋で川を渡り、3P〜4P の街道は一直線。1P からはもう 1 本、島の真ん中を抜けて 3P〜4P の街道へ T 字でつながる街道が伸びる。中立都市は 24 個で、陣地のすぐ隣の都市は 2P と 4P だけが 1 ターンで届く(1P と 3P は 2 ターン)。',
+      // 4 人で遊ぶ 4Pマップ(4P 設定画面で 1P〜4P の操作と指揮官を選んでから遊ぶ)
+      group: 'four',
     },
   ] as const satisfies readonly MapEntry[]
 ).map(resolveMapEntry);

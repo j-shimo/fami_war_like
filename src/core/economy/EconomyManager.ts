@@ -3,11 +3,12 @@
 // docs/DevelopmentPlan.md Phase 7、docs/GameDesign.md「収入」を参照。
 
 import type { MapManager } from '@/core/map/MapManager';
+import type { TurnArmy } from '@/core/turn/TurnManager';
 import { INCOME_PER_BASE, INITIAL_FUNDS } from '@/data/economyConfig';
 import { getTerrainData } from '@/data/terrainData';
 
-/** 資金を持つ軍勢。MVP では中立は資金を持たず、自軍・敵軍のみ */
-export type EconomyArmy = 'player' | 'enemy';
+/** 資金を持つ軍勢。中立は資金を持たず、手番を持つ軍勢だけが持つ */
+export type EconomyArmy = TurnArmy;
 
 /** EconomyManager の生成オプション(省略時は economyConfig の既定値を使う) */
 export interface EconomyOptions {
@@ -25,7 +26,7 @@ export class EconomyManager {
   constructor(options?: EconomyOptions) {
     const initial = options?.initialFunds ?? INITIAL_FUNDS;
     this.incomePerBase = options?.incomePerBase ?? INCOME_PER_BASE;
-    this.funds = { player: initial, enemy: initial };
+    this.funds = { player: initial, enemy: initial, third: initial, fourth: initial };
   }
 
   /** 指定した軍の現在の資金を返す */

@@ -2,11 +2,13 @@
 // docs/DevelopmentPlan.md Phase 8「勝利・敗北UIを表示する」を参照。
 
 import type { PlayerSide, VersusMode } from '@/core/mode/GameMode';
+import type { TurnArmy } from '@/core/turn/TurnManager';
+import type { Elimination, FourPlayerOutcome } from '@/core/victory/ArmyElimination';
 import type {
   VictoryReason,
   VictoryResult,
 } from '@/core/victory/VictoryConditionChecker';
-import { armyLabel } from '@/ui/turnInfo';
+import { armyLabel, type ArmyLabelOptions } from '@/ui/turnInfo';
 
 /** 結果表示 1 件ぶんの見出しと詳細 */
 export interface ResultMessage {
@@ -68,4 +70,77 @@ export function formatResultMessage(
     title: isPlayerVictory ? '勝利！' : '敗北…',
     detail: REASON_DETAIL[result.reason],
   };
+}
+
+/** 4P マップの結果表示。見出し・詳細に加えて、プレイヤーにとって勝利かどうかを持つ */
+export interface FourPlayerResultMessage extends ResultMessage {
+  /**
+   * プレイヤーにとっての勝利か(勝利・敗北のジングルと見出しの色の切り替えに使う)。
+   * プレイヤーの軍勢が勝ち残ったとき、またはプレイヤーのいない観戦のゲームが決着したときに true。
+   */
+  readonly isVictory: boolean;
+}
+
+/**
+ * 4P マップの決着を見出し・詳細のメッセージへ整形する。
+ * 勝ち残った軍勢があればその番号を見出しにし、プレイヤーが全員脱落したときは敗北とする。
+ *
+ * @param humans ゲーム開始時にプレイヤーが操作していた軍勢
+ */
+export function formatFourPlayerResult(
+  outcome: Exclude<FourPlayerOutcome, { kind: 'ongoing' }>,
+  humans: readonly TurnArmy[],
+  options: ArmyLabelOptions = {},
+): FourPlayerResultMessage {
+  const labelOptions = { ...options, fourPlayer: true };
+  if (outcome.kind === 'winner') {
+    return {
+      title: `${armyLabel(outcome.army, labelOptions)} の勝利！`,
+      detail: 'ほかの軍勢をすべて脱落させた',
+      isVictory: humans.length === 0 || humans.includes(outcome.army),
+    };
+  }
+  return {
+    title: '敗北…',
+    detail:
+      humans.length === 1
+        ? `${armyLabel(humans[0], labelOptions)}が脱落した`
+        : 'プレイヤーの軍勢がすべて脱落した',
+    isVictory: false,
+  };
+}
+
+/** 4P マップで軍勢が脱落したときの表示 */
+export interface EliminationMessage extends ResultMessage {
+  /**
+   * 情報パネルに出す行(見出し・理由・拠点の行き先)。
+   * 情報パネルは日本語を自動では折り返せないため、あらかじめ行を分けておく。
+   */
+  readonly lines: readonly string[];
+}
+
+/**
+ * 4P マップで軍勢が脱落したことを、バナー・情報パネル向けの見出しと詳細へ整形する。
+ * 本拠地を占領された場合は拠点が占領した軍勢へ、全滅した場合は中立へ移ることも添える。
+ */
+export function formatEliminationMessage(
+  elimination: Elimination,
+  options: ArmyLabelOptions = {},
+): EliminationMessage {
+  const labelOptions = { ...options, fourPlayer: true };
+  const title = `${armyLabel(elimination.army, labelOptions)} 脱落！`;
+  let reason: string;
+  let aftermath: string;
+  if (elimination.reason === 'hq_captured' && elimination.capturedBy !== null) {
+    const captor = armyLabel(elimination.capturedBy, labelOptions);
+    reason = `本拠地を${captor}に占領された`;
+    aftermath = `拠点は${captor}へ`;
+  } else if (elimination.reason === 'hq_captured') {
+    reason = '本拠地を失った';
+    aftermath = '拠点は中立へ';
+  } else {
+    reason = '全滅した';
+    aftermath = '拠点は中立へ';
+  }
+  return { title, detail: `${reason}(${aftermath})`, lines: [title, reason, aftermath] };
 }

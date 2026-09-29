@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '@/data/gameConfig';
 import { BootScene } from '@/scenes/BootScene';
+import { FourPlayerSetupScene } from '@/scenes/FourPlayerSetupScene';
 import { GuideScene } from '@/scenes/GuideScene';
 import { MainScene } from '@/scenes/MainScene';
 import { MapSelectScene } from '@/scenes/MapSelectScene';
@@ -22,7 +23,15 @@ const config: Phaser.Types.Core.GameConfig = {
     // 下に余白が寄るぶん指で操作しやすくなる。
     autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
   },
-  scene: [BootScene, ModeSelectScene, MapSelectScene, GuideScene, MainScene, EndingScene],
+  scene: [
+    BootScene,
+    ModeSelectScene,
+    FourPlayerSetupScene,
+    MapSelectScene,
+    GuideScene,
+    MainScene,
+    EndingScene,
+  ],
 };
 
 new Phaser.Game(config);

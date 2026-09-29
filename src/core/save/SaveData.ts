@@ -15,6 +15,12 @@ import {
   type VersusMode,
 } from '@/core/mode/GameMode';
 import {
+  isFourPlayerSetup,
+  participatingArmies,
+  type FourPlayerSetup,
+} from '@/core/mode/FourPlayerSetup';
+import { isPlayableArmy, PLAYABLE_ARMIES } from '@/core/map/TerrainType';
+import {
   emptyBattleStats,
   isBattleStats,
   type BattleStats,
@@ -31,7 +37,7 @@ import { getTerrainData } from '@/data/terrainData';
  * 保存内容の構造を変えたら 1 つ増やす。バージョンが違う中断データは
  * 復元できない(壊れたデータと同じ扱いで破棄する)。
  */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 /** 中断データに書き出すユニット 1 体ぶんの状態 */
 export interface SavedUnit {
@@ -77,6 +83,13 @@ export interface SaveData {
   readonly playerSide: PlayerSide;
   /** 操作の設定(対 CPU / 対人戦)。再開時にも同じ操作で続ける */
   readonly versusMode: VersusMode;
+  /**
+   * 4P マップの遊び方(1P〜4P の操作と指揮官)。2 人で遊ぶマップでは null。
+   * 4P マップでは担当サイド・操作の設定・指揮官の代わりにこちらを使う。
+   */
+  readonly fourPlayer: FourPlayerSetup | null;
+  /** 脱落した軍勢(4P マップのみ。2 人で遊ぶマップでは空配列) */
+  readonly eliminated: readonly TurnArmy[];
   /** 保存時刻(エポックミリ秒。表示用) */
   readonly savedAt: number;
   /** 保存時のマップの横マス数・縦マス数(復元時の整合性チェックに使う) */
@@ -113,6 +126,8 @@ export interface SaveSource {
   readonly playerSide: PlayerSide;
   /** 操作の設定(対 CPU / 対人戦) */
   readonly versusMode: VersusMode;
+  /** 4P マップの遊び方(2 人で遊ぶマップでは省略するか null) */
+  readonly fourPlayer?: FourPlayerSetup | null;
   readonly map: MapManager;
   readonly units: UnitManager;
   readonly turn: TurnManager;
@@ -186,6 +201,8 @@ export function createSaveData(source: SaveSource): SaveData {
     playerCharacterId: source.playerCharacterId,
     playerSide: source.playerSide,
     versusMode: source.versusMode,
+    fourPlayer: source.fourPlayer ?? null,
+    eliminated: [...source.turn.eliminatedArmies],
     savedAt: source.savedAt ?? Date.now(),
     cols: source.map.cols,
     rows: source.map.rows,
@@ -194,6 +211,8 @@ export function createSaveData(source: SaveSource): SaveData {
     funds: {
       player: source.economy.getFunds('player'),
       enemy: source.economy.getFunds('enemy'),
+      third: source.economy.getFunds('third'),
+      fourth: source.economy.getFunds('fourth'),
     },
     spawnCounter: source.units.spawnCounter,
     tiles,
@@ -232,14 +251,25 @@ export function restoreGameState(save: SaveData, map: MapManager): RestoredState
   });
   // 復元時は手番開始処理(行動済みのリセット)を行わず、保存時点の行動済み状態を保つ。
   // 先手は担当サイドで決まる(2P側は後手番)ため、保存時のサイドから復元する。
+  // 4P マップでは参加していた軍勢の並び(1P → 4P)がそのまま手番の巡回順になる。
+  const order = save.fourPlayer
+    ? participatingArmies(save.fourPlayer)
+    : firstArmy(save.playerSide);
+  if (Array.isArray(order) && !order.includes(save.currentArmy)) {
+    throw new Error('中断データの手番の軍勢が参加している軍勢に含まれていません');
+  }
   const turn = new TurnManager(
     units,
     { turnNumber: save.turnNumber, currentArmy: save.currentArmy },
-    firstArmy(save.playerSide),
+    order,
   );
+  for (const army of save.eliminated) {
+    turn.eliminate(army);
+  }
   const economy = new EconomyManager();
-  economy.setFunds('player', save.funds.player);
-  economy.setFunds('enemy', save.funds.enemy);
+  for (const army of PLAYABLE_ARMIES) {
+    economy.setFunds(army, save.funds[army]);
+  }
 
   return { units, turn, economy };
 }
@@ -266,12 +296,12 @@ function isInteger(value: unknown): value is number {
 
 /** 拠点所有者として妥当な文字列か */
 function isArmyType(value: unknown): value is ArmyType {
-  return value === 'player' || value === 'enemy' || value === 'neutral';
+  return value === 'neutral' || isPlayableArmy(value);
 }
 
 /** 手番を持つ軍勢として妥当な文字列か */
 function isTurnArmy(value: unknown): value is TurnArmy {
-  return value === 'player' || value === 'enemy';
+  return isPlayableArmy(value);
 }
 
 /** ユニット種別として妥当な文字列か(未知の種別は壊れたデータとして扱う) */
@@ -337,6 +367,12 @@ export function isSaveData(value: unknown): value is SaveData {
   if (!isPlayerSide(value.playerSide) || !isVersusMode(value.versusMode)) {
     return false;
   }
+  if (value.fourPlayer !== null && !isFourPlayerSetup(value.fourPlayer)) {
+    return false;
+  }
+  if (!Array.isArray(value.eliminated) || !value.eliminated.every(isTurnArmy)) {
+    return false;
+  }
   if (!isInteger(value.cols) || !isInteger(value.rows)) {
     return false;
   }
@@ -346,11 +382,8 @@ export function isSaveData(value: unknown): value is SaveData {
   if (!isTurnArmy(value.currentArmy) || !isInteger(value.spawnCounter)) {
     return false;
   }
-  if (
-    !isRecord(value.funds) ||
-    !isInteger(value.funds.player) ||
-    !isInteger(value.funds.enemy)
-  ) {
+  const funds = value.funds;
+  if (!isRecord(funds) || !PLAYABLE_ARMIES.every((army) => isInteger(funds[army]))) {
     return false;
   }
   if (!Array.isArray(value.tiles) || !value.tiles.every(isSavedTile)) {

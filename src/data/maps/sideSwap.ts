@@ -6,8 +6,8 @@
 import type { ArmyType } from '@/core/map/TerrainType';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
-/** 自軍・敵軍を入れ替える(中立はそのまま) */
-export function swapArmy(army: ArmyType): ArmyType {
+/** 自軍・敵軍を入れ替える(中立・3P・4P はそのまま) */
+export function swapArmy<T extends ArmyType>(army: T): T | 'player' | 'enemy' {
   if (army === 'player') {
     return 'enemy';
   }
@@ -28,7 +28,7 @@ export function swapMapSides(def: MapDefinition): MapDefinition {
     owners: def.owners?.map((owner) => ({ ...owner, owner: swapArmy(owner.owner) })),
     units: def.units?.map((unit) => ({
       ...unit,
-      army: unit.army === 'player' ? 'enemy' : 'player',
+      army: swapArmy(unit.army),
     })),
   };
 }

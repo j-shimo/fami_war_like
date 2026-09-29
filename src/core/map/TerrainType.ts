@@ -18,8 +18,28 @@ export type TerrainType =
   | 'station'
   | 'headquarters';
 
+/**
+ * 手番を持つ軍勢。自軍(player)・敵軍(enemy)に加え、4P マップでは
+ * 3P(third)・4P(fourth)の軍勢も加わる。
+ * 2 人で遊ぶマップでは player / enemy の 2 軍だけが登場する。
+ */
+export type PlayableArmy = 'player' | 'enemy' | 'third' | 'fourth';
+
+/** 手番を持つ軍勢の一覧(1P → 2P → 3P → 4P の順) */
+export const PLAYABLE_ARMIES: readonly PlayableArmy[] = [
+  'player',
+  'enemy',
+  'third',
+  'fourth',
+];
+
+/** 手番を持つ軍勢として妥当な値か */
+export function isPlayableArmy(value: unknown): value is PlayableArmy {
+  return PLAYABLE_ARMIES.includes(value as PlayableArmy);
+}
+
 /** 拠点の所有軍。中立を含む */
-export type ArmyType = 'player' | 'enemy' | 'neutral';
+export type ArmyType = PlayableArmy | 'neutral';
 
 /**
  * 移動タイプ。地形ごとの移動コストは移動タイプ別に定義する。

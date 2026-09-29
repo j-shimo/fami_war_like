@@ -10,8 +10,9 @@ import type { TurnArmy } from '@/core/turn/TurnManager';
 /**
  * 軍ごとの攻撃補正。0.1 なら「その軍の全ユニットの攻撃力 +10%」を表す。
  * 0 は補正なし(これまでどおりの計算)。
+ * 2 人で遊ぶマップでは自軍・敵軍の 2 つだけを持てばよく、書いていない軍は補正なしとして扱う。
  */
-export type CommanderBonus = Readonly<Record<TurnArmy, number>>;
+export type CommanderBonus = Readonly<Partial<Record<TurnArmy, number>>>;
 
 /** どちらの軍にも補正がかからない状態(指揮官の補正を考えない場合の既定値) */
 export const NO_COMMANDER_BONUS: CommanderBonus = { player: 0, enemy: 0 };
@@ -21,5 +22,5 @@ export const NO_COMMANDER_BONUS: CommanderBonus = { player: 0, enemy: 0 };
  * 中立(拠点の所有者としてのみ使う値)には補正がないため 0 を返す。
  */
 export function attackBonusOf(bonus: CommanderBonus, army: ArmyType): number {
-  return army === 'player' || army === 'enemy' ? bonus[army] : 0;
+  return army === 'neutral' ? 0 : (bonus[army] ?? 0);
 }

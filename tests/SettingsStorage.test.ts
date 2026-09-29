@@ -49,17 +49,14 @@ describe('SettingsStorage', () => {
   it('保存した設定をそのまま読み戻せる', () => {
     const storage = new MemoryStorage();
     expect(
-      writeSettings(
-        { enemyAnimationMode: 'instant', gameMode: DEFAULT_GAME_MODE },
-        storage,
-      ),
+      writeSettings({ ...defaultSettings(), enemyAnimationMode: 'instant' }, storage),
     ).toBe(true);
     expect(readSettings(storage).enemyAnimationMode).toBe('instant');
   });
 
   it('専用のキーへ保存する', () => {
     const storage = new MemoryStorage();
-    writeSettings({ enemyAnimationMode: 'simple', gameMode: DEFAULT_GAME_MODE }, storage);
+    writeSettings({ ...defaultSettings(), enemyAnimationMode: 'simple' }, storage);
     expect(storage.items.has(SETTINGS_STORAGE_KEY)).toBe(true);
   });
 
@@ -81,12 +78,12 @@ describe('SettingsStorage', () => {
   it('保存先が無い・例外を投げる環境では既定値を返し、保存は false を返す', () => {
     expect(readSettings(null)).toEqual(defaultSettings());
     expect(
-      writeSettings({ enemyAnimationMode: 'instant', gameMode: DEFAULT_GAME_MODE }, null),
+      writeSettings({ ...defaultSettings(), enemyAnimationMode: 'instant' }, null),
     ).toBe(false);
     expect(readSettings(new BrokenStorage())).toEqual(defaultSettings());
     expect(
       writeSettings(
-        { enemyAnimationMode: 'instant', gameMode: DEFAULT_GAME_MODE },
+        { ...defaultSettings(), enemyAnimationMode: 'instant' },
         new BrokenStorage(),
       ),
     ).toBe(false);

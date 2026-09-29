@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EconomyManager } from '@/core/economy/EconomyManager';
-import { emptyBattleStats } from '@/core/stats/BattleStats';
+import { emptyArmyStats, emptyBattleStats } from '@/core/stats/BattleStats';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import {
@@ -381,6 +381,8 @@ describe('戦績の保存', () => {
         spent: 51000,
         captured: 2,
       },
+      third: emptyArmyStats(),
+      fourth: emptyArmyStats(),
     };
     const save = createSaveData({
       mapId: 'test',
