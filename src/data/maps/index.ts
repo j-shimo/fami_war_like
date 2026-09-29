@@ -6,6 +6,7 @@ import { ARC_ISLAND_ROAD_MAP } from '@/data/maps/arcIslandRoadMap';
 import { CAPE_LABORATORY_MAP } from '@/data/maps/capeLaboratoryMap';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
 import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
+import { FORKED_SEA_ISLAND_MAP } from '@/data/maps/forkedSeaIslandMap';
 import { FOUR_CAMPS_ISLAND_MAP } from '@/data/maps/fourCampsIslandMap';
 import { FOUR_ISLANDS_MAP } from '@/data/maps/fourIslandsMap';
 import { INNER_SEA_MAP } from '@/data/maps/innerSeaMap';
@@ -235,6 +236,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       description:
         '4 つの軍勢が 1 つの大きな島の四隅に陣取る 26x24 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、4 軍とも本拠地 1 + 工場 3(収入 4000)・初期資金 0 から始まり、手番は 1P → 2P → 3P → 4P の順に回る。島の西は海で、北ほど広く南へ下るほど狭くなる。1P と 2P の間には車両の越えられない山脈がそびえ、島を東西に横切る川が北の 1P・2P と南の 3P・4P を分ける。1P と 3P の間には川に囲まれた中州があり、中立都市が 1〜2 個ずつ固まっていて、渡る橋は 2 本だけ。2P〜4P と 3P〜4P の街道は一直線で、1P〜3P の街道は中州を南北に貫く。1P からはもう 1 本、島の真ん中を抜けて 3P〜4P の街道へ T 字でつながる街道が伸びる。中立都市は 27 個で、陣地のすぐ隣の都市は 2P と 4P だけが 1 ターンで届く(1P と 3P は 2 ターン)。',
       // 4 人で遊ぶ 4Pマップ(4P 設定画面で 1P〜4P の操作と指揮官を選んでから遊ぶ)
+      group: 'four',
+    },
+    {
+      id: 'forkedSeaIsland',
+      definition: FORKED_SEA_ISLAND_MAP,
+      description:
+        'Y 字の海が 1 つの大きな島を 3 つに割る 30x26 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、手番は 1P → 2P → 3P → 4P の順に回る。初期の拠点は 1P が本拠地 1・工場 3・空港 2(収入 6000)、2P・3P が本拠地 1・工場 4・空港 2(収入 7000)、4P が本拠地 1・工場 4・空港 2・都市 4(収入 11000)で、1P がはっきり不利・4P がはっきり有利。1P と 3P は西の陸に同居し、2P は北東の陸・4P はいちばん広い南東の陸を独り占めする。4 軍の陣地は「日」の字の道路で結ばれ、海は道路の橋で渡る。「日」の右上の部分は 2P の「口」の字の道路に置き換わり、その右上の角が 2P の本拠地。4P の陣地のまわりは山地帯。研究所は「日」の上の線と真ん中の線に 1 個ずつあり、上の研究所は最速で向かえば 1P が先に着く。中立空港は上・中・下に 1 個ずつ、中立都市 29 個はどれも道路沿いで、陣地のすぐ隣の都市は 2P と 4P だけが 1 ターンで届く(1P と 3P は 2 ターン)。',
+      // 4 人で遊ぶ 4Pマップの 2 枚目
       group: 'four',
     },
   ] as const satisfies readonly MapEntry[]
