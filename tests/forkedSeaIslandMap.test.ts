@@ -76,7 +76,7 @@ const ARMIES: readonly TurnArmy[] = ['player', 'enemy', 'third', 'fourth'];
 /** 各軍の本拠地 */
 const HQ: Readonly<Record<TurnArmy, GridPosition>> = {
   player: gridPosition(4, 2),
-  enemy: gridPosition(24, 4),
+  enemy: gridPosition(25, 2),
   third: gridPosition(4, 22),
   fourth: gridPosition(25, 22),
 };
@@ -86,7 +86,9 @@ const BRIDGES: readonly GridPosition[] = [
   // 上の線が上の腕を渡る橋
   gridPosition(10, 6),
   gridPosition(11, 6),
-  // 右の縦線が右の腕を渡る橋
+  // 2P の「口」の左辺と右辺(右の縦線)が右の腕を渡る橋
+  gridPosition(18, 10),
+  gridPosition(18, 11),
   gridPosition(25, 9),
   gridPosition(25, 10),
   // 真ん中の線が下の軸を渡る橋
@@ -314,39 +316,42 @@ describe('叉海大島マップ(4P マップ)', () => {
     }
   });
 
-  it('道路は「日」の字で、2P のまわりだけ右上の角の代わりに「口」の字になる', () => {
-    // 左の縦線 col 4・右の縦線 col 25(「口」の下辺から)
+  it('道路は「日」の字で、右上の部分だけは 2P の「口」の字になる', () => {
+    // 左の縦線 col 4・右の縦線 col 25(「口」の右辺から続く)
     for (const row of range(6, 21)) {
       expect(isRoadLike(gridPosition(4, row))).toBe(true);
     }
-    for (const row of range(7, 21)) {
+    // (25,2) は「口」の右上の角にある 2P の本拠地
+    for (const row of range(3, 21)) {
       expect(isRoadLike(gridPosition(25, row))).toBe(true);
     }
     // 上の線 row 6(「口」の左辺まで)・真ん中の線 row 14・下の線 row 21
-    for (const col of range(4, 21)) {
+    for (const col of range(4, 18)) {
       expect(isRoadLike(gridPosition(col, 6))).toBe(true);
     }
+    expect(isRoadLike(gridPosition(19, 6))).toBe(false);
     for (const col of range(4, 25)) {
       expect(isRoadLike(gridPosition(col, 14))).toBe(true);
       expect(isRoadLike(gridPosition(col, 21))).toBe(true);
     }
-    // 「日」の右上の角 (25,6) は道路ではなく、代わりに 2P の陣地を「口」の字の道路が囲む
-    expect(isRoadLike(gridPosition(25, 6))).toBe(false);
-    for (const col of range(21, 27)) {
+    // 「口」は col 18〜25・row 2〜14。上辺 row 2・左辺 col 18 で、
+    // 下辺は真ん中の線・右辺は右の縦線と重なる
+    for (const col of range(18, 24)) {
       expect(isRoadLike(gridPosition(col, 2))).toBe(true);
-      expect(isRoadLike(gridPosition(col, 7))).toBe(true);
     }
-    for (const row of range(2, 7)) {
-      expect(isRoadLike(gridPosition(21, row))).toBe(true);
-      expect(isRoadLike(gridPosition(27, row))).toBe(true);
+    for (const row of range(2, 14)) {
+      expect(isRoadLike(gridPosition(18, row))).toBe(true);
     }
-    // 「口」の内側に 2P の陣地がある
+    // 「口」の左辺は下の研究所の少し右で真ん中の線につながる
+    expect(MIDDLE_LABORATORY.row).toBe(14);
+    expect(18 - MIDDLE_LABORATORY.col).toBeGreaterThanOrEqual(1);
+    expect(18 - MIDDLE_LABORATORY.col).toBeLessThanOrEqual(2);
+    // 「口」の右上の角が 2P の本拠地で、2P の陣地はそのまわりに固まる
+    expect(key(HQ.enemy)).toBe('25,2');
     map.forEachTile((tile) => {
       if (tile.owner !== 'enemy') return;
-      expect(tile.position.col).toBeGreaterThan(21);
-      expect(tile.position.col).toBeLessThan(27);
-      expect(tile.position.row).toBeGreaterThan(2);
-      expect(tile.position.row).toBeLessThan(7);
+      expect(Math.abs(tile.position.col - HQ.enemy.col)).toBeLessThanOrEqual(1);
+      expect(Math.abs(tile.position.row - HQ.enemy.row)).toBeLessThanOrEqual(1);
     });
     // 3P・4P の本拠地は「日」の下の角のすぐ下
     expect(key(HQ.third)).toBe('4,22');
@@ -384,9 +389,9 @@ describe('叉海大島マップ(4P マップ)', () => {
   it('研究所は「日」の上の線の真ん中と、真ん中の線の真ん中あたりにある', () => {
     expect(map.getTile(TOP_LABORATORY)?.terrainType).toBe('laboratory');
     expect(map.getTile(MIDDLE_LABORATORY)?.terrainType).toBe('laboratory');
-    // 上の線(col 4〜21)と真ん中の線(col 4〜25)の真ん中から 2 マス以内
+    // 上の線(col 4〜18)と真ん中の線(col 4〜25)の真ん中から 2 マス以内
     expect(TOP_LABORATORY.row).toBe(6);
-    expect(Math.abs(TOP_LABORATORY.col - (4 + 21) / 2)).toBeLessThanOrEqual(2);
+    expect(Math.abs(TOP_LABORATORY.col - (4 + 18) / 2)).toBeLessThanOrEqual(2);
     expect(MIDDLE_LABORATORY.row).toBe(14);
     expect(Math.abs(MIDDLE_LABORATORY.col - (4 + 25) / 2)).toBeLessThanOrEqual(2);
   });
@@ -396,25 +401,38 @@ describe('叉海大島マップ(4P マップ)', () => {
     const turns = (army: TurnArmy): number =>
       Math.ceil(costFromCamp(army, TOP_LABORATORY) / 3);
     expect(costFromCamp('player', TOP_LABORATORY)).toBe(11);
-    expect(costFromCamp('enemy', TOP_LABORATORY)).toBe(13);
+    expect(costFromCamp('enemy', TOP_LABORATORY)).toBe(15);
     expect(turns('player')).toBeLessThan(turns('enemy'));
     for (const army of ['third', 'fourth'] as const) {
       expect(turns('player')).toBeLessThan(turns(army));
     }
   });
 
-  it('中立空港は上・中・下に 1 個ずつ、どれも道路沿い', () => {
+  it('中立空港は上・中・下に 1 個ずつ、研究所と下の線の橋のそばにある', () => {
     const airports = tilesOf(map, 'airport')
       .filter((pos) => map.getTile(pos)?.owner === 'neutral')
       .sort((a, b) => a.row - b.row);
+    expect(airports).toHaveLength(3);
     const band = map.rows / 3;
-    expect(airports[0].row).toBeLessThan(band);
-    expect(airports[1].row).toBeGreaterThanOrEqual(band);
-    expect(airports[1].row).toBeLessThan(band * 2);
-    expect(airports[2].row).toBeGreaterThanOrEqual(band * 2);
-    for (const airport of airports) {
-      expect(neighbors(airport).some(isRoadLike)).toBe(true);
-    }
+    const [top, middle, bottom] = airports;
+    expect(top.row).toBeLessThan(band);
+    expect(middle.row).toBeGreaterThanOrEqual(band);
+    expect(middle.row).toBeLessThan(band * 2);
+    expect(bottom.row).toBeGreaterThanOrEqual(band * 2);
+    // 上の空港は上の研究所のやや右上
+    expect(top.col - TOP_LABORATORY.col).toBeGreaterThanOrEqual(1);
+    expect(top.col - TOP_LABORATORY.col).toBeLessThanOrEqual(2);
+    expect(TOP_LABORATORY.row - top.row).toBeGreaterThanOrEqual(1);
+    expect(TOP_LABORATORY.row - top.row).toBeLessThanOrEqual(2);
+    // 真ん中の空港は下の研究所のやや上
+    expect(Math.abs(middle.col - MIDDLE_LABORATORY.col)).toBeLessThanOrEqual(1);
+    expect(MIDDLE_LABORATORY.row - middle.row).toBeGreaterThanOrEqual(1);
+    expect(MIDDLE_LABORATORY.row - middle.row).toBeLessThanOrEqual(2);
+    // 下の空港は下の線の橋 (11〜12,21) のやや右下
+    expect(bottom.col - 12).toBeGreaterThanOrEqual(1);
+    expect(bottom.col - 12).toBeLessThanOrEqual(3);
+    expect(bottom.row - 21).toBeGreaterThanOrEqual(1);
+    expect(bottom.row - 21).toBeLessThanOrEqual(2);
   });
 
   it('中立都市はどれも道路沿いにあり、1 個か 2 個の塊で置いてある', () => {
