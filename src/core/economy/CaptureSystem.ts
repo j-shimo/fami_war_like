@@ -6,6 +6,7 @@
 
 import { equals } from '@/core/map/GridPosition';
 import { INITIAL_CAPTURE_HP, type TileData } from '@/core/map/TileData';
+import { areAllied } from '@/core/team/Alliance';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitType } from '@/core/units/UnitType';
 import { getTerrainData } from '@/data/terrainData';
@@ -56,6 +57,7 @@ export class CaptureSystem {
    * unit が tile を占領できるか判定する。
    * 占領できるのは、占領能力を持つ生存ユニットが、
    * 自軍所有でない占領可能地形の上に立っている場合に限る。
+   * 4P マップの同盟軍が所有する拠点も占領できない。
    */
   canCapture(unit: Unit, tile: TileData): boolean {
     if (!unit.isAlive || !unit.canCapture) {
@@ -64,8 +66,8 @@ export class CaptureSystem {
     if (!getTerrainData(tile.terrainType).canCapture) {
       return false;
     }
-    // すでに自軍が所有している拠点は占領対象にならない
-    if (tile.owner === unit.armyType) {
+    // すでに自軍(または同盟軍)が所有している拠点は占領対象にならない
+    if (areAllied(tile.owner, unit.armyType)) {
       return false;
     }
     // ユニットが占領対象マスに立っていること

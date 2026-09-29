@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { EnemyAi } from '@/core/ai/EnemyAi';
 import { BattleManager } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
@@ -12,9 +12,11 @@ import {
   DEFAULT_FOUR_PLAYER_SETUP,
   absentArmies,
   participatingArmies,
+  teamAssignment,
   withSlot,
 } from '@/core/mode/FourPlayerSetup';
 import { distancesFrom } from '@/core/movement/PathDistance';
+import { areAllied, clearAlliances, setAlliances } from '@/core/team/Alliance';
 import { TurnManager, type TurnArmy } from '@/core/turn/TurnManager';
 import { UnitManager } from '@/core/units/UnitManager';
 import {
@@ -76,20 +78,20 @@ const CAMPS: Readonly<
   Record<TurnArmy, { hq: GridPosition; factories: readonly GridPosition[] }>
 > = {
   player: {
-    hq: gridPosition(4, 3),
-    factories: [gridPosition(5, 3), gridPosition(4, 4), gridPosition(5, 4)],
+    hq: gridPosition(9, 3),
+    factories: [gridPosition(10, 3), gridPosition(9, 4), gridPosition(10, 4)],
   },
   enemy: {
-    hq: gridPosition(27, 3),
-    factories: [gridPosition(26, 3), gridPosition(26, 4), gridPosition(27, 4)],
+    hq: gridPosition(22, 3),
+    factories: [gridPosition(21, 3), gridPosition(21, 4), gridPosition(22, 4)],
   },
   third: {
     hq: gridPosition(5, 20),
     factories: [gridPosition(5, 19), gridPosition(6, 19), gridPosition(6, 20)],
   },
   fourth: {
-    hq: gridPosition(27, 20),
-    factories: [gridPosition(26, 19), gridPosition(27, 19), gridPosition(26, 20)],
+    hq: gridPosition(22, 20),
+    factories: [gridPosition(21, 19), gridPosition(22, 19), gridPosition(21, 20)],
   },
 };
 
@@ -112,8 +114,8 @@ function costFromCamp(
 describe('四陣大島マップ(4P マップ)', () => {
   const map = MapManager.fromDefinition(FOUR_CAMPS_ISLAND_MAP);
 
-  it('32x24 の 4P マップとして一覧に登録されている', () => {
-    expect(map.cols).toBe(32);
+  it('26x24 の 4P マップとして一覧に登録されている', () => {
+    expect(map.cols).toBe(26);
     expect(map.rows).toBe(24);
     const entry = MAP_LIST.find((item) => item.id === 'fourCampsIsland');
     expect(entry?.group).toBe('four');
@@ -135,13 +137,13 @@ describe('四陣大島マップ(4P マップ)', () => {
         ].sort(),
       );
     }
-    expect(CAMPS.player.hq.col).toBeLessThan(16);
+    expect(CAMPS.player.hq.col).toBeLessThan(13);
     expect(CAMPS.player.hq.row).toBeLessThan(12);
-    expect(CAMPS.enemy.hq.col).toBeGreaterThan(16);
+    expect(CAMPS.enemy.hq.col).toBeGreaterThan(13);
     expect(CAMPS.enemy.hq.row).toBeLessThan(12);
-    expect(CAMPS.third.hq.col).toBeLessThan(16);
+    expect(CAMPS.third.hq.col).toBeLessThan(13);
     expect(CAMPS.third.hq.row).toBeGreaterThan(12);
-    expect(CAMPS.fourth.hq.col).toBeGreaterThan(16);
+    expect(CAMPS.fourth.hq.col).toBeGreaterThan(13);
     expect(CAMPS.fourth.hq.row).toBeGreaterThan(12);
   });
 
@@ -154,8 +156,8 @@ describe('四陣大島マップ(4P マップ)', () => {
     }
   });
 
-  it('拠点は陣地のほかは中立都市 24 個だけ(港・空港・研究所・駅は無い)', () => {
-    expect(tilesOf(map, 'city')).toHaveLength(24);
+  it('拠点は陣地のほかは中立都市 27 個だけ(港・空港・研究所・駅は無い)', () => {
+    expect(tilesOf(map, 'city')).toHaveLength(27);
     for (const terrain of ['port', 'airport', 'laboratory', 'station'] as const) {
       expect(tilesOf(map, terrain)).toHaveLength(0);
     }
@@ -164,17 +166,44 @@ describe('四陣大島マップ(4P マップ)', () => {
     }
   });
 
-  it('1 つの島で、海は左端にだけある', () => {
+  it('1 つの島で、海は西にだけあり、北ほど広く南へ下るほど狭くなる', () => {
     const seas = tilesOf(map, 'sea');
     expect(seas.length).toBeGreaterThan(0);
     for (const sea of seas) {
-      expect(sea.col).toBeLessThanOrEqual(2);
+      expect(sea.col).toBeLessThan(CAMPS.player.hq.col);
     }
     // 左端の 2 列はすべて海
     for (let row = 0; row < map.rows; row += 1) {
       expect(map.getTile(gridPosition(0, row))?.terrainType).toBe('sea');
       expect(map.getTile(gridPosition(1, row))?.terrainType).toBe('sea');
     }
+    // 各行で左端から続く海の幅は、南へ下るにつれて広がらない
+    // (入り江のような 1 マスの出入りは許し、その行より北の最小幅と南の最小幅で比べる)
+    const seaWidth = (row: number): number => {
+      let col = 0;
+      while (map.getTile(gridPosition(col, row))?.terrainType === 'sea') col += 1;
+      return col;
+    };
+    const widths = Array.from({ length: map.rows }, (_, row) => seaWidth(row));
+    for (let row = 1; row < map.rows; row += 1) {
+      expect(Math.min(...widths.slice(row))).toBeLessThanOrEqual(
+        Math.min(...widths.slice(0, row)),
+      );
+    }
+    expect(Math.min(...widths.slice(0, 6))).toBeGreaterThanOrEqual(6);
+    expect(Math.max(...widths.slice(18))).toBeLessThanOrEqual(3);
+    // 1P の本拠地の西は、海岸まで平地が 1〜2 マスだけ
+    const hq = CAMPS.player.hq;
+    let plains = 0;
+    for (let col = hq.col - 1; col >= 0; col -= 1) {
+      if (map.getTile(gridPosition(col, hq.row))?.terrainType !== 'plain') break;
+      plains += 1;
+    }
+    expect(plains).toBeGreaterThanOrEqual(1);
+    expect(plains).toBeLessThanOrEqual(2);
+    expect(['sea', 'beach']).toContain(
+      map.getTile(gridPosition(hq.col - plains - 1, hq.row))?.terrainType,
+    );
     // 陸はひとつながり(歩兵で 4 軍の陣地がすべて行き来できる)
     const land = floodFill(
       map,
@@ -188,28 +217,48 @@ describe('四陣大島マップ(4P マップ)', () => {
 
   it('1P と 2P の間には山脈があり、車両は山脈の南を回らないと行き来できない', () => {
     const mountains = tilesOf(map, 'mountain');
-    expect(mountains.length).toBeGreaterThanOrEqual(20);
+    expect(mountains.length).toBeGreaterThanOrEqual(30);
     for (const mountain of mountains) {
       expect(mountain.col).toBeGreaterThan(CAMPS.player.hq.col);
       expect(mountain.col).toBeLessThan(CAMPS.enemy.hq.col);
-      expect(mountain.row).toBeLessThanOrEqual(6);
+      expect(mountain.row).toBeLessThanOrEqual(9);
     }
-    // 装軌車両は山脈のある row 6 より上だけを通って 1P から 2P へは行けない
+    // 山脈は row 9 まで南へ伸びている
+    expect(mountains.some((mountain) => mountain.row === 9)).toBe(true);
+    // 装軌車両は山脈のある row 9 より上だけを通って 1P から 2P へは行けない
     const north = floodFill(
       map,
       CAMPS.player.factories[0],
-      (pos) => pos.row <= 6 && map.getMoveCost(pos, 'vehicle') !== null,
+      (pos) => pos.row <= 9 && map.getMoveCost(pos, 'vehicle') !== null,
     );
     expect(north.has(key(CAMPS.enemy.hq))).toBe(false);
     // 歩兵は山を越えて近道でき、装軌車両よりずっと近い
     const infantry = costFromCamp(map, 'player', CAMPS.enemy.hq, 'infantry');
     const vehicle = costFromCamp(map, 'player', CAMPS.enemy.hq, 'vehicle');
-    expect(infantry).toBe(26);
-    expect(vehicle).toBe(31);
+    expect(infantry).toBe(18);
+    expect(vehicle).toBe(25);
   });
 
-  it('川が 1P と 3P・2P と 4P の間を流れ、装輪車両は橋を通らないと南北を行き来できない', () => {
-    const bridges = [gridPosition(5, 12), gridPosition(17, 12), gridPosition(26, 11)];
+  it('山脈へは 2P の歩兵が 1 ターン、1P の歩兵が 2 ターンで登れる', () => {
+    const toMountain = (army: TurnArmy): number =>
+      Math.min(
+        ...tilesOf(map, 'mountain').map((mountain) => costFromCamp(map, army, mountain)),
+      );
+    // 歩兵の移動力は 3。2P は 1 ターン(コスト 3 以内)で届く
+    expect(toMountain('enemy')).toBeLessThanOrEqual(3);
+    // 1P は 1 ターンでは届かず、2 ターン(コスト 6 以内)で届く
+    expect(toMountain('player')).toBeGreaterThan(3);
+    expect(toMountain('player')).toBeLessThanOrEqual(6);
+  });
+
+  it('川が島を南北に分け、装輪車両は橋を通らないと南北を行き来できない', () => {
+    // 本流の橋 2 本と、中州を囲む川の橋 2 本
+    const bridges = [
+      gridPosition(15, 12),
+      gridPosition(21, 11),
+      gridPosition(8, 9),
+      gridPosition(8, 15),
+    ];
     for (const bridge of bridges) {
       expect(map.getTile(bridge)?.terrainType).toBe('road');
     }
@@ -226,22 +275,22 @@ describe('四陣大島マップ(4P マップ)', () => {
     expect(withoutBridges.has(key(CAMPS.fourth.hq))).toBe(false);
   });
 
-  it('3P の陣地は川(堀)に囲まれ、出入りできるのは 2 本の橋だけ', () => {
-    const moatBridges = [gridPosition(7, 17), gridPosition(9, 19)];
-    for (const bridge of moatBridges) {
+  it('1P と 3P の間の中立都市は、川に囲まれた中州に固まっている', () => {
+    const islandBridges = [gridPosition(8, 9), gridPosition(8, 15)];
+    for (const bridge of islandBridges) {
       expect(map.getTile(bridge)?.terrainType).toBe('road');
     }
-    // 川も橋も通らずに歩ける範囲は、堀の内側だけ
-    const inside = floodFill(map, CAMPS.third.hq, (pos) => {
+    // 川も橋も通らずに歩ける範囲が中州
+    const inside = floodFill(map, gridPosition(7, 12), (pos) => {
       const terrain = map.getTile(pos)?.terrainType;
       return (
         terrain !== 'river' &&
         terrain !== 'sea' &&
-        !moatBridges.some((bridge) => key(bridge) === key(pos))
+        !islandBridges.some((bridge) => key(bridge) === key(pos))
       );
     });
-    expect(inside.size).toBeLessThan(25);
-    for (const army of ['player', 'enemy', 'fourth'] as const) {
+    expect(inside.size).toBeLessThan(40);
+    for (const army of ARMIES) {
       expect(inside.has(key(CAMPS[army].hq))).toBe(false);
     }
     // 内側のマスの隣は、川・海・橋・内側のどれか(= 川に囲まれている)
@@ -249,12 +298,59 @@ describe('四陣大島マップ(4P マップ)', () => {
       const [col, row] = cell.split(',').map(Number);
       for (const next of neighbors(gridPosition(col, row))) {
         const terrain = map.getTile(next)?.terrainType;
-        const isBridge = moatBridges.some((bridge) => key(bridge) === key(next));
+        const isBridge = islandBridges.some((bridge) => key(bridge) === key(next));
         expect(
           inside.has(key(next)) || terrain === 'river' || terrain === 'sea' || isBridge,
         ).toBe(true);
       }
     }
+    // 中州は 1P と 3P の陣地の間にある
+    for (const cell of inside) {
+      const [, row] = cell.split(',').map(Number);
+      expect(row).toBeGreaterThan(CAMPS.player.hq.row);
+      expect(row).toBeLessThan(CAMPS.third.hq.row);
+    }
+
+    // 中州の都市は 6 個
+    const cities = tilesOf(map, 'city').filter((city) => inside.has(key(city)));
+    expect(cities).toHaveLength(6);
+
+    // 中州の都市は 1P と 3P で奪い合う距離にあり、半分ずつがそれぞれに近い
+    let nearerToFirst = 0;
+    for (const city of cities) {
+      const p1 = costFromCamp(map, 'player', city);
+      const p3 = costFromCamp(map, 'third', city);
+      expect(Math.abs(p1 - p3)).toBeLessThanOrEqual(5);
+      expect(Math.max(p1, p3)).toBeLessThanOrEqual(12);
+      if (p1 < p3) nearerToFirst += 1;
+    }
+    expect(nearerToFirst).toBe(3);
+  });
+
+  it('中立都市はどれも 1 個だけか、2 個が隣り合った塊で置いてある', () => {
+    const cities = tilesOf(map, 'city');
+    const cityKeys = new Set(cities.map(key));
+    const seen = new Set<string>();
+    const sizes: number[] = [];
+    for (const city of cities) {
+      if (seen.has(key(city))) continue;
+      const cluster = floodFill(map, city, (pos) => cityKeys.has(key(pos)));
+      cluster.forEach((cell) => seen.add(cell));
+      sizes.push(cluster.size);
+    }
+    for (const size of sizes) {
+      expect(size).toBeLessThanOrEqual(2);
+    }
+    // 2 個の塊がいくつもある(ばらばらに散らしただけではない)
+    expect(sizes.filter((size) => size === 2).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('3P の陣地は川に囲まれておらず、川を渡らずに 4P の陣地まで歩ける', () => {
+    const land = floodFill(map, CAMPS.third.hq, (pos) => {
+      const terrain = map.getTile(pos)?.terrainType;
+      return terrain !== 'river' && terrain !== 'sea';
+    });
+    expect(land.has(key(CAMPS.fourth.hq))).toBe(true);
   });
 
   it('道路で 1P〜3P・3P〜4P・2P〜4P がつながり、1P〜2P は道路でつながらない', () => {
@@ -280,24 +376,38 @@ describe('四陣大島マップ(4P マップ)', () => {
   });
 
   it('3P〜4P の街道は row 19 の一直線', () => {
-    for (let col = 7; col <= 25; col += 1) {
+    for (let col = 7; col <= 20; col += 1) {
       expect(map.getTile(gridPosition(col, 19))?.terrainType).toBe('road');
     }
     expect(map.getTile(gridPosition(6, 19))?.owner).toBe('third');
-    expect(map.getTile(gridPosition(26, 19))?.owner).toBe('fourth');
+    expect(map.getTile(gridPosition(21, 19))?.owner).toBe('fourth');
+  });
+
+  it('2P〜4P の街道は col 21 の一直線(本流は橋で渡る)', () => {
+    for (let row = 5; row <= 18; row += 1) {
+      expect(map.getTile(gridPosition(21, row))?.terrainType).toBe('road');
+    }
+    expect(map.getTile(gridPosition(21, 4))?.owner).toBe('enemy');
+    expect(map.getTile(gridPosition(21, 19))?.owner).toBe('fourth');
+    // 装輪車両でも 2P から 4P へまっすぐ走れる
+    expect(costFromCamp(map, 'enemy', CAMPS.fourth.hq, 'wheeled')).toBe(17);
   });
 
   it('1P から島の真ん中を通る街道が、3P〜4P の街道に T 字でつながる', () => {
-    // 3P〜4P の街道の真ん中 (16,19) の北隣から道路が北へ伸びている
-    expect(map.getTile(gridPosition(16, 18))?.terrainType).toBe('road');
-    // 3P・4P の陣地と 1P〜3P の街道(col 7 より西)を通らずに、道路だけで 1P から (16,19) へ行ける
+    // 3P〜4P の街道の真ん中 (14,19) の北隣から道路が北へ伸びている
+    expect(map.getTile(gridPosition(14, 18))?.terrainType).toBe('road');
+    // 3P・4P の陣地・1P〜3P の街道(col 8 より西)・2P〜4P の街道(col 21)を通らずに、
+    // 道路だけで 1P から (14,19) へ行ける
     const center = floodFill(map, CAMPS.player.factories[0], (pos) => {
       const terrain = map.getTile(pos)?.terrainType;
       return (
-        (terrain === 'road' || terrain === 'factory') && pos.col >= 5 && pos.row <= 19
+        (terrain === 'road' || terrain === 'factory') &&
+        pos.col >= 9 &&
+        pos.col <= 20 &&
+        pos.row <= 19
       );
     });
-    expect(center.has('16,19')).toBe(true);
+    expect(center.has('14,19')).toBe(true);
     // その道は島の真ん中(col 12〜20・row 9〜15)を通る
     const middle = [...center].filter((cell) => {
       const [col, row] = cell.split(',').map(Number);
@@ -384,5 +494,67 @@ describe('四陣大島マップ(4P マップ)', () => {
         expect(bases).toBeGreaterThan(4);
       }
     }
+  });
+
+  describe('チーム分け(1P・3P 対 2P・4P)', () => {
+    afterEach(() => {
+      clearAlliances();
+    });
+
+    it('コンピューターどうしで手番を回しても、同盟軍どうしは攻撃・占領し合わない', () => {
+      let setup = DEFAULT_FOUR_PLAYER_SETUP;
+      setup = withSlot(setup, 'player', { control: 'cpu', team: 'A' });
+      setup = withSlot(setup, 'third', { team: 'A' });
+      setup = withSlot(setup, 'enemy', { team: 'B' });
+      setup = withSlot(setup, 'fourth', { team: 'B' });
+      setAlliances(teamAssignment(setup));
+
+      const def = FOUR_CAMPS_ISLAND_MAP;
+      const aiMap = MapManager.fromDefinition(def);
+      const units = UnitManager.fromPlacements([], aiMap);
+      const economy = new EconomyManager({ initialFunds: def.initialFunds });
+      const battle = new BattleManager(aiMap, units);
+      const capture = new CaptureSystem();
+      const production = new ProductionManager(aiMap, units, economy);
+      const repair = new RepairManager(aiMap, units, economy);
+      const order = participatingArmies(setup);
+      const turn = new TurnManager(units, undefined, order);
+      const checker = new EliminationChecker(aiMap, units, findHomeHeadquarters(aiMap));
+      const ais = new Map(
+        order.map((army) => [
+          army,
+          new EnemyAi({ map: aiMap, units, battle, capture, production }, army),
+        ]),
+      );
+
+      for (let step = 0; step < order.length * 15; step += 1) {
+        const army = turn.currentArmy;
+        economy.collectIncome(army, aiMap);
+        repair.repairAll(army);
+        // 占領される前の所有者を控え、同盟軍の拠点が占領されていないかを確かめる
+        const owners = new Map<string, string>();
+        aiMap.forEachTile((tile) => owners.set(key(tile.position), tile.owner));
+        const actions = ais.get(army)?.run() ?? [];
+        for (const action of actions) {
+          if (action.kind === 'attack') {
+            expect(
+              areAllied(action.result.attacker.armyType, action.result.defender.armyType),
+            ).toBe(false);
+          }
+          if (action.kind === 'capture') {
+            const before = owners.get(key(action.result.tile.position)) ?? 'neutral';
+            expect(before === army || !areAllied(before as TurnArmy, army)).toBe(true);
+          }
+        }
+        for (const elimination of checker.check(turn.activeArmies)) {
+          applyElimination(elimination, aiMap, units);
+          turn.eliminate(elimination.army);
+        }
+        if (judgeFourPlayer(turn.activeArmies, []).kind !== 'ongoing') {
+          break;
+        }
+        turn.endTurn();
+      }
+    });
   });
 });

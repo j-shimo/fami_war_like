@@ -42,6 +42,8 @@ import {
   isCpuArmy,
   participatingArmies,
   playerNumberLabel,
+  slotTeam,
+  teamAssignment,
   type FourPlayerSetup,
 } from '@/core/mode/FourPlayerSetup';
 import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
@@ -64,6 +66,7 @@ import {
   writeEnemyAnimationMode,
 } from '@/core/settings/SettingsStorage';
 import { enemyAnimationModeLabel, type EnemyAnimationMode } from '@/data/enemyAnimation';
+import { areAllied, setAlliances, teamLabel } from '@/core/team/Alliance';
 import { TurnManager, type TurnArmy } from '@/core/turn/TurnManager';
 import type { Unit } from '@/core/units/Unit';
 import { mergedHp } from '@/core/units/merge';
@@ -521,6 +524,9 @@ export class MainScene extends Phaser.Scene {
     save?: SaveData;
   }): void {
     this.fourPlayer = data.save ? data.save.fourPlayer : (data.fourPlayer ?? null);
+    // 同盟(チーム分け)は戦闘・移動・占領・視界・敵軍AI が参照するため、ゲームごとに登録し直す。
+    // 2 人で遊ぶマップ・チーム分けをしない 4P マップでは同盟なし
+    setAlliances(this.fourPlayer ? teamAssignment(this.fourPlayer) : {});
     this.playerSide = data.playerSide ?? DEFAULT_GAME_MODE.side;
     this.versusMode = data.versusMode ?? DEFAULT_GAME_MODE.versus;
     const definition = data.map ?? DEFAULT_MAP_ENTRY.definition;
@@ -1427,11 +1433,14 @@ export class MainScene extends Phaser.Scene {
     // 手番開始のジングルを鳴らし、手番に応じた BGM へ切り替える
     this.audio.playSfx(this.isPlayerSideTurn() ? 'turnPlayer' : 'turnEnemy');
     this.updateBattleBgm();
+    const turnLabel = this.nightBattle
+      ? `第${state.turnNumber}ターン(夜戦)`
+      : `第${state.turnNumber}ターン`;
+    // 4P マップのチーム分けでは、どのチームの手番かも添える
+    const team = this.fourPlayer ? slotTeam(this.fourPlayer, army) : null;
     this.showBanner(
       `${armyLabel(army, this.armyLabelOptions())}ターン`,
-      this.nightBattle
-        ? `第${state.turnNumber}ターン(夜戦)`
-        : `第${state.turnNumber}ターン`,
+      team === null ? turnLabel : `${turnLabel} / ${teamLabel(team)}`,
       TURN_BANNER_COLOR[army],
     );
   }
@@ -1611,9 +1620,16 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  /** 4P マップで、プレイヤーが 1 人もいない(コンピューターどうしの対戦を見ている)か */
+  /**
+   * 4P マップで、手番を持つプレイヤーが 1 人もいない(コンピューターどうしの対戦を見ている)か。
+   * チーム分けでは、プレイヤーの軍勢が脱落しても同盟軍が残っていれば対戦が続くため、
+   * 脱落したプレイヤーの軍勢は数えない(残りの手番はコンピューターどうしの対戦として見せる)。
+   */
   private isSpectating(): boolean {
-    return this.fourPlayer !== null && humanArmies(this.fourPlayer).length === 0;
+    const setup = this.fourPlayer;
+    return (
+      setup !== null && humanArmies(setup).every((army) => this.turn.isEliminated(army))
+    );
   }
 
   /**
@@ -2191,7 +2207,7 @@ export class MainScene extends Phaser.Scene {
         // 射程外の敵を選んだときは「攻撃できない」と分かるように音で知らせる
         // (夜戦で見えていない敵は「いない」扱いにして、存在を悟らせない)
         const other = this.visibleUnitAt(pos);
-        if (other && other.armyType !== this.commandUnit.armyType) {
+        if (other && !areAllied(other.armyType, this.commandUnit.armyType)) {
           this.audio.playSfx('denied');
           return;
         }
@@ -2987,12 +3003,12 @@ export class MainScene extends Phaser.Scene {
     ]);
   }
 
-  /** unit が(移動後に)tile を占領できる状況か(占領能力・占領地形・非自軍所有) */
+  /** unit が(移動後に)tile を占領できる状況か(占領能力・占領地形・自軍や同盟軍の所有でない) */
   private canOfferCapture(unit: Unit, tile: TileData): boolean {
     return (
       unit.canCapture &&
       getTerrainData(tile.terrainType).canCapture &&
-      tile.owner !== unit.armyType
+      !areAllied(tile.owner, unit.armyType)
     );
   }
 
@@ -3248,12 +3264,17 @@ export class MainScene extends Phaser.Scene {
       outcome,
       humanArmies(setup),
       this.armyLabelOptions(),
+      teamAssignment(setup),
     );
     this.audio.stopBgm();
     this.audio.playSfx(result.isVictory ? 'victory' : 'lose');
     this.resetSelection();
     this.showResultOverlay(result, result.isVictory, {
-      titleColor: outcome.kind === 'winner' ? ARMY_TEXT_COLOR[outcome.army] : undefined,
+      // チームの勝利は複数の軍勢の勝利なので、特定の軍勢の色には染めない
+      titleColor:
+        outcome.kind === 'winner' && slotTeam(setup, outcome.army) === null
+          ? ARMY_TEXT_COLOR[outcome.army]
+          : undefined,
     });
   }
 

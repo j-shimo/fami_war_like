@@ -4,6 +4,7 @@
 
 import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
+import { areAllied } from '@/core/team/Alliance';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import {
@@ -66,7 +67,7 @@ export class BattleManager {
    * 対空戦車 → 重戦車など)への攻撃はデータ不整合として例外を投げる。
    */
   attack(attacker: Unit, defender: Unit): AttackResult {
-    if (attacker.armyType === defender.armyType) {
+    if (areAllied(attacker.armyType, defender.armyType)) {
       throw new Error('味方ユニットは攻撃できません');
     }
     if (!canAttackUnit(attacker, defender)) {

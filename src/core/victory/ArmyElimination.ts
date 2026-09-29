@@ -9,10 +9,13 @@
 //   - 全滅した: その軍勢の拠点はすべて中立に戻る
 //   どちらの場合も、盤面に残っていたユニットは取り除く。
 // 最後の 1 軍が残った時点で、その軍勢の勝利として決着する。
+// チーム分けをしている場合は、残った軍勢がすべて同じチーム(同盟軍どうし)になった時点で、
+// そのチームの勝利として決着する。
 
 import type { GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
+import { areAllied } from '@/core/team/Alliance';
 import { INITIAL_CAPTURE_HP } from '@/core/map/TileData';
 import type { TurnArmy } from '@/core/turn/TurnManager';
 import type { UnitManager } from '@/core/units/UnitManager';
@@ -47,12 +50,18 @@ export interface EliminationEffect {
 /**
  * 4P マップの決着状態。
  * - ongoing: まだ 2 軍以上が残っていて、プレイヤーも残っている
- * - winner: 最後の 1 軍が残った(その軍勢の勝利)
- * - humans_defeated: プレイヤーが操作する軍勢がすべて脱落した(コンピューターだけが残った)
+ * - winner: 最後の 1 軍(チーム分けをしていれば 1 チーム)が残った(その軍勢・チームの勝利)。
+ *   army は勝ち残った軍勢の代表(巡回順で先頭)、armies は勝ち残った軍勢すべて
+ * - humans_defeated: プレイヤーが操作する軍勢と、その同盟軍がすべて脱落した
+ *   (プレイヤーと敵対するコンピューターだけが残った)
  */
 export type FourPlayerOutcome =
   | { readonly kind: 'ongoing' }
-  | { readonly kind: 'winner'; readonly army: TurnArmy }
+  | {
+      readonly kind: 'winner';
+      readonly army: TurnArmy;
+      readonly armies: readonly TurnArmy[];
+    }
   | { readonly kind: 'humans_defeated' };
 
 /**
@@ -179,21 +188,31 @@ export function applyElimination(
  * 4P マップの決着を判定する。
  *
  * @param active まだ脱落していない軍勢
+ * プレイヤーの軍勢が脱落しても、同じチームの同盟軍が残っていれば対戦は続く
+ * (同盟軍が勝ち残れば、脱落したプレイヤーもチームとして勝利になる)。
+ *
+ * @param active まだ脱落していない軍勢
  * @param humans ゲーム開始時にプレイヤーが操作していた軍勢
  *   (プレイヤーが 1 人もいない観戦のゲームでは空配列)
+ * @param allied 2 つの軍勢が味方どうしかの判定(既定はいま登録しているチーム分け)
  */
 export function judgeFourPlayer(
   active: readonly TurnArmy[],
   humans: readonly TurnArmy[],
+  allied: (a: TurnArmy, b: TurnArmy) => boolean = areAllied,
 ): FourPlayerOutcome {
-  if (active.length === 1) {
-    return { kind: 'winner', army: active[0] };
-  }
   // 残り 0 軍(同時に全軍が脱落する)ことは通常起きないが、起きたらプレイヤーの敗北として終える
   if (active.length === 0) {
     return { kind: 'humans_defeated' };
   }
-  if (humans.length > 0 && !active.some((army) => humans.includes(army))) {
+  const [first] = active;
+  if (active.every((army) => allied(army, first))) {
+    return { kind: 'winner', army: first, armies: [...active] };
+  }
+  const humanSideRemains = active.some((army) =>
+    humans.some((human) => allied(army, human)),
+  );
+  if (humans.length > 0 && !humanSideRemains) {
     return { kind: 'humans_defeated' };
   }
   return { kind: 'ongoing' };

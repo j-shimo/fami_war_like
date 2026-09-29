@@ -32,6 +32,9 @@
 // 夜戦(nightBattle)では AI も自軍と同じ視界のルールに従う。見えていない敵は攻撃対象に
 // 選ばず、移動経路上で見えない敵に出くわしたら 1 つ手前のマスで強制待機になる。
 // 敵が 1 体も見えていないときは、自軍所有でない拠点を目標にして前進する(索敵)。
+//
+// 4P マップのチーム分けで同盟を組んだ軍勢は、攻撃対象・占領目標・接近の目標にしない
+// (同盟軍のユニットは攻撃できず、同盟軍の拠点は占領できないため)。
 
 import { DEFAULT_AI_BEHAVIOR, type AiBehavior } from '@/core/ai/AiBehavior';
 import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
@@ -55,7 +58,7 @@ import {
   type GridPosition,
 } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
-import type { MovementType } from '@/core/map/TerrainType';
+import type { ArmyType, MovementType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
 import {
   calculateMovementRange,
@@ -69,6 +72,7 @@ import {
   type PathDistanceField,
 } from '@/core/movement/PathDistance';
 import { computeVisibility, type Visibility } from '@/core/night/Visibility';
+import { areAllied } from '@/core/team/Alliance';
 import { canCarry, canLoadOn } from '@/core/units/transport';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
@@ -551,7 +555,7 @@ export class EnemyAi {
       if (!tile) {
         continue;
       }
-      if (!getTerrainData(tile.terrainType).canCapture || tile.owner === this.army) {
+      if (!getTerrainData(tile.terrainType).canCapture || this.isFriendly(tile.owner)) {
         continue;
       }
       // すでにその場にいる拠点を最優先(移動せず占領を継続できる)、
@@ -1227,7 +1231,7 @@ export class EnemyAi {
   private unownedCaptureTiles(): GridPosition[] {
     const tiles: GridPosition[] = [];
     this.map.forEachTile((tile) => {
-      if (getTerrainData(tile.terrainType).canCapture && tile.owner !== this.army) {
+      if (getTerrainData(tile.terrainType).canCapture && !this.isFriendly(tile.owner)) {
         tiles.push(tile.position);
       }
     });
@@ -1281,7 +1285,7 @@ export class EnemyAi {
     const tile = this.map.getTile(pos);
     return (
       tile !== undefined &&
-      tile.owner !== this.army &&
+      !this.isFriendly(tile.owner) &&
       getTerrainData(tile.terrainType).canCapture
     );
   }
@@ -1482,7 +1486,7 @@ export class EnemyAi {
   private nearestCaptureTarget(unit: Unit): GridPosition | null {
     const unowned: TileData[] = [];
     this.map.forEachTile((tile) => {
-      if (!getTerrainData(tile.terrainType).canCapture || tile.owner === this.army) {
+      if (!getTerrainData(tile.terrainType).canCapture || this.isFriendly(tile.owner)) {
         return;
       }
       unowned.push(tile);
@@ -1499,7 +1503,7 @@ export class EnemyAi {
   private nearestOpposingHeadquarters(unit: Unit): GridPosition | null {
     const headquarters: GridPosition[] = [];
     this.map.forEachTile((tile) => {
-      if (tile.terrainType === 'headquarters' && tile.owner !== this.army) {
+      if (tile.terrainType === 'headquarters' && !this.isFriendly(tile.owner)) {
         headquarters.push(tile.position);
       }
     });
@@ -1585,7 +1589,7 @@ export class EnemyAi {
     let nearest: GridPosition | null = null;
     let nearestDist = Infinity;
     this.map.forEachTile((tile) => {
-      if (!getTerrainData(tile.terrainType).canCapture || tile.owner === this.army) {
+      if (!getTerrainData(tile.terrainType).canCapture || this.isFriendly(tile.owner)) {
         return;
       }
       const dist = manhattanDistance(unit.position, tile.position);
@@ -1966,9 +1970,14 @@ export class EnemyAi {
       .length;
   }
 
-  /** この AI の相手軍勢の生存ユニット一覧を返す */
+  /** この AI の相手軍勢(同盟軍を除く)の生存ユニット一覧を返す */
   private opposingUnits(): readonly Unit[] {
-    return this.units.getAllUnits().filter((unit) => unit.armyType !== this.army);
+    return this.units.getAllUnits().filter((unit) => !this.isFriendly(unit.armyType));
+  }
+
+  /** 軍勢(拠点の所有者)が自軍か、4P マップで同じチームの同盟軍か */
+  private isFriendly(owner: ArmyType): boolean {
+    return areAllied(owner, this.army);
   }
 
   /** unit の現在地から最も近い敵ユニットの位置を返す(enemies は 1 体以上) */
