@@ -30,15 +30,15 @@ describe('forecastBattle', () => {
 
     const forecast = forecastBattle(tank, infantry, map);
 
-    // 戦車→歩兵(平地防御1): 75 × 1.0 × 0.9 / 10 = 6.75 → 7
-    expect(forecast.damageDealt).toBe(7);
+    // 戦車→歩兵(平地防御1): 75 × 1.0 × 0.9 = 67.5 → 68 ポイント → HP -6
+    expect(forecast.damageDealt).toBe(6);
     expect(forecast.defenderHpBefore).toBe(10);
-    expect(forecast.defenderHpAfter).toBe(3);
+    expect(forecast.defenderHpAfter).toBe(4);
     expect(forecast.defenderDefeated).toBe(false);
-    // 生存した歩兵(HP3)の反撃: 10 × 0.3 × 0.9 / 10 = 0.27 → 最低保証で 1
+    // 生存した歩兵(HP4)の反撃: 10 × 0.4 × 0.9 = 3.6 → 4 ポイント → HP は減らない
     expect(forecast.willCounter).toBe(true);
-    expect(forecast.counterDamage).toBe(1);
-    expect(forecast.attackerHpAfter).toBe(9);
+    expect(forecast.counterDamage).toBe(0);
+    expect(forecast.attackerHpAfter).toBe(10);
     expect(forecast.attackerDefeated).toBe(false);
   });
 
@@ -77,6 +77,27 @@ describe('forecastBattle', () => {
     expect(forecast.attackerHpAfter).toBe(tank.currentHp);
   });
 
+  it('防御側に蓄積した端数ダメージを加味して予測し、実際の結果と一致する', () => {
+    const { map, units } = setup([
+      { col: 0, row: 0, unitType: 'infantry', army: 'player' },
+      { col: 1, row: 0, unitType: 'mediumTank', army: 'enemy' },
+    ]);
+    const infantry = units.getUnitAt(gridPosition(0, 0))!;
+    const tank = units.getUnitAt(gridPosition(1, 0))!;
+    // 歩兵→戦車(平地防御1): 10 × 1.0 × 0.9 = 9 ポイント。端数 3 と合わせて 12 → HP -1
+    tank.damageRemainder = 3;
+
+    const forecast = forecastBattle(infantry, tank, map);
+    expect(forecast.damageDealt).toBe(1);
+    expect(forecast.defenderHpAfter).toBe(9);
+
+    const result = new BattleManager(map, units).attack(infantry, tank);
+    expect(result.damageDealt).toBe(forecast.damageDealt);
+    expect(tank.currentHp).toBe(forecast.defenderHpAfter);
+    expect(tank.damageRemainder).toBe(2);
+    expect(infantry.currentHp).toBe(forecast.attackerHpAfter);
+  });
+
   it('撃破できる場合は反撃が発生しない', () => {
     const { map, units } = setup([
       { col: 0, row: 0, unitType: 'mediumTank', army: 'player' },
@@ -104,7 +125,7 @@ describe('forecastBattle', () => {
 
     const forecast = forecastBattle(artillery, infantry, map);
 
-    // 自走砲→歩兵: 70 × 1.0 × 0.9 / 10 = 6.3 → 6
+    // 自走砲→歩兵: 70 × 1.0 × 0.9 = 63 ポイント → HP -6・端数 3
     expect(forecast.damageDealt).toBe(6);
     expect(forecast.willCounter).toBe(false);
     expect(forecast.counterDamage).toBe(0);

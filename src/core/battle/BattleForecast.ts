@@ -14,14 +14,14 @@ import {
   NO_COMMANDER_BONUS,
   type CommanderBonus,
 } from '@/core/battle/CommanderBonus';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import { applyDamagePoints, calculateDamagePoints } from '@/core/battle/DamageCalculator';
 import { manhattanDistance } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { Unit } from '@/core/units/Unit';
 
 /** 攻撃前に算出する戦闘予測の結果 */
 export interface BattleForecast {
-  /** 攻撃で与える見込みダメージ(HP) */
+  /** 攻撃で与える見込みダメージ(減る HP。防御側に蓄積した端数ダメージも加味する) */
   readonly damageDealt: number;
   /** 被弾前の防御側 HP */
   readonly defenderHpBefore: number;
@@ -61,8 +61,8 @@ export function forecastBattle(
   map: MapManager,
   bonus: CommanderBonus = NO_COMMANDER_BONUS,
 ): BattleForecast {
-  // 1. 攻撃側 → 防御側
-  const damageDealt = calculateDamage(
+  // 1. 攻撃側 → 防御側(防御側に蓄積している端数ダメージも加味する)
+  const dealtPoints = calculateDamagePoints(
     attacker,
     defender,
     terrainDefenseAt(map, defender),
@@ -70,7 +70,13 @@ export function forecastBattle(
       attackBonus: attackBonusOf(bonus, attacker.armyType),
     },
   );
-  const defenderHpAfter = Math.max(0, defender.currentHp - damageDealt);
+  const dealt = applyDamagePoints(
+    defender.currentHp,
+    defender.damageRemainder,
+    dealtPoints,
+  );
+  const damageDealt = dealt.hpLoss;
+  const defenderHpAfter = dealt.hp;
   const defenderDefeated = defenderHpAfter === 0;
 
   // 2. 反撃(直接攻撃・防御側生存・互いに射程内・種別として攻撃できるときのみ)
@@ -78,14 +84,20 @@ export function forecastBattle(
   const willCounter = !defenderDefeated && canCounterattack(defender, attacker, distance);
 
   // 反撃火力は被弾後の防御側 HP で計算する(BattleManager と同じ挙動)
-  const counterDamage = willCounter
-    ? calculateDamage(defender, attacker, terrainDefenseAt(map, attacker), {
+  const counterPoints = willCounter
+    ? calculateDamagePoints(defender, attacker, terrainDefenseAt(map, attacker), {
         attackerHp: defenderHpAfter,
         // 反撃は防御側が撃つため、防御側の軍の指揮官補正で計算する
         attackBonus: attackBonusOf(bonus, defender.armyType),
       })
     : 0;
-  const attackerHpAfter = Math.max(0, attacker.currentHp - counterDamage);
+  const countered = applyDamagePoints(
+    attacker.currentHp,
+    attacker.damageRemainder,
+    counterPoints,
+  );
+  const counterDamage = countered.hpLoss;
+  const attackerHpAfter = countered.hp;
   const attackerDefeated = willCounter && attackerHpAfter === 0;
 
   return {

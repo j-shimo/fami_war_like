@@ -81,11 +81,14 @@ describe('RepairManager', () => {
   it('repairAll でダメージユニットが回復し資金が減る', () => {
     const { units, economy, repair } = setup(10000);
     const unit = placeInfantry(units, 0, 0, 6);
+    // 蓄積していた端数ダメージも修理でなくなる
+    unit.damageRemainder = 6;
     const results = repair.repairAll('player');
 
     expect(results).toHaveLength(1);
     expect(unit.currentHp).toBe(8);
     expect(results[0].healedHp).toBe(2);
+    expect(unit.damageRemainder).toBe(0);
     expect(results[0].cost).toBe(200);
     expect(economy.getFunds('player')).toBe(10000 - 200);
   });

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import {
+  calculateDamagePoints,
+  DAMAGE_POINTS_PER_HP,
+} from '@/core/battle/DamageCalculator';
 import { EconomyManager } from '@/core/economy/EconomyManager';
 import { ProductionManager } from '@/core/economy/ProductionManager';
 import { gridPosition } from '@/core/map/GridPosition';
@@ -9,6 +12,11 @@ import { Unit } from '@/core/units/Unit';
 import type { UnitType } from '@/core/units/UnitType';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+
+/** 与えるダメージを HP 換算(端数込み)で返す。相性表 75 なら 7.5 */
+function damageInHp(...args: Parameters<typeof calculateDamagePoints>): number {
+  return calculateDamagePoints(...args) / DAMAGE_POINTS_PER_HP;
+}
 
 function makeUnit(unitType: UnitType, currentHp?: number): Unit {
   return new Unit({
@@ -61,8 +69,8 @@ describe('飛行ユニットへの地形防御', () => {
     const antiAir = makeUnit('antiAirTank');
     const heli = makeUnit('attackHelicopter');
     // 防御3の地形上でも、飛行ユニットは防御0として計算される
-    const onDefense = calculateDamage(antiAir, heli, 3);
-    const noDefense = calculateDamage(antiAir, heli, 0);
+    const onDefense = damageInHp(antiAir, heli, 3);
+    const noDefense = damageInHp(antiAir, heli, 0);
     expect(onDefense).toBe(noDefense);
   });
 });
@@ -72,8 +80,8 @@ describe('新ユニットの戦闘相性', () => {
     const heli = makeUnit('attackHelicopter');
     const infantry = makeUnit('infantry');
     const antiAir = makeUnit('antiAirTank');
-    const vsInfantry = calculateDamage(heli, infantry, 0);
-    const vsAntiAir = calculateDamage(heli, antiAir, 0);
+    const vsInfantry = damageInHp(heli, infantry, 0);
+    const vsAntiAir = damageInHp(heli, antiAir, 0);
     // 対歩兵(基礎80)は高ダメージ、対空戦車(基礎15)は低ダメージ
     expect(vsInfantry).toBeGreaterThanOrEqual(7);
     expect(vsAntiAir).toBeLessThanOrEqual(2);
@@ -84,8 +92,8 @@ describe('新ユニットの戦闘相性', () => {
     const antiAir = makeUnit('antiAirTank');
     const heli = makeUnit('attackHelicopter');
     const tank = makeUnit('mediumTank');
-    const vsHeli = calculateDamage(antiAir, heli, 0);
-    const vsTank = calculateDamage(antiAir, tank, 0);
+    const vsHeli = damageInHp(antiAir, heli, 0);
+    const vsTank = damageInHp(antiAir, tank, 0);
     // 対戦闘ヘリ(基礎85)は高ダメージ、対戦車(基礎15)は低ダメージ
     expect(vsHeli).toBeGreaterThanOrEqual(8);
     expect(vsTank).toBeLessThanOrEqual(2);
@@ -94,8 +102,8 @@ describe('新ユニットの戦闘相性', () => {
   it('輸送ヘリは攻撃できず、常に0ダメージ', () => {
     const th = makeUnit('transportHelicopter');
     expect(th.canAttack).toBe(false);
-    expect(calculateDamage(th, makeUnit('infantry'), 0)).toBe(0);
-    expect(calculateDamage(th, makeUnit('mediumTank'), 0)).toBe(0);
+    expect(damageInHp(th, makeUnit('infantry'), 0)).toBe(0);
+    expect(damageInHp(th, makeUnit('mediumTank'), 0)).toBe(0);
   });
 });
 

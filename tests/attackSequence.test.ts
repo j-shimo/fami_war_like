@@ -22,6 +22,7 @@ function makeResult(overrides: Partial<AttackResult> = {}): AttackResult {
     defender: makeUnit('infantry'),
     damageDealt: 5,
     counterDamage: 0,
+    countered: false,
     defenderDefeated: false,
     attackerDefeated: false,
     lostPassengers: [],
@@ -50,7 +51,9 @@ describe('buildAttackSequence', () => {
   });
 
   it('反撃があると、踏み込みが終わってから被ダメージを出す', () => {
-    const sequence = buildAttackSequence(makeResult({ counterDamage: 3 }));
+    const sequence = buildAttackSequence(
+      makeResult({ counterDamage: 3, countered: true }),
+    );
 
     expect(sequence.counterAt).not.toBeNull();
     expect(sequence.counterAt!).toBeGreaterThan(sequence.lungeEndAt);
@@ -58,9 +61,17 @@ describe('buildAttackSequence', () => {
     expect(sequence.endAt).toBeGreaterThan(sequence.counterAt!);
   });
 
+  it('反撃が端数ダメージだけで HP が減らなくても、反撃の演出は出す', () => {
+    const sequence = buildAttackSequence(
+      makeResult({ counterDamage: 0, countered: true }),
+    );
+
+    expect(sequence.counterAt).not.toBeNull();
+  });
+
   it('反撃で撃破されると、被ダメージの後に攻撃側の爆散を出す', () => {
     const sequence = buildAttackSequence(
-      makeResult({ counterDamage: 4, attackerDefeated: true }),
+      makeResult({ counterDamage: 4, countered: true, attackerDefeated: true }),
     );
 
     expect(sequence.attackerBurstAt).not.toBeNull();
@@ -69,7 +80,7 @@ describe('buildAttackSequence', () => {
   });
 
   it('反撃がなければ、撃破されたことになっていても攻撃側の爆散は出さない', () => {
-    // counterDamage が 0 のまま attackerDefeated だけ立つことは通常ないが、
+    // 反撃なし(countered が false)のまま attackerDefeated だけ立つことは通常ないが、
     // 時刻が null のまま計算に混ざらないことを保証しておく
     const sequence = buildAttackSequence(makeResult({ attackerDefeated: true }));
 

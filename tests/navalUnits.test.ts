@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { canAttackUnit, findAttackableTargets } from '@/core/battle/AttackRange';
 import { BattleManager } from '@/core/battle/BattleManager';
 import { forecastBattle } from '@/core/battle/BattleForecast';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import {
+  calculateDamagePoints,
+  DAMAGE_POINTS_PER_HP,
+} from '@/core/battle/DamageCalculator';
 import { EconomyManager } from '@/core/economy/EconomyManager';
 import { ProductionManager } from '@/core/economy/ProductionManager';
 import { RepairManager } from '@/core/economy/RepairManager';
@@ -19,6 +22,11 @@ import type { UnitType } from '@/core/units/UnitType';
 import { canCarry } from '@/core/units/transport';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { getUnitData } from '@/data/unitData';
+
+/** 与えるダメージを HP 換算(端数込み)で返す。相性表 75 なら 7.5 */
+function damageInHp(...args: Parameters<typeof calculateDamagePoints>): number {
+  return calculateDamagePoints(...args) / DAMAGE_POINTS_PER_HP;
+}
 
 /** 攻撃側・防御側を離して置いた 2 体を作る(位置はテストごとに上書きする) */
 function makeUnit(
@@ -188,7 +196,7 @@ describe('海上ユニットの攻撃対象', () => {
   it('輸送艦は攻撃できず、常に0ダメージ', () => {
     const transport = makeUnit('transportShip');
     expect(transport.canAttack).toBe(false);
-    expect(calculateDamage(transport, makeUnit('battleship', 'enemy'), 0)).toBe(0);
+    expect(damageInHp(transport, makeUnit('battleship', 'enemy'), 0)).toBe(0);
   });
 
   it('攻撃できない相手は射程内にいても攻撃対象に含まれない', () => {
@@ -230,10 +238,10 @@ describe('海上ユニットの射程と相性', () => {
 
   it('戦艦は対戦車系に 7〜8 割、対歩兵は 6 割', () => {
     const battleship = makeUnit('battleship');
-    const vsInfantry = calculateDamage(battleship, makeUnit('infantry', 'enemy'), 0);
+    const vsInfantry = damageInHp(battleship, makeUnit('infantry', 'enemy'), 0);
     // 戦車・自走砲・対空戦車はいずれも「戦車系」として 7〜8 割
     const vsTankFamily = (['mediumTank', 'artillery', 'antiAirTank'] as const).map(
-      (type) => calculateDamage(battleship, makeUnit(type, 'enemy'), 0),
+      (type) => damageInHp(battleship, makeUnit(type, 'enemy'), 0),
     );
     // 基礎ダメージ: 歩兵60 → 6
     expect(vsInfantry).toBe(6);
@@ -247,14 +255,14 @@ describe('海上ユニットの射程と相性', () => {
   it('戦艦はヘリ系に 8〜9 割、固定翼機には 戦闘機6割・攻撃機7割・爆撃機8割', () => {
     const battleship = makeUnit('battleship');
     for (const type of ['attackHelicopter', 'transportHelicopter'] as const) {
-      const damage = calculateDamage(battleship, makeUnit(type, 'enemy'), 0);
+      const damage = damageInHp(battleship, makeUnit(type, 'enemy'), 0);
       expect(damage).toBeGreaterThanOrEqual(8);
       expect(damage).toBeLessThanOrEqual(9);
     }
     // 速い固定翼機はヘリ系より捉えにくい。戦艦は固定翼機を撃てる唯一の海上ユニット
-    expect(calculateDamage(battleship, makeUnit('fighter', 'enemy'), 0)).toBe(6);
-    expect(calculateDamage(battleship, makeUnit('attackAircraft', 'enemy'), 0)).toBe(7);
-    expect(calculateDamage(battleship, makeUnit('bomber', 'enemy'), 0)).toBe(8);
+    expect(damageInHp(battleship, makeUnit('fighter', 'enemy'), 0)).toBe(6);
+    expect(damageInHp(battleship, makeUnit('attackAircraft', 'enemy'), 0)).toBe(7);
+    expect(damageInHp(battleship, makeUnit('bomber', 'enemy'), 0)).toBe(8);
   });
 
   it('隣接したヘリは戦艦の最小射程(3)の内側に入るため撃たれない', () => {
@@ -272,15 +280,15 @@ describe('海上ユニットの射程と相性', () => {
 
   it('戦艦は輸送艦・護衛艦に 9 割のダメージを与える', () => {
     const battleship = makeUnit('battleship');
-    expect(calculateDamage(battleship, makeUnit('transportShip', 'enemy'), 0)).toBe(9);
-    expect(calculateDamage(battleship, makeUnit('escortShip', 'enemy'), 0)).toBe(9);
+    expect(damageInHp(battleship, makeUnit('transportShip', 'enemy'), 0)).toBe(9);
+    expect(damageInHp(battleship, makeUnit('escortShip', 'enemy'), 0)).toBe(9);
   });
 
   it('潜水艦は戦艦・輸送艦に強いが、護衛艦にはほとんど通らない', () => {
     const submarine = makeUnit('submarine');
-    const vsBattleship = calculateDamage(submarine, makeUnit('battleship', 'enemy'), 0);
-    const vsTransport = calculateDamage(submarine, makeUnit('transportShip', 'enemy'), 0);
-    const vsEscort = calculateDamage(submarine, makeUnit('escortShip', 'enemy'), 0);
+    const vsBattleship = damageInHp(submarine, makeUnit('battleship', 'enemy'), 0);
+    const vsTransport = damageInHp(submarine, makeUnit('transportShip', 'enemy'), 0);
+    const vsEscort = damageInHp(submarine, makeUnit('escortShip', 'enemy'), 0);
     expect(vsBattleship).toBe(9);
     expect(vsTransport).toBeGreaterThanOrEqual(8);
     expect(vsEscort).toBeLessThanOrEqual(3);
@@ -288,8 +296,8 @@ describe('海上ユニットの射程と相性', () => {
 
   it('護衛艦は潜水艦に 9 割、ヘリには 7〜8 割', () => {
     const escort = makeUnit('escortShip');
-    expect(calculateDamage(escort, makeUnit('submarine', 'enemy'), 0)).toBe(9);
-    const vsHeli = calculateDamage(escort, makeUnit('attackHelicopter', 'enemy'), 0);
+    expect(damageInHp(escort, makeUnit('submarine', 'enemy'), 0)).toBe(9);
+    const vsHeli = damageInHp(escort, makeUnit('attackHelicopter', 'enemy'), 0);
     expect(vsHeli).toBeGreaterThanOrEqual(7);
     expect(vsHeli).toBeLessThanOrEqual(8);
   });

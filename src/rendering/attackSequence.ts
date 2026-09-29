@@ -49,7 +49,8 @@ export function buildAttackSequence(result: AttackResult): AttackSequence {
 
   const defenderBurstAt = result.defenderDefeated ? impactAt + BURST_DELAY_MS : null;
   // 反撃は防御側が生存しているときだけ起きるため、撃破の爆散とは同時に発生しない
-  const counterAt = result.counterDamage > 0 ? lungeEndAt + COUNTER_DELAY_MS : null;
+  // 反撃が端数ダメージにとどまって HP が減らなかった場合も、反撃自体は演出する
+  const counterAt = result.countered ? lungeEndAt + COUNTER_DELAY_MS : null;
   const attackerBurstAt =
     result.attackerDefeated && counterAt !== null ? counterAt + BURST_DELAY_MS : null;
 

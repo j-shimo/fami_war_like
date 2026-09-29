@@ -179,6 +179,7 @@ describe('buildEnemyActionView', () => {
           defender: player,
           damageDealt: 4,
           counterDamage: 0,
+          countered: false,
           defenderDefeated: false,
           attackerDefeated: false,
           lostPassengers: [],

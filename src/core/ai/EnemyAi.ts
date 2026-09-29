@@ -43,7 +43,11 @@ import {
   NO_COMMANDER_BONUS,
   type CommanderBonus,
 } from '@/core/battle/CommanderBonus';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import {
+  applyDamagePoints,
+  calculateDamagePoints,
+  DAMAGE_POINTS_PER_HP,
+} from '@/core/battle/DamageCalculator';
 import type { AttackResult, BattleManager } from '@/core/battle/BattleManager';
 import type { CaptureResult, CaptureSystem } from '@/core/economy/CaptureSystem';
 import type { EconomyArmy } from '@/core/economy/EconomyManager';
@@ -440,14 +444,25 @@ export class EnemyAi {
       if (!canAttackUnit(unit, target)) {
         continue;
       }
-      const damage = calculateDamage(unit, target, this.terrainDefense(target.position), {
-        attackBonus: this.attackBonus(unit),
-      });
+      const points = calculateDamagePoints(
+        unit,
+        target,
+        this.terrainDefense(target.position),
+        { attackBonus: this.attackBonus(unit) },
+      );
       // ダメージを与えられない相手には攻撃しない(無駄な行動を避ける)
-      if (damage <= 0) {
+      if (points <= 0) {
         continue;
       }
-      const willKill = target.currentHp <= damage;
+      // 評価は端数込みの HP 換算で行う(2 ポイントなら 0.2)。
+      // HP が 1 も減らない攻撃でも、端数が蓄積するぶんの価値として数える
+      const damage = points / DAMAGE_POINTS_PER_HP;
+      const hpAfter = applyDamagePoints(
+        target.currentHp,
+        target.damageRemainder,
+        points,
+      ).hp;
+      const willKill = hpAfter === 0;
 
       for (const { position: from } of range.tiles) {
         // 間接攻撃ユニットは移動すると攻撃できない。その場からの攻撃のみ許可する
@@ -457,7 +472,7 @@ export class EnemyAi {
         if (!isWithinAttackRange(unit, target.position, from)) {
           continue;
         }
-        const counter = this.estimateCounter(unit, target, from, damage, willKill);
+        const counter = this.estimateCounter(unit, target, from, hpAfter, willKill);
         // 守りの思考パターンでは、相性で不利な戦闘(反撃のほうが重い攻撃)はしかけない。
         // 撃破できるなら反撃を受けないため、不利な相性でも手を出す
         if (this.behavior.avoidUnfavorableAttack && !willKill && counter >= damage) {
@@ -503,13 +518,14 @@ export class EnemyAi {
   /**
    * from から attacker が target を攻撃したときに想定される反撃ダメージを見積もる。
    * 直接攻撃(隣接)で、防御側が生存し、攻撃側を射程に収める場合のみ反撃が発生する。
-   * 反撃は被弾後の HP で行われるため、想定残 HP を反映して計算する。
+   * 反撃は被弾後の HP で行われるため、想定残 HP(targetHpAfter)を反映して計算する。
+   * 戻り値は端数込みの HP 換算(tryAttack の与ダメージ評価と同じ単位)。
    */
   private estimateCounter(
     attacker: Unit,
     target: Unit,
     from: GridPosition,
-    damage: number,
+    targetHpAfter: number,
     willKill: boolean,
   ): number {
     if (willKill || manhattanDistance(from, target.position) !== 1) {
@@ -519,15 +535,18 @@ export class EnemyAi {
     if (!canAttackUnit(target, attacker) || !isWithinAttackRange(target, from)) {
       return 0;
     }
-    // 反撃は被弾後の HP で行われるため、想定残 HP に一時的に置き換えて見積もる
-    const savedHp = target.currentHp;
-    target.currentHp = Math.max(1, savedHp - damage);
-    const counter = calculateDamage(target, attacker, this.terrainDefense(from), {
-      // 反撃は防御側が撃つため、防御側の軍の指揮官補正で見積もる
-      attackBonus: this.attackBonus(target),
-    });
-    target.currentHp = savedHp;
-    return counter;
+    // 反撃は被弾後の HP で行われるため、想定残 HP で見積もる
+    const counterPoints = calculateDamagePoints(
+      target,
+      attacker,
+      this.terrainDefense(from),
+      {
+        attackerHp: Math.max(1, targetHpAfter),
+        // 反撃は防御側が撃つため、防御側の軍の指揮官補正で見積もる
+        attackBonus: this.attackBonus(target),
+      },
+    );
+    return counterPoints / DAMAGE_POINTS_PER_HP;
   }
 
   /**

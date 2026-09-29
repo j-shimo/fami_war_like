@@ -425,6 +425,7 @@ describe('4P マップの戦績・攻撃補正', () => {
       defender: make(defenderArmy, 1),
       damageDealt: 5,
       counterDamage: 0,
+      countered: false,
       defenderDefeated: options.defenderDefeated ?? false,
       attackerDefeated: options.attackerDefeated ?? false,
       lostPassengers: [],

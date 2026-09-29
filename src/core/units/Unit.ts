@@ -21,6 +21,8 @@ export interface UnitParams {
   readonly currentHp?: number;
   /** 行動済みか(省略時は false) */
   readonly hasActed?: boolean;
+  /** 蓄積中の端数ダメージ(省略時は 0) */
+  readonly damageRemainder?: number;
 }
 
 /** マップ上に配置されるユニット 1 体 */
@@ -35,6 +37,13 @@ export class Unit {
   currentHp: number;
   /** 行動済みか。ターン内に移動・攻撃を終えると true になる */
   hasActed: boolean;
+  /**
+   * HP 1 に満たない端数ダメージ(1/10 HP 単位、0〜9)。
+   * 被弾のたびに加算し、10 に達したら HP を 1 減らして余りを残す
+   * (計算は DamageCalculator の applyDamagePoints)。HP の表示には現れない。
+   * 修理で HP が回復すると 0 に戻る。
+   */
+  damageRemainder: number;
   /**
    * 輸送中のユニット(輸送ヘリが歩兵を、輸送艦・列車砲が地上ユニットを運んでいるときの搭乗ユニット)。
    * 搭乗中のユニットは盤面(UnitManager)からは取り除かれ、この配列の参照だけが保持される。
@@ -55,6 +64,7 @@ export class Unit {
     this.position = gridPosition(params.position.col, params.position.row);
     this.currentHp = params.currentHp ?? this.data.maxHp;
     this.hasActed = params.hasActed ?? false;
+    this.damageRemainder = params.damageRemainder ?? 0;
   }
 
   /** ユニット種別 */
@@ -66,12 +76,15 @@ export class Unit {
    * ユニット種別を差し替える(研究所の占領による進化)。
    * 同じ 1 体として位置・ID・所属軍・行動済み状態はそのまま引き継ぎ、
    * 現在 HP も引き継ぐ(進化しても回復はしない)。
-   * 進化先の最大 HP を超える場合だけ最大 HP まで丸める。
+   * 進化先の最大 HP を超える場合だけ最大 HP まで丸める(このとき端数ダメージも消える)。
    * 進化の条件と対応表は data/unitData の LABORATORY_EVOLUTION が持つ。
    */
   evolveTo(unitType: UnitType): void {
     this.currentType = unitType;
-    this.currentHp = Math.min(this.currentHp, this.maxHp);
+    if (this.currentHp > this.maxHp) {
+      this.currentHp = this.maxHp;
+      this.damageRemainder = 0;
+    }
   }
 
   /** このユニットの静的パラメータ */
