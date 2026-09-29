@@ -7,10 +7,13 @@
 // - 明るいマスは「自軍が所有する拠点マス」と「自軍ユニットの視界(vision)の範囲」の和集合。
 // - 潜水艦(nightStealth)は視界内にいても、自軍ユニットが隣接するまで見えない。
 // - 昼戦(通常戦闘)ではマップ全体が明るく、すべての敵ユニットが見える。
+// - 4P マップで同じチームの同盟軍どうしは視界を共有する。同盟軍の拠点・ユニットの視界も
+//   自軍のものと同じく明るくなり、同盟軍のユニットは常に見える。
 
 import { manhattanDistance, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
+import { areAllied } from '@/core/team/Alliance';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { getTerrainData } from '@/data/terrainData';
@@ -79,11 +82,13 @@ export class Visibility {
 
   /**
    * 指定ユニットが見えているか。
-   * 自軍のユニットは常に見え、敵軍のユニットは夜戦では発見できたものだけが見える。
+   * 自軍・同盟軍のユニットは常に見え、敵軍のユニットは夜戦では発見できたものだけが見える。
    */
   isUnitVisible(unit: Unit): boolean {
     return (
-      this.daylight || unit.armyType === this.army || this.visibleUnitIds.has(unit.id)
+      this.daylight ||
+      areAllied(unit.armyType, this.army) ||
+      this.visibleUnitIds.has(unit.id)
     );
   }
 
@@ -124,11 +129,12 @@ export function computeVisibility(
   }
 
   const lit = new Set<string>();
-  const own = units.getUnitsByArmy(army);
+  // 視界は同盟軍と共有する(同盟軍のユニットも自軍のユニットと同じく周囲を照らす)
+  const own = units.getAllUnits().filter((unit) => areAllied(unit.armyType, army));
 
-  // ④ 自軍が統治している拠点マスは常に明るい(開始時はここだけが明るい)
+  // ④ 自軍(と同盟軍)が統治している拠点マスは常に明るい(開始時はここだけが明るい)
   map.forEachTile((tile) => {
-    if (tile.owner === army && getTerrainData(tile.terrainType).canCapture) {
+    if (areAllied(tile.owner, army) && getTerrainData(tile.terrainType).canCapture) {
       lit.add(toKey(tile.position));
     }
   });
@@ -151,7 +157,7 @@ export function computeVisibility(
   // ⑤ 潜水艦などの隠密ユニットだけは、視界内にいても隣接するまで発見できない。
   const visible = new Set<string>();
   for (const unit of units.getAllUnits()) {
-    if (unit.armyType === army) {
+    if (areAllied(unit.armyType, army)) {
       continue;
     }
     if (unit.nightStealth) {

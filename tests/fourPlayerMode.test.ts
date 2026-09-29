@@ -326,6 +326,7 @@ describe('judgeFourPlayer(4P マップの決着)', () => {
     expect(judgeFourPlayer(['third'], ['player'])).toEqual({
       kind: 'winner',
       army: 'third',
+      armies: ['third'],
     });
   });
 
@@ -463,18 +464,25 @@ describe('4P マップの表示', () => {
   });
 
   it('決着のメッセージ', () => {
-    expect(formatFourPlayerResult({ kind: 'winner', army: 'third' }, ['third'])).toEqual({
+    expect(
+      formatFourPlayerResult({ kind: 'winner', army: 'third', armies: ['third'] }, [
+        'third',
+      ]),
+    ).toEqual({
       title: '3P の勝利！',
       detail: 'ほかの軍勢をすべて脱落させた',
       isVictory: true,
     });
     expect(
-      formatFourPlayerResult({ kind: 'winner', army: 'enemy' }, ['player']).isVictory,
+      formatFourPlayerResult({ kind: 'winner', army: 'enemy', armies: ['enemy'] }, [
+        'player',
+      ]).isVictory,
     ).toBe(false);
     // プレイヤーのいない観戦のゲームは勝利として締めくくる
-    expect(formatFourPlayerResult({ kind: 'winner', army: 'enemy' }, []).isVictory).toBe(
-      true,
-    );
+    expect(
+      formatFourPlayerResult({ kind: 'winner', army: 'enemy', armies: ['enemy'] }, [])
+        .isVictory,
+    ).toBe(true);
     expect(formatFourPlayerResult({ kind: 'humans_defeated' }, ['player'])).toEqual({
       title: '敗北…',
       detail: '1Pが脱落した',

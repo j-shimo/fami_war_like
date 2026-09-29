@@ -4,6 +4,7 @@
 
 import { gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
+import { areAllied } from '@/core/team/Alliance';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { canMerge } from '@/core/units/merge';
@@ -62,7 +63,7 @@ function isHiddenEnemy(
 ): occupant is Unit {
   return (
     occupant !== undefined &&
-    occupant.armyType !== unit.armyType &&
+    !areAllied(occupant.armyType, unit.armyType) &&
     (options.isHiddenEnemy?.(occupant) ?? false)
   );
 }
@@ -116,6 +117,7 @@ interface ReachableCosts {
  * - 敵ユニットがいるマスは通過も停止もできない(進入不可として扱う)。
  *   ただし夜戦で見えていない敵(options.isHiddenEnemy)は空きマスと同じく通過できる扱いにする。
  * - 味方ユニットがいるマスは通過できる(そのマスも到達マスとして返す)。
+ *   4P マップの同盟軍のユニットも味方と同じく通過できる。
  */
 function computeReachableCosts(
   unit: Unit,
@@ -168,7 +170,7 @@ function computeReachableCosts(
       const occupant = units.getUnitAt(next);
       if (
         occupant &&
-        occupant.armyType !== unit.armyType &&
+        !areAllied(occupant.armyType, unit.armyType) &&
         !isHiddenEnemy(unit, occupant, options)
       ) {
         continue;
@@ -197,7 +199,8 @@ function computeReachableCosts(
  * - 地形ごとの移動コストを移動タイプ別に加算し、移動力以内で到達できるマスを求める。
  * - 進入不可地形(移動コスト null)には入れない。
  * - 敵ユニットがいるマスは通過も停止もできない(進入不可として扱う)。
- * - 味方ユニットがいるマスは通過できるが、そこで停止(移動先に選択)はできない。
+ * - 味方ユニット(4P マップの同盟軍を含む)がいるマスは通過できるが、
+ *   そこで停止(移動先に選択)はできない。
  * - 夜戦で見えていない敵(options.isHiddenEnemy)のマスは空きマスと同じ扱いにし、
  *   通過も停止(移動先の指定)もできる。実際に進むと 1 つ手前で強制待機になる。
  * - 開始マス(その場で待機)は常に移動先候補に含む。

@@ -16,6 +16,7 @@ import {
   manhattanDistance,
   type GridPosition,
 } from '@/core/map/GridPosition';
+import { areAllied } from '@/core/team/Alliance';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
 import { canDamage } from '@/data/damageTable';
@@ -23,11 +24,12 @@ import { canDamage } from '@/data/damageTable';
 /**
  * 攻撃側が防御側を攻撃対象にできるかを、種別の相性だけで判定する(射程は見ない)。
  * 基礎ダメージが 0 の組み合わせ(戦艦 → 潜水艦、護衛艦 → 水上艦、対空戦車 → 重戦車、
- * 輸送ヘリ・輸送艦の全対象など)は攻撃できない。味方同士も攻撃対象にならない。
+ * 輸送ヘリ・輸送艦の全対象など)は攻撃できない。味方同士(4P マップの同盟軍を含む)も
+ * 攻撃対象にならない。
  */
 export function canAttackUnit(attacker: Unit, defender: Unit): boolean {
   return (
-    attacker.armyType !== defender.armyType &&
+    !areAllied(attacker.armyType, defender.armyType) &&
     canDamage(attacker.unitType, defender.unitType)
   );
 }

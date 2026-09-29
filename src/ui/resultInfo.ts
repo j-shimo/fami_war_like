@@ -2,6 +2,8 @@
 // docs/DevelopmentPlan.md Phase 8「勝利・敗北UIを表示する」を参照。
 
 import type { PlayerSide, VersusMode } from '@/core/mode/GameMode';
+import { PLAYABLE_ARMIES } from '@/core/map/TerrainType';
+import { teamLabel, type TeamAssignment } from '@/core/team/Alliance';
 import type { TurnArmy } from '@/core/turn/TurnManager';
 import type { Elimination, FourPlayerOutcome } from '@/core/victory/ArmyElimination';
 import type {
@@ -84,20 +86,46 @@ export interface FourPlayerResultMessage extends ResultMessage {
 /**
  * 4P マップの決着を見出し・詳細のメッセージへ整形する。
  * 勝ち残った軍勢があればその番号を見出しにし、プレイヤーが全員脱落したときは敗北とする。
+ * チーム分けをしていて、勝ち残った軍勢がチームに入っていれば、チームの勝利として
+ * チーム名と顔ぶれ(途中で脱落した同じチームの軍勢も含む)を見出しにする。
  *
  * @param humans ゲーム開始時にプレイヤーが操作していた軍勢
+ * @param teams このゲームのチーム分け(チーム分けなしなら空)
  */
 export function formatFourPlayerResult(
   outcome: Exclude<FourPlayerOutcome, { kind: 'ongoing' }>,
   humans: readonly TurnArmy[],
   options: ArmyLabelOptions = {},
+  teams: TeamAssignment = {},
 ): FourPlayerResultMessage {
   const labelOptions = { ...options, fourPlayer: true };
   if (outcome.kind === 'winner') {
+    const team = teams[outcome.army];
+    if (team !== undefined) {
+      const members = PLAYABLE_ARMIES.filter((army) => teams[army] === team);
+      const names = members.map((army) => armyLabel(army, labelOptions)).join('・');
+      return {
+        title: `${teamLabel(team)} の勝利！`,
+        detail: `${names}の同盟でほかの軍勢をすべて脱落させた`,
+        isVictory: humans.length === 0 || humans.some((army) => members.includes(army)),
+      };
+    }
     return {
       title: `${armyLabel(outcome.army, labelOptions)} の勝利！`,
       detail: 'ほかの軍勢をすべて脱落させた',
       isVictory: humans.length === 0 || humans.includes(outcome.army),
+    };
+  }
+  // プレイヤーがチームに入っていれば、同盟軍ごと脱落したことを伝える
+  const humanTeams = humans.flatMap((army) => teams[army] ?? []);
+  if (humanTeams.length > 0) {
+    return {
+      title: '敗北…',
+      detail:
+        new Set(humanTeams).size === 1
+          ? `${teamLabel(humanTeams[0])}がすべて脱落した`
+          : 'プレイヤーのチームがすべて脱落した',
+      isVictory: false,
     };
   }
   return {

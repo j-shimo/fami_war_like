@@ -3,15 +3,22 @@ import Phaser from 'phaser';
 import {
   canStartFourPlayer,
   FOUR_PLAYER_ARMIES,
+  fourPlayerSideLabel,
+  fourPlayerSides,
+  hasTeams,
   MIN_PARTICIPANTS,
   participatingArmies,
   playerNumberLabel,
   SLOT_CONTROLS,
   slotControlLabel,
+  slotTeam,
+  TEAM_CHOICES,
+  teamChoiceLabel,
   withSlot,
   type FourPlayerSetup,
   type SlotControl,
 } from '@/core/mode/FourPlayerSetup';
+import type { TeamId } from '@/core/team/Alliance';
 import {
   readFourPlayerSetup,
   writeFourPlayerSetup,
@@ -31,13 +38,18 @@ const BADGE_RADIUS = 18;
 
 /** 操作(プレイヤー / コンピューター / なし)の切替ボタン */
 const CONTROL_LEFT = 84;
-const CONTROL_BUTTON_WIDTH = 104;
-const CONTROL_BUTTON_GAP = 6;
+const CONTROL_BUTTON_WIDTH = 92;
+const CONTROL_BUTTON_GAP = 4;
 const CONTROL_BUTTON_HEIGHT = 30;
 
+/** チーム(なし / A / B)の切替ボタン */
+const TEAM_LEFT = 380;
+const TEAM_BUTTON_WIDTH = 32;
+const TEAM_BUTTON_GAP = 4;
+
 /** 指揮官ボタン(押すと指揮官の一覧を開く) */
-const CHARACTER_LEFT = 424;
-const CHARACTER_BUTTON_WIDTH = 236;
+const CHARACTER_LEFT = 494;
+const CHARACTER_BUTTON_WIDTH = 178;
 const CHARACTER_BUTTON_HEIGHT = 30;
 const CHARACTER_EMBLEM_RADIUS = 6;
 const CHARACTER_EMBLEM_MARGIN = 10;
@@ -48,6 +60,9 @@ const CONTROL_HINT: Readonly<Record<SlotControl, string>> = {
   cpu: 'コンピューターが操作します(指揮官の思考パターンで戦います)',
   none: '参加しません(陣地は中立の拠点になります)',
 };
+
+/** チーム分けの説明を出す行の縦位置 */
+const TEAM_NOTE_Y = 370;
 
 /** 「マップ選択へ」ボタンの寸法と位置 */
 const START_BUTTON_WIDTH = 240;
@@ -79,6 +94,11 @@ interface SlotRow {
     readonly rect: Phaser.GameObjects.Rectangle;
     readonly label: Phaser.GameObjects.Text;
   }[];
+  readonly teams: readonly {
+    readonly team: TeamId | null;
+    readonly rect: Phaser.GameObjects.Rectangle;
+    readonly label: Phaser.GameObjects.Text;
+  }[];
   readonly characterRect: Phaser.GameObjects.Rectangle;
   readonly characterEmblem: Phaser.GameObjects.Graphics;
   readonly characterLabel: Phaser.GameObjects.Text;
@@ -88,12 +108,14 @@ interface SlotRow {
 
 /**
  * 4P マップの遊び方を決める設定画面(モード選択画面の「4Pマップ」から入る)。
- * 1P〜4P の軍勢ごとに、次の 2 つを選ぶ。
+ * 1P〜4P の軍勢ごとに、次の 3 つを選ぶ。
  *
  * - 操作: プレイヤー / コンピューター / なし(参加しない)
+ * - チーム: なし / A / B。同じチームの軍勢は同盟になり、互いに攻撃できず、夜戦の視界を共有する
+ *   (操作が「なし」の軍勢では選べない)
  * - 指揮官: 実装済みの指揮官から選ぶ(操作が「なし」の軍勢では選べない)
  *
- * 参加する軍勢が 2 つ以上あれば「マップ選択へ」で 4P マップの一覧へ進める。
+ * 参加する軍勢が 2 つ以上あり、全員が同じチームでなければ「マップ選択へ」で 4P マップの一覧へ進める。
  * 選んだ内容はゲーム設定として保存し、次回もこの画面の初期値に使う。
  * 詳細は docs/GameDesign.md「4Pモード」を参照。
  */
@@ -137,7 +159,7 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       .text(
         width / 2,
         60,
-        '各軍勢の操作と指揮官を選んでから、マップ選択へ進んでください',
+        '各軍勢の操作・チーム・指揮官を選んでから、マップ選択へ進んでください',
         {
           fontFamily: 'sans-serif',
           fontSize: '13px',
@@ -147,6 +169,13 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       .setOrigin(0.5);
     this.add
       .text(CONTROL_LEFT, 82, '操作', {
+        fontFamily: 'sans-serif',
+        fontSize: '12px',
+        color: '#8a8aa0',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(TEAM_LEFT, 82, 'チーム', {
         fontFamily: 'sans-serif',
         fontSize: '12px',
         color: '#8a8aa0',
@@ -164,6 +193,18 @@ export class FourPlayerSetupScene extends Phaser.Scene {
     FOUR_PLAYER_ARMIES.forEach((army, index) => {
       this.rows.push(this.createRow(army, ROW_TOP_CENTER_Y + index * ROW_SPACING));
     });
+    this.add
+      .text(
+        width / 2,
+        TEAM_NOTE_Y,
+        '同じチームの軍勢は同盟になり、互いに攻撃・占領できず、夜戦の視界を共有します',
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '11px',
+          color: '#8a8aa0',
+        },
+      )
+      .setOrigin(0.5);
     this.createStartButton(width);
     this.refresh();
 
@@ -207,13 +248,38 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       const label = this.add
         .text(x + CONTROL_BUTTON_WIDTH / 2, centerY, slotControlLabel(control), {
           fontFamily: 'sans-serif',
-          fontSize: '13px',
+          fontSize: '12px',
           fontStyle: 'bold',
           color: '#c8c8d8',
         })
         .setOrigin(0.5);
       rect.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectControl(army, control));
       return { control, rect, label };
+    });
+
+    const teams = TEAM_CHOICES.map((team, index) => {
+      const x = TEAM_LEFT + index * (TEAM_BUTTON_WIDTH + TEAM_BUTTON_GAP);
+      const rect = this.add
+        .rectangle(
+          x,
+          centerY - CONTROL_BUTTON_HEIGHT / 2,
+          TEAM_BUTTON_WIDTH,
+          CONTROL_BUTTON_HEIGHT,
+          UNSELECTED_FILL,
+        )
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, UNSELECTED_STROKE)
+        .setInteractive({ useHandCursor: true });
+      const label = this.add
+        .text(x + TEAM_BUTTON_WIDTH / 2, centerY, teamChoiceLabel(team), {
+          fontFamily: 'sans-serif',
+          fontSize: team === null ? '11px' : '14px',
+          fontStyle: 'bold',
+          color: '#c8c8d8',
+        })
+        .setOrigin(0.5);
+      rect.on(Phaser.Input.Events.POINTER_DOWN, () => this.selectTeam(army, team));
+      return { team, rect, label };
     });
 
     const characterRect = this.add
@@ -270,6 +336,7 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       army,
       centerY,
       controls,
+      teams,
       characterRect,
       characterEmblem,
       characterLabel,
@@ -359,6 +426,19 @@ export class FourPlayerSetupScene extends Phaser.Scene {
     this.updateSetup(withSlot(this.setup, army, { control }));
   }
 
+  /** 軍勢のチームを切り替えて保存する(操作が「なし」の軍勢では選べない) */
+  private selectTeam(army: TurnArmy, team: TeamId | null): void {
+    const slot = this.setup[army];
+    if (
+      this.isWindowOpen() ||
+      slot.control === 'none' ||
+      slotTeam(this.setup, army) === team
+    ) {
+      return;
+    }
+    this.updateSetup(withSlot(this.setup, army, { team }));
+  }
+
   /** 軍勢の指揮官を選ぶウィンドウを開く(操作が「なし」の軍勢では開かない) */
   private openCharacterWindow(army: TurnArmy): void {
     const slot = this.setup[army];
@@ -409,18 +489,31 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       this.paintRow(row);
     }
     const ready = canStartFourPlayer(this.setup);
-    const count = participatingArmies(this.setup).length;
     this.statusText
-      .setText(
-        ready
-          ? `${count} 軍で対戦します(手番は 1P → 2P → 3P → 4P の順)`
-          : `参加する軍勢を ${MIN_PARTICIPANTS} つ以上にしてください`,
-      )
+      .setText(this.statusMessage(ready))
       .setColor(ready ? '#c8c8d8' : '#ff9a6a');
     this.startRect
       .setFillStyle(ready ? SELECTED_FILL : DISABLED_FILL)
       .setStrokeStyle(2, ready ? SELECTED_STROKE : DISABLED_STROKE);
     this.startLabel.setColor(ready ? '#ffffff' : '#666677');
+  }
+
+  /** 設定の状態(対戦の顔ぶれ・始められない理由)の表示文 */
+  private statusMessage(ready: boolean): string {
+    const count = participatingArmies(this.setup).length;
+    if (count < MIN_PARTICIPANTS) {
+      return `参加する軍勢を ${MIN_PARTICIPANTS} つ以上にしてください`;
+    }
+    if (!ready) {
+      return '全員が同じチームです。別のチーム(またはチームなし)の軍勢を入れてください';
+    }
+    if (!hasTeams(this.setup)) {
+      return `${count} 軍で対戦します(手番は 1P → 2P → 3P → 4P の順)`;
+    }
+    const sides = fourPlayerSides(this.setup).map((side) =>
+      fourPlayerSideLabel(this.setup, side[0]),
+    );
+    return `チーム戦: ${sides.join(' 対 ')}(手番は 1P → 4P の順)`;
   }
 
   /** 軍勢 1 行を現在の設定に合わせて塗り直す */
@@ -433,6 +526,20 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       button.label.setColor(selected ? '#8ad0ff' : '#c8c8d8');
     }
     row.hint.setText(CONTROL_HINT[slot.control]);
+
+    // チームのボタン。参加しない軍勢は選べないため暗くする
+    const team = slotTeam(this.setup, row.army);
+    for (const button of row.teams) {
+      if (slot.control === 'none') {
+        button.rect.setFillStyle(DISABLED_FILL).setStrokeStyle(2, DISABLED_STROKE);
+        button.label.setColor('#666677');
+        continue;
+      }
+      const selected = button.team === team;
+      button.rect.setFillStyle(selected ? SELECTED_FILL : UNSELECTED_FILL);
+      button.rect.setStrokeStyle(2, selected ? SELECTED_STROKE : UNSELECTED_STROKE);
+      button.label.setColor(selected ? '#8ad0ff' : '#c8c8d8');
+    }
 
     const cx = CHARACTER_LEFT + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS;
     row.characterEmblem.clear();
