@@ -9,12 +9,18 @@ import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
+import { producibleUnitTypesAt } from '@/data/unitData';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 
 /** テスト用に敵軍AIと関連マネージャを組み立てる */
 function setup(
   def: MapDefinition,
-  options: { nightBattle?: boolean; behavior?: AiBehavior; funds?: number } = {},
+  options: {
+    nightBattle?: boolean;
+    behavior?: AiBehavior;
+    funds?: number;
+    random?: () => number;
+  } = {},
 ): {
   map: MapManager;
   units: UnitManager;
@@ -38,6 +44,7 @@ function setup(
     production,
     nightBattle: options.nightBattle,
     behavior: options.behavior,
+    random: options.random,
   });
   return { map, units, economy, ai };
 }
@@ -1690,5 +1697,109 @@ describe('EnemyAi.runSteps', () => {
 
     const acted = units.getUnitsByArmy('enemy').filter((unit) => unit.hasActed);
     expect(acted).toHaveLength(1);
+  });
+});
+
+describe('EnemyAi.run(気まぐれな生産と行動のしくじり)', () => {
+  /** 乱数を引いたら失敗させる(抽選しない思考パターンで乱数を使っていないことの確認用) */
+  const NO_RANDOM = (): number => {
+    throw new Error('乱数を引いてはいけない');
+  };
+
+  /** 敵軍の空港(0,0)と離れた自軍歩兵のマップ(行き先として端に中立都市を置く) */
+  const AIRPORT_MAP: MapDefinition = {
+    name: 'odd-production',
+    terrain: ['A.........c'],
+    owners: [{ col: 0, row: 0, owner: 'enemy' }],
+    units: [{ col: 10, row: 0, unitType: 'infantry', army: 'player' }],
+  };
+
+  /** 敵戦車(0,0)の隣に自軍歩兵(1,0)がいる、攻撃できる状況のマップ */
+  const ATTACK_MAP: MapDefinition = {
+    name: 'blunder',
+    terrain: ['.....'],
+    units: [
+      { col: 0, row: 0, unitType: 'mediumTank', army: 'enemy' },
+      { col: 1, row: 0, unitType: 'infantry', army: 'player' },
+    ],
+  };
+
+  it('気まぐれな生産では、相手に攻撃できない種別でも買ってしまう', () => {
+    // 通常なら相手が歩兵だけのとき戦闘機は候補から外れる(生産の絞り込みを参照)。
+    // 空港のユニットをどれでも買える資金を持たせ、抽選で戦闘機を引くよう乱数を固定する
+    const types = producibleUnitTypesAt('airport');
+    const index = types.indexOf('fighter');
+    const { ai } = setup(AIRPORT_MAP, {
+      funds: 100000,
+      behavior: { ...DEFAULT_AI_BEHAVIOR, oddProductionRate: 1 },
+      random: () => (index + 0.5) / types.length,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('fighter');
+  });
+
+  it('気まぐれな生産でも、資金の足りない種別は買わない', () => {
+    // 資金 9000 では戦闘機(20000)は買えない。どの抽選値でも買えるものだけから選ぶ
+    for (const value of [0, 0.5, 0.99]) {
+      const { ai } = setup(AIRPORT_MAP, {
+        funds: 9000,
+        behavior: { ...DEFAULT_AI_BEHAVIOR, oddProductionRate: 1 },
+        random: () => value,
+      });
+      for (const action of actionsOfKind(ai.run(), 'produce')) {
+        expect(action.result.cost).toBeLessThanOrEqual(9000);
+      }
+    }
+  });
+
+  it('抽選に外れれば、方針どおりに生産する', () => {
+    // 確率 3 割に対して乱数 0.5 は外れ。戦闘機ではなく戦闘ヘリを買う
+    const { ai } = setup(AIRPORT_MAP, {
+      funds: 21000,
+      behavior: { ...DEFAULT_AI_BEHAVIOR, oddProductionRate: 0.3 },
+      random: () => 0.5,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced[0].result.unit.unitType).toBe('attackHelicopter');
+  });
+
+  it('しくじると、攻撃できる敵がいても攻撃しない', () => {
+    for (const value of [0, 0.5, 0.99]) {
+      const { units, ai } = setup(ATTACK_MAP, {
+        behavior: { ...DEFAULT_AI_BEHAVIOR, blunderRate: 1 },
+        random: () => value,
+      });
+      const tank = units.getUnitAt(gridPosition(0, 0))!;
+
+      const actions = ai.run();
+
+      expect(actionsOfKind(actions, 'attack')).toHaveLength(0);
+      // でたらめなマスへ動く(その場で待機することもある)が、行動は終えている
+      expect(['move', 'wait']).toContain(actions[0].kind);
+      expect(tank.hasActed).toBe(true);
+    }
+  });
+
+  it('抽選に外れれば、これまでどおり攻撃する', () => {
+    // 確率 2 割に対して乱数 0.5 は外れ
+    const { ai } = setup(ATTACK_MAP, {
+      behavior: { ...DEFAULT_AI_BEHAVIOR, blunderRate: 0.2 },
+      random: () => 0.5,
+    });
+
+    expect(actionsOfKind(ai.run(), 'attack')).toHaveLength(1);
+  });
+
+  it('しくじらない思考パターンは乱数を引かない(結果が乱数に左右されない)', () => {
+    const attack = setup(ATTACK_MAP, { random: NO_RANDOM });
+    expect(actionsOfKind(attack.ai.run(), 'attack')).toHaveLength(1);
+
+    const produce = setup(AIRPORT_MAP, { funds: 21000, random: NO_RANDOM });
+    expect(actionsOfKind(produce.ai.run(), 'produce')).toHaveLength(1);
   });
 });

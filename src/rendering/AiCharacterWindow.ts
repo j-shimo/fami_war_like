@@ -15,6 +15,8 @@ import {
   AI_CHARACTERS,
   aiCharacterLabel,
   attackBonusLabel,
+  bonusBadges,
+  incomeBonusLabel,
   type AiCharacter,
 } from '@/data/aiCharacters';
 import { clampScrollOffset, scrollbarMetrics } from '@/ui/listScroll';
@@ -348,15 +350,13 @@ export class AiCharacterWindow {
       this.contentObjects.push(name);
 
       // 補正を持つ指揮官は、一覧の時点で見分けられるよう想定プレイヤー層のあとに添える
-      const sub =
-        character.attackBonus > 0
-          ? `${character.difficulty}・攻撃 +${Math.round(character.attackBonus * 100)}%`
-          : character.difficulty;
+      const badges = bonusBadges(character);
+      const sub = [character.difficulty, ...badges].join('・');
       const difficulty = this.scene.add
         .text(textX, cy + 8, sub, {
           fontFamily: 'sans-serif',
           fontSize: '10px',
-          color: character.attackBonus > 0 ? COLOR.bonus : COLOR.difficulty,
+          color: badges.length > 0 ? COLOR.bonus : COLOR.difficulty,
         })
         .setOrigin(0, 0.5)
         .setScrollFactor(0);
@@ -404,6 +404,16 @@ export class AiCharacterWindow {
       color: character.attackBonus > 0 ? COLOR.bonus : COLOR.hint,
     });
     y += 22;
+
+    // 収入補正。持つ指揮官だけに出す(持たない指揮官は説明文の行数を削らないよう省く)
+    if (character.incomeBonus > 0) {
+      this.addText(px, y - 4, `収入補正: ${incomeBonusLabel(character)}`, {
+        fontFamily: 'sans-serif',
+        fontSize: '12px',
+        color: COLOR.bonus,
+      });
+      y += 18;
+    }
 
     // 思考パターンの説明。日本語はスペースが無く Phaser の wordWrap では折り返せないため、
     // 文字数で折り返してから 1 行ずつ描く

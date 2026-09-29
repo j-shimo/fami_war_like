@@ -174,6 +174,12 @@ export interface EnemyAiDeps {
    * BattleManager へ渡すものと同じ補正を渡す。
    */
   readonly commanderBonus?: CommanderBonus;
+  /**
+   * 0 以上 1 未満の乱数を返す関数(省略時は Math.random)。
+   * 思考パターンの「気まぐれな生産」「行動のしくじり」の抽選だけに使う。
+   * テストでは決まった値を返す関数を渡して、抽選の結果を固定する。
+   */
+  readonly random?: () => number;
 }
 
 /** 拠点占領の優先度。本拠地を最優先で狙う */
@@ -288,6 +294,7 @@ export class EnemyAi {
   private readonly nightBattle: boolean;
   private readonly behavior: AiBehavior;
   private readonly commanderBonus: CommanderBonus;
+  private readonly random: () => number;
   /**
    * 経路距離(PathDistance)の計算結果のキャッシュ。
    * 同じ目標・同じ移動タイプを何体ものユニットが参照するため、手番ごとにまとめて使い回す。
@@ -310,6 +317,15 @@ export class EnemyAi {
     this.nightBattle = deps.nightBattle ?? false;
     this.behavior = deps.behavior ?? DEFAULT_AI_BEHAVIOR;
     this.commanderBonus = deps.commanderBonus ?? NO_COMMANDER_BONUS;
+    this.random = deps.random ?? Math.random;
+  }
+
+  /**
+   * rate の確率で true を返す(抽選)。rate が 0 以下なら乱数を引かずに false を返すため、
+   * しくじらない指揮官の思考はこれまでどおり乱数に左右されない。
+   */
+  private roll(rate: number | undefined): boolean {
+    return (rate ?? 0) > 0 && this.random() < (rate ?? 0);
   }
 
   /** 指定ユニットが攻撃するときにかかる、指揮官の攻撃補正 */
@@ -367,6 +383,10 @@ export class EnemyAi {
     // 輸送ユニットが被弾すると搭乗ユニットも同じダメージを受けるため、戦闘には近寄らせない
     if (unit.isCarrying) {
       return this.deliver(unit, vision);
+    }
+    // しくじる思考パターンでは、ときどき判断をすべて飛ばしてでたらめなマスへ動く
+    if (this.roll(this.behavior.blunderRate)) {
+      return this.blunder(unit, vision);
     }
     return (
       this.tryAttack(unit, vision) ??
@@ -700,13 +720,41 @@ export class EnemyAi {
       }
     }
 
-    if (equals(bestPos, unit.position)) {
+    return this.moveAndWait(unit, bestPos, vision);
+  }
+
+  /**
+   * 行動のしくじり(blunderRate)。攻撃・占領などの判断をすべて飛ばし、
+   * 移動できる範囲からでたらめに選んだマス(今いるマスを含む)へ動いて待機する。
+   */
+  private blunder(unit: Unit, vision: Visibility): AiAction {
+    const range = calculateMovementRange(
+      unit,
+      this.map,
+      this.units,
+      this.movementOptions(vision),
+    );
+    // 移動範囲には今いるマスも含まれるため、その場で待機することもある
+    const choices = range.tiles.map((tile) => tile.position);
+    const index = Math.min(
+      choices.length - 1,
+      Math.floor(this.random() * choices.length),
+    );
+    return this.moveAndWait(unit, choices[index], vision);
+  }
+
+  /**
+   * unit を dest へ動かして待機する(dest が今いるマスならその場で待機)。
+   * 夜戦で経路上の見えない敵に阻まれた場合は手前で止まる。どの場合も行動済みにする。
+   */
+  private moveAndWait(unit: Unit, dest: GridPosition, vision: Visibility): AiAction {
+    if (equals(dest, unit.position)) {
       unit.hasActed = true;
       return { kind: 'wait', unit };
     }
 
     const from = unit.position;
-    const moved = this.moveAlong(unit, bestPos, vision);
+    const moved = this.moveAlong(unit, dest, vision);
     unit.hasActed = true;
     if (moved.blockedBy) {
       return {
@@ -1643,13 +1691,37 @@ export class EnemyAi {
     );
 
     for (const tile of producibleTiles) {
-      const unitType = this.chooseProduction(tile, knownOpponents);
+      // 気まぐれな思考パターンでは、ときどき方針を無視してでたらめな種別を買う
+      const odd = this.roll(this.behavior.oddProductionRate)
+        ? this.oddProduction(tile)
+        : null;
+      const unitType = odd ?? this.chooseProduction(tile, knownOpponents);
       if (!unitType) {
         continue;
       }
       const result = this.production.produce(this.army, tile, unitType);
       yield { kind: 'produce', result };
     }
+  }
+
+  /**
+   * 気まぐれな生産(oddProductionRate)で買う種別を返す。
+   * tile で生産できて資金の足りる種別から、相手の編成も方針も見ずにでたらめに 1 つ選ぶ。
+   * 買えるものが 1 つも無ければ null(方針どおりの判断に戻る)。
+   */
+  private oddProduction(tile: TileData): UnitType | null {
+    const affordable = producibleUnitTypesAt(
+      tile.terrainType,
+      this.production.mapContext(this.army),
+    ).filter((type) => this.production.canProduce(this.army, tile, type));
+    if (affordable.length === 0) {
+      return null;
+    }
+    const index = Math.min(
+      affordable.length - 1,
+      Math.floor(this.random() * affordable.length),
+    );
+    return affordable[index];
   }
 
   /**

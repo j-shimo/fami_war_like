@@ -454,6 +454,11 @@ export class MainScene extends Phaser.Scene {
    */
   private commanderBonus: CommanderBonus = NO_COMMANDER_BONUS;
   /**
+   * 軍ごとの指揮官の収入補正(毎ターン拠点収入に上乗せする額)。攻撃補正と同じく
+   * 対人戦では誰にもかけず、対 CPU・4P マップでは各軍の指揮官の値をそのまま使う。
+   */
+  private commanderIncomeBonus: Partial<Record<TurnArmy, number>> = {};
+  /**
    * 4P マップの遊び方(4P 設定画面で選ぶ 1P〜4P の操作と指揮官)。
    * 2 人で遊ぶマップでは null で、担当サイド・操作の設定・指揮官の選択を使う。
    */
@@ -550,20 +555,27 @@ export class MainScene extends Phaser.Scene {
     this.fourPlayerCharacters = {};
     if (this.fourPlayer) {
       const bonus: Partial<Record<TurnArmy, number>> = {};
+      const income: Partial<Record<TurnArmy, number>> = {};
       for (const army of participatingArmies(this.fourPlayer)) {
         const character = getAiCharacter(this.fourPlayer[army].characterId);
         this.fourPlayerCharacters[army] = character;
         bonus[army] = character.attackBonus;
+        income[army] = character.incomeBonus;
       }
       this.commanderBonus = bonus;
+      this.commanderIncomeBonus = income;
+    } else if (this.versusMode === 'human') {
+      this.commanderBonus = NO_COMMANDER_BONUS;
+      this.commanderIncomeBonus = {};
     } else {
-      this.commanderBonus =
-        this.versusMode === 'human'
-          ? NO_COMMANDER_BONUS
-          : {
-              player: this.playerCharacter.attackBonus,
-              enemy: this.aiCharacter.attackBonus,
-            };
+      this.commanderBonus = {
+        player: this.playerCharacter.attackBonus,
+        enemy: this.aiCharacter.attackBonus,
+      };
+      this.commanderIncomeBonus = {
+        player: this.playerCharacter.incomeBonus,
+        enemy: this.aiCharacter.incomeBonus,
+      };
     }
     // 敵の行動アニメは中断データではなくゲーム設定として保存しているため、
     // マップ・再開の内容とは関わりなく毎回保存済みの設定を読み直す
@@ -609,6 +621,10 @@ export class MainScene extends Phaser.Scene {
       );
     this.economy =
       restored?.economy ?? new EconomyManager({ initialFunds: this.mapDef.initialFunds });
+    // 指揮官の収入補正はゲームの設定なので中断データには含めず、再開時も選んだ指揮官から設定し直す
+    for (const [army, bonus] of Object.entries(this.commanderIncomeBonus)) {
+      this.economy.setIncomeBonus(army as TurnArmy, bonus);
+    }
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.map, this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
@@ -1539,6 +1555,7 @@ export class MainScene extends Phaser.Scene {
       formatIncome(
         this.economy.getIncome(army, this.map),
         this.economy.countBases(army, this.map),
+        this.economy.getIncomeBonus(army),
       ),
     );
   }

@@ -44,6 +44,9 @@ describe('economyInfo', () => {
     expect(formatIncome(5000, 5)).toBe('収入: 5000 (拠点5)');
     // 拠点を 1 つも持っていなければ収入 0
     expect(formatIncome(0, 0)).toBe('収入: 0 (拠点0)');
+    // 指揮官の収入補正がある軍は、内訳として補正額を添える
+    expect(formatIncome(15000, 5, 10000)).toBe('収入: 15000 (拠点5+10000)');
+    expect(formatIncome(5000, 5, 0)).toBe('収入: 5000 (拠点5)');
   });
 
   it('生産ボタンのラベルは名前とコストを表示する', () => {
