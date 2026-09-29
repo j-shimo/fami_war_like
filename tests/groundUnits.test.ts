@@ -297,7 +297,11 @@ describe('重戦車は対空戦車から攻撃を受けない', () => {
     // 一撃で倒しきらないよう HP を満タンのままにしておく(中戦車 → 対空戦車は 7〜8 割)
     const result = new BattleManager(map, units).attack(medium, antiAir);
     expect(result.defenderDefeated).toBe(false);
-    expect(result.counterDamage).toBeGreaterThan(0);
+    expect(result.countered).toBe(true);
+    // 反撃が HP1 未満でも、端数ダメージとして中戦車に蓄積される
+    expect(medium.currentHp * 10 - medium.damageRemainder).toBeLessThan(
+      medium.maxHp * 10,
+    );
   });
 });
 

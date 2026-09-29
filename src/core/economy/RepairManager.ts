@@ -94,6 +94,8 @@ export class RepairManager {
       const healedHp = this.getRepairAmount(unit);
       this.economy.spend(army, cost);
       unit.currentHp += healedHp;
+      // 修理で HP が回復したら、蓄積していた端数ダメージもあわせて直す
+      unit.damageRemainder = 0;
       results.push({ unit, healedHp, cost, currentHp: unit.currentHp });
     }
     return results;

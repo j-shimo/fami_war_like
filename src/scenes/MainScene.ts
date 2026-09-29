@@ -3505,7 +3505,7 @@ export class MainScene extends Phaser.Scene {
     if (result.defenderDefeated) {
       lines.push(`${result.defender.unitName}を撃破`);
     }
-    if (result.counterDamage > 0) {
+    if (result.countered) {
       lines.push(`反撃ダメージ: ${result.counterDamage}`);
     }
     if (result.attackerDefeated) {

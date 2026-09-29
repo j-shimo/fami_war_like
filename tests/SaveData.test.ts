@@ -29,6 +29,7 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     const tank = game.units.getUnitAt(gridPosition(6, 8));
     expect(tank).toBeDefined();
     tank!.currentHp = 4;
+    tank!.damageRemainder = 7;
     game.units.moveUnit(tank!, gridPosition(6, 7));
 
     const save = createSaveData({
@@ -46,6 +47,8 @@ describe('createSaveData / restoreGameState(中断データ)', () => {
     const restoredTank = restored.units.getUnitAt(gridPosition(6, 7));
     expect(restoredTank?.unitType).toBe('mediumTank');
     expect(restoredTank?.currentHp).toBe(4);
+    // HP 1 に満たない端数ダメージも引き継ぐ
+    expect(restoredTank?.damageRemainder).toBe(7);
     expect(restoredTank?.hasActed).toBe(true);
     expect(restored.units.getAllUnits()).toHaveLength(game.units.getAllUnits().length);
   });

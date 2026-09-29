@@ -29,13 +29,15 @@ describe('BattleManager.attack', () => {
 
     const result = battle.attack(tank, infantry);
 
-    // 戦車→歩兵: 75 × 1.0 × 0.9 / 10 = 6.75 → 7
-    expect(result.damageDealt).toBe(7);
-    expect(infantry.currentHp).toBe(3);
+    // 戦車→歩兵: 75 × 1.0 × 0.9 = 67.5 → 68 ポイント → HP -6・端数 8
+    expect(result.damageDealt).toBe(6);
+    expect(infantry.currentHp).toBe(4);
+    expect(infantry.damageRemainder).toBe(8);
     expect(result.defenderDefeated).toBe(false);
-    // 歩兵(HP3)→戦車の反撃: 10 × 0.3 × 0.9 / 10 = 0.27 → 最低保証で 1
-    expect(result.counterDamage).toBe(1);
-    expect(tank.currentHp).toBe(9);
+    // 歩兵(HP4)→戦車の反撃: 10 × 0.4 × 0.9 = 3.6 → 4 ポイント → HP は減らず端数 4
+    expect(result.counterDamage).toBe(0);
+    expect(tank.currentHp).toBe(10);
+    expect(tank.damageRemainder).toBe(4);
     expect(result.attackerDefeated).toBe(false);
     // 攻撃側は行動済みになる
     expect(tank.hasActed).toBe(true);
@@ -51,7 +53,7 @@ describe('BattleManager.attack', () => {
 
     const result = battle.attack(artillery, infantry);
 
-    // 自走砲→歩兵: 70 × 1.0 × 0.9 / 10 = 6.3 → 6
+    // 自走砲→歩兵: 70 × 1.0 × 0.9 = 63 ポイント → HP -6・端数 3
     expect(result.damageDealt).toBe(6);
     expect(infantry.currentHp).toBe(4);
     // 距離2の間接攻撃なので反撃なし

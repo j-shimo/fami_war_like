@@ -5,7 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import { canAttackUnit, findAttackableTargets } from '@/core/battle/AttackRange';
 import { BattleManager } from '@/core/battle/BattleManager';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import {
+  calculateDamagePoints,
+  DAMAGE_POINTS_PER_HP,
+} from '@/core/battle/DamageCalculator';
 import { gridPosition } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import { calculateMovementRange } from '@/core/movement/MovementRange';
@@ -23,6 +26,11 @@ import { getBaseDamage } from '@/data/damageTable';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
 import { canRepairAt } from '@/data/terrainData';
 import { getUnitData, isProducibleAt } from '@/data/unitData';
+
+/** 与えるダメージを HP 換算(端数込み)で返す。相性表 75 なら 7.5 */
+function damageInHp(...args: Parameters<typeof calculateDamagePoints>): number {
+  return calculateDamagePoints(...args) / DAMAGE_POINTS_PER_HP;
+}
 
 /** テスト用のユニットを 1 体作る */
 function makeUnit(
@@ -331,9 +339,7 @@ describe('固定翼機への攻撃', () => {
     const antiAir = makeUnit('antiAirTank');
     const fighter = makeUnit('fighter', 'enemy');
     // 防御 3 の山の上にいても、飛行ユニットは防御 0 として計算される
-    expect(calculateDamage(antiAir, fighter, 3)).toBe(
-      calculateDamage(antiAir, fighter, 0),
-    );
+    expect(damageInHp(antiAir, fighter, 3)).toBe(damageInHp(antiAir, fighter, 0));
   });
 
   it('射程内でも攻撃できない相手は攻撃対象に含まれない', () => {

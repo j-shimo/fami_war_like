@@ -3,6 +3,7 @@
 // プレーンなオブジェクトへ書き出し、マップ選択画面からの再開時に元の状態へ復元する。
 // 保存先(localStorage)の扱いは SaveStorage が担い、このモジュールは形式と変換のみを扱う。
 
+import { DAMAGE_POINTS_PER_HP } from '@/core/battle/DamageCalculator';
 import { gridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
 import type { ArmyType } from '@/core/map/TerrainType';
@@ -47,6 +48,11 @@ export interface SavedUnit {
   readonly col: number;
   readonly row: number;
   readonly currentHp: number;
+  /**
+   * 蓄積中の端数ダメージ(0〜9)。この項目を追加する前の中断データには無いため省略可能とし、
+   * 省略時は 0 として復元する
+   */
+  readonly damageRemainder?: number;
   readonly hasActed: boolean;
   /** 輸送中のユニット(輸送ヘリ・輸送艦が運んでいる場合)。運んでいなければ空配列 */
   readonly carried: readonly SavedUnit[];
@@ -154,6 +160,7 @@ function toSavedUnit(unit: Unit): SavedUnit {
     col: unit.position.col,
     row: unit.position.row,
     currentHp: unit.currentHp,
+    damageRemainder: unit.damageRemainder,
     hasActed: unit.hasActed,
     carried: unit.carried.map(toSavedUnit),
   };
@@ -167,6 +174,7 @@ function toUnit(saved: SavedUnit): Unit {
     armyType: saved.armyType,
     position: gridPosition(saved.col, saved.row),
     currentHp: saved.currentHp,
+    damageRemainder: saved.damageRemainder ?? 0,
     hasActed: saved.hasActed,
   });
   unit.carried = saved.carried.map(toUnit);
@@ -321,6 +329,10 @@ function isSavedUnit(value: unknown): value is SavedUnit {
     isInteger(value.col) &&
     isInteger(value.row) &&
     isInteger(value.currentHp) &&
+    (value.damageRemainder === undefined ||
+      (isInteger(value.damageRemainder) &&
+        value.damageRemainder >= 0 &&
+        value.damageRemainder < DAMAGE_POINTS_PER_HP)) &&
     typeof value.hasActed === 'boolean' &&
     Array.isArray(value.carried) &&
     value.carried.every(isSavedUnit)

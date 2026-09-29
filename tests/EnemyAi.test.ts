@@ -130,9 +130,9 @@ describe('EnemyAi.run', () => {
     expect(attacks).toHaveLength(1);
     // 移動せずその場から攻撃している(隣接する空きマスがないため)
     expect(attacks[0].movedTo).toBeNull();
-    // 戦車→歩兵: 75 × 1.0 × 0.9 / 10 = 6.75 → 7
-    expect(attacks[0].result.damageDealt).toBe(7);
-    expect(infantry.currentHp).toBe(3);
+    // 戦車→歩兵: 75 × 1.0 × 0.9 = 67.5 → 68 ポイント → HP -6・端数 8
+    expect(attacks[0].result.damageDealt).toBe(6);
+    expect(infantry.currentHp).toBe(4);
     expect(tank.hasActed).toBe(true);
   });
 
@@ -1247,8 +1247,11 @@ describe('EnemyAi.run(守りの思考パターン)', () => {
       },
       { behavior: DEFEND_BEHAVIOR },
     );
-    // 残り HP 1 の中戦車なら歩兵でも撃破でき、撃破すれば反撃も受けない
-    units.getUnitAt(gridPosition(1, 0))!.currentHp = 1;
+    // 残り HP 1・端数ダメージ 5 の中戦車なら、歩兵の攻撃(9 ポイント)でも撃破でき、
+    // 撃破すれば反撃も受けない
+    const tank = units.getUnitAt(gridPosition(1, 0))!;
+    tank.currentHp = 1;
+    tank.damageRemainder = 5;
 
     const attacks = actionsOfKind(ai.run(), 'attack');
 

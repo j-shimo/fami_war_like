@@ -24,6 +24,7 @@ function attackResult(
   return {
     damageDealt: 3,
     counterDamage: 0,
+    countered: false,
     defenderDefeated: false,
     attackerDefeated: false,
     lostPassengers: [],

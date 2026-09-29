@@ -17,7 +17,7 @@ import {
   NO_COMMANDER_BONUS,
   type CommanderBonus,
 } from '@/core/battle/CommanderBonus';
-import { calculateDamage } from '@/core/battle/DamageCalculator';
+import { calculateDamagePoints, dealDamagePoints } from '@/core/battle/DamageCalculator';
 
 /** 攻撃 1 回ぶんの結果 */
 export interface AttackResult {
@@ -25,10 +25,15 @@ export interface AttackResult {
   readonly attacker: Unit;
   /** 防御側ユニット */
   readonly defender: Unit;
-  /** 攻撃で与えたダメージ(HP) */
+  /** 攻撃で与えたダメージ(減った HP。端数ダメージのみで HP が減らなければ 0) */
   readonly damageDealt: number;
-  /** 反撃で受けたダメージ(HP)。反撃なしは 0 */
+  /** 反撃で受けたダメージ(減った HP)。反撃なしは 0 */
   readonly counterDamage: number;
+  /**
+   * 反撃が発生したか。反撃が端数ダメージにとどまり HP が減らなかった場合も true になるため、
+   * 反撃の有無は counterDamage ではなくこちらで判定する
+   */
+  readonly countered: boolean;
   /** 防御側を撃破したか */
   readonly defenderDefeated: boolean;
   /** 反撃で攻撃側が撃破されたか */
@@ -111,6 +116,7 @@ export class BattleManager {
       defender,
       damageDealt,
       counterDamage,
+      countered: canCounter,
       defenderDefeated,
       attackerDefeated,
       lostPassengers,
@@ -118,35 +124,38 @@ export class BattleManager {
   }
 
   /**
-   * 攻撃側から防御側へダメージを与え、現在 HP を更新する。与えたダメージを返す。
-   * 防御側が輸送ユニットの場合、輸送中のユニットも同じダメージを受ける
+   * 攻撃側から防御側へダメージを与え、現在 HP を更新する。減らした HP を返す。
+   * ダメージは 1/10 HP 単位のポイントで計算し、防御側の端数ダメージへ加算する
+   * (合計が 10 に達するごとに HP が 1 減る。DamageCalculator の applyDamagePoints 参照)。
+   * 防御側が輸送ユニットの場合、輸送中のユニットも同じダメージポイントを受ける
    * (docs/UnitSpec.md「輸送ルール」参照)。巻き添えで HP が 0 になった搭乗ユニットは
    * lost へ積んで呼び出し側に知らせる。
    */
   private applyDamage(attacker: Unit, defender: Unit, lost: Unit[]): number {
     const terrain = this.map.getTerrainData(defender.position);
     const defense = terrain?.defense ?? 0;
-    const damage = calculateDamage(attacker, defender, defense, {
+    const points = calculateDamagePoints(attacker, defender, defense, {
       // 攻撃側の軍を率いる指揮官の補正で火力が上がる(反撃も撃つ側の補正で計算する)
       attackBonus: attackBonusOf(this.bonus, attacker.armyType),
     });
-    defender.currentHp = Math.max(0, defender.currentHp - damage);
-    this.applyDamageToPassengers(defender, damage, lost);
-    return damage;
+    const hpLoss = dealDamagePoints(defender, points);
+    this.applyDamageToPassengers(defender, points, lost);
+    return hpLoss;
   }
 
   /**
-   * 輸送中のユニットへ、輸送ユニットが受けたのと同じダメージを与える。
+   * 輸送中のユニットへ、輸送ユニットが受けたのと同じダメージポイントを与える
+   * (端数ダメージは搭乗ユニットごとに蓄積する)。
    * HP が 0 になった搭乗ユニットは輸送枠から取り除き、lost へ積む
    * (搭乗中は盤面にいないため、盤面からの除去は不要)。
    */
-  private applyDamageToPassengers(transport: Unit, damage: number, lost: Unit[]): void {
-    if (damage <= 0 || !transport.isCarrying) {
+  private applyDamageToPassengers(transport: Unit, points: number, lost: Unit[]): void {
+    if (points <= 0 || !transport.isCarrying) {
       return;
     }
     const survivors: Unit[] = [];
     for (const passenger of transport.carried) {
-      passenger.currentHp = Math.max(0, passenger.currentHp - damage);
+      dealDamagePoints(passenger, points);
       if (passenger.isAlive) {
         survivors.push(passenger);
       } else {

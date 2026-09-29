@@ -221,6 +221,7 @@ export class UnitManager {
    * source を target に合流させる。
    * target の HP に source の HP を加算(最大 HP で頭打ち)し、target を行動済み(待機)にして、
    * source を盤面から取り除く。合流後は target 1 体だけが残る。
+   * 端数ダメージ(damageRemainder)は target のものを引き継ぎ、最大 HP に達した場合は 0 に戻す。
    * 合流できない組み合わせ(異なる軍・種別、同一ユニット、いずれかが満タン)は
    * データ不整合として例外を投げる(呼び出し側で canMerge により事前判定する想定)。
    */
@@ -229,6 +230,9 @@ export class UnitManager {
       throw new Error('合流できない組み合わせのユニットです');
     }
     target.currentHp = mergedHp(source, target);
+    if (target.currentHp >= target.maxHp) {
+      target.damageRemainder = 0;
+    }
     target.hasActed = true;
     this.removeUnit(source);
   }

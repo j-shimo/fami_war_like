@@ -111,7 +111,7 @@ export function formatEnemyActionLog(
       if (action.result.defenderDefeated) {
         lines.push(`${defender.unitName} を撃破`);
       }
-      if (action.result.counterDamage > 0) {
+      if (action.result.countered) {
         lines.push(`反撃: ${action.result.counterDamage}`);
       }
       if (action.result.attackerDefeated) {
