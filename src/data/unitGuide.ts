@@ -24,8 +24,8 @@ export const UNIT_DESCRIPTIONS: Readonly<Record<UnitType, readonly string[]>> = 
   ],
   mediumTank: [
     '直接戦闘の主力となる標準の戦車。',
-    '軽戦車に勝ち戦闘ヘリとは五分だが、',
-    '重戦車との撃ち合いには不利。',
+    '軽戦車には勝てるが、',
+    '重戦車や戦闘ヘリとの撃ち合いには不利。',
   ],
   heavyTank: [
     '鈍重だが正面戦闘で最強の戦車。',

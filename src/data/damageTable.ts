@@ -17,8 +17,8 @@ import type { UnitType } from '@/core/units/UnitType';
  *
  * 相性の要点(docs/UnitSpec.md 参照):
  * - 戦車 3 種(軽・中・重): 装甲と火力が軽 < 中 < 重の順に上がり、上位の戦車には
- *   正面から撃ち勝てない。いずれも近接攻撃のみで、ヘリ系には 1〜2 割しか通らず、
- *   潜水艦は攻撃できない。
+ *   正面から撃ち勝てない。いずれも近接攻撃のみで、ヘリ系には 1〜2 割しか通らず
+ *   (戦闘ヘリには軽 3・中 5・重 10)、潜水艦は攻撃できない。
  * - 重戦車の正面装甲: 対空戦車の機関砲では抜けないため、対空戦車は重戦車を攻撃できない(0)。
  *   偵察車・輸送車の機関銃も 5 しか通らない。軽装甲の車両にとっては手の出せない相手。
  * - 新型戦車(newTank): 研究所の占領でのみ手に入る特別な戦車。与ダメージは重戦車とまったく同じで、
@@ -33,8 +33,10 @@ import type { UnitType } from '@/core/units/UnitType';
  * - 爆撃機(bomber): 地上ユニット全てに 8〜9 割。飛行ユニットと潜水艦には攻撃できない(0)。
  * - 攻撃機(attackAircraft): 戦闘機と爆撃機の中間。空・陸・海のすべてを攻撃でき、
  *   とくに海上ユニットに強い。戦闘機には分が悪い(35)。潜水艦だけは攻撃できない。
- * - 戦闘ヘリ(attackHelicopter): 対歩兵に強く(80)、戦車は軽 65・中 55・重 45 と
- *   重くなるほど分が悪い。対空戦車には不利(15)。固定翼機には攻撃できない(0)。
+ * - 戦闘ヘリ(attackHelicopter): 対歩兵に強く(80)、戦車は軽 55・中 35・重 15・新型 10 と
+ *   重くなるほど通りにくい。戦車からの被ダメージは軽 3・中 5・重 10・新型 10 と小さく、
+ *   戦車には総じて有利(新型戦車とだけは 10 対 10 の五分)。対空戦車には不利(15)。
+ *   固定翼機には攻撃できない(0)。
  * - 輸送ヘリ(transportHelicopter)・輸送艦(transportShip): 攻撃できないため全対象 0。
  * - 対空 3 種(antiAirTank・antiAirArtillery・antiAirRocketArtillery): 固定翼機
  *   (戦闘機・爆撃機・攻撃機)を撃てる地上ユニットはこの 3 種だけ(海上では戦艦のみ)。
@@ -99,8 +101,8 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       fighter: 0,
       bomber: 0,
       attackAircraft: 0,
-      // ヘリ系は 1〜2 割。特に戦闘ヘリには不利(戦闘ヘリ側の 65 に対して 10)。
-      attackHelicopter: 10,
+      // ヘリ系は 1〜2 割。特に戦闘ヘリには大きく不利(戦闘ヘリ側の 55 に対して 3)。
+      attackHelicopter: 3,
       transportHelicopter: 15,
       antiAirTank: 60,
       antiAirArtillery: 60,
@@ -127,8 +129,8 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       fighter: 0,
       bomber: 0,
       attackAircraft: 0,
-      // ヘリ系は 1〜2 割。戦闘ヘリとは五分五分(戦闘ヘリ側も 55)。
-      attackHelicopter: 15,
+      // ヘリ系は 1〜2 割。戦闘ヘリには不利(戦闘ヘリ側の 35 に対して 5)。
+      attackHelicopter: 5,
       transportHelicopter: 20,
       antiAirTank: 75,
       antiAirArtillery: 75,
@@ -153,8 +155,8 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       fighter: 0,
       bomber: 0,
       attackAircraft: 0,
-      // ヘリ系は 1〜2 割。戦闘ヘリには若干有利(戦闘ヘリ側の 45 に対して 20)。
-      attackHelicopter: 20,
+      // ヘリ系は 1〜2 割。戦闘ヘリには若干不利(戦闘ヘリ側の 15 に対して 10)。
+      attackHelicopter: 10,
       transportHelicopter: 20,
       // 対空戦車には 8〜9 割。対空戦車の側は重戦車を攻撃できない(0)ため、
       // 殴り返されることなく一方的に叩ける。
@@ -186,7 +188,8 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
       fighter: 0,
       bomber: 0,
       attackAircraft: 0,
-      attackHelicopter: 20,
+      // 戦闘ヘリとは五分(戦闘ヘリ側も 10)。与ダメージは重戦車と同じ 10。
+      attackHelicopter: 10,
       transportHelicopter: 20,
       antiAirTank: 85,
       antiAirArtillery: 80,
@@ -350,11 +353,12 @@ export const BASE_DAMAGE: Readonly<Record<UnitType, Readonly<Record<UnitType, nu
     },
     attackHelicopter: {
       infantry: 80,
-      // 戦車は装甲が厚くなるほど分が悪い(軽には有利・中は五分・重には若干不利)。
-      lightTank: 65,
-      mediumTank: 55,
-      heavyTank: 45,
-      newTank: 35,
+      // 戦車は装甲が厚くなるほど通りにくい(軽 55・中 35・重 15・新型 10)。
+      // 戦車からの被ダメージは小さい(軽 3・中 5・重 10・新型 10)ため、新型戦車以外には有利。
+      lightTank: 55,
+      mediumTank: 35,
+      heavyTank: 15,
+      newTank: 10,
       artillery: 50,
       rocketArtillery: 85,
       // 固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない。

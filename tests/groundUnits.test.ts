@@ -170,17 +170,30 @@ describe('戦車 3 種の相性', () => {
     expect(getBaseDamage('heavyTank', 'mediumTank')).toBeLessThanOrEqual(70);
   });
 
-  it('ヘリ系へは 1〜2 割しか通らず、戦闘ヘリとの相性は 軽=不利 中=五分 重=若干有利', () => {
+  it('ヘリ系へは 1〜2 割しか通らず、戦闘ヘリには 軽・中・重いずれも不利', () => {
     for (const tank of TANK_UNIT_TYPES) {
       for (const heli of ['attackHelicopter', 'transportHelicopter'] as const) {
         expect(getBaseDamage(tank, heli)).toBeGreaterThan(0);
         expect(getBaseDamage(tank, heli)).toBeLessThanOrEqual(20);
       }
     }
-    // 戦闘ヘリから見た被ダメージ: 軽 65(不利) → 中 55(五分) → 重 45(若干有利)
-    expect(getBaseDamage('attackHelicopter', 'lightTank')).toBeGreaterThan(55);
-    expect(getBaseDamage('attackHelicopter', 'mediumTank')).toBe(55);
-    expect(getBaseDamage('attackHelicopter', 'heavyTank')).toBeLessThan(55);
+    // 戦闘ヘリ ⇔ 戦車の与ダメージ(戦闘ヘリ視点): 軽 55 / 3・中 35 / 5・重 15 / 10・新型 10 / 10
+    const heliVsTank = [
+      ['lightTank', 55, 3],
+      ['mediumTank', 35, 5],
+      ['heavyTank', 15, 10],
+      ['newTank', 10, 10],
+    ] as const;
+    for (const [tank, dealt, taken] of heliVsTank) {
+      expect(getBaseDamage('attackHelicopter', tank)).toBe(dealt);
+      expect(getBaseDamage(tank, 'attackHelicopter')).toBe(taken);
+    }
+    // 軽・中・重戦車は、いずれも戦闘ヘリとの撃ち合いで分が悪い
+    for (const tank of TANK_UNIT_TYPES) {
+      expect(getBaseDamage(tank, 'attackHelicopter')).toBeLessThan(
+        getBaseDamage('attackHelicopter', tank),
+      );
+    }
   });
 
   it('固定翼機(戦闘機・爆撃機・攻撃機)には攻撃できない(対空ユニットではないため)', () => {
