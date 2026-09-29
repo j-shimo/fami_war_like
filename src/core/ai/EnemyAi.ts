@@ -1691,10 +1691,13 @@ export class EnemyAi {
     );
 
     for (const tile of producibleTiles) {
-      // 気まぐれな思考パターンでは、ときどき方針を無視してでたらめな種別を買う
-      const odd = this.roll(this.behavior.oddProductionRate)
-        ? this.oddProduction(tile)
-        : null;
+      // 気まぐれな思考パターンでは、ときどき方針を無視してでたらめな種別を買う。
+      // ただし海を渡る足(輸送ユニット)が 1 体も無く、それを買う・そのために貯める場面では
+      // 気まぐれを起こさない。代金を使い込むと、いつまでも海を越えられなくなるため
+      const odd =
+        !this.ferryPending(tile) && this.roll(this.behavior.oddProductionRate)
+          ? this.oddProduction(tile)
+          : null;
       const unitType = odd ?? this.chooseProduction(tile, knownOpponents);
       if (!unitType) {
         continue;
@@ -1702,6 +1705,15 @@ export class EnemyAi {
       const result = this.production.produce(this.army, tile, unitType);
       yield { kind: 'produce', result };
     }
+  }
+
+  /**
+   * 渡る足(輸送ユニット)をそろえる途中かどうか。この拠点で輸送ユニットを買うべき
+   * (neededFerry)か、その代金のために他の拠点の生産を見送っている(savingForFerry)なら true。
+   * 輸送ユニットを 1 体でも持てば false に戻る。
+   */
+  private ferryPending(tile: TileData): boolean {
+    return this.neededFerry(tile) !== null || this.savingForFerry();
   }
 
   /**

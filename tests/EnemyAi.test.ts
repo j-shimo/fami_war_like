@@ -1802,4 +1802,51 @@ describe('EnemyAi.run(気まぐれな生産と行動のしくじり)', () => {
     const produce = setup(AIRPORT_MAP, { funds: 21000, random: NO_RANDOM });
     expect(actionsOfKind(produce.ai.run(), 'produce')).toHaveLength(1);
   });
+
+  it('海を渡る足が無ければ、気まぐれを起こさずに輸送艦を買う', () => {
+    // 上段が敵軍の陸地(港と歩兵)、下段が海を挟んだ対岸の中立都市。
+    // 抽選は必ず当たる設定だが、輸送艦を 1 隻そろえるまでは気まぐれを起こさない
+    const { ai } = setup(
+      {
+        name: 'split',
+        terrain: ['P.b...', '~~~~~~', 'b.c...'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [{ col: 1, row: 0, unitType: 'infantry', army: 'enemy' }],
+      },
+      {
+        funds: 40000,
+        behavior: { ...DEFAULT_AI_BEHAVIOR, oddProductionRate: 1 },
+        random: () => 0.99,
+      },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('transportShip');
+  });
+
+  it('輸送艦の代金を貯めているあいだは、気まぐれで資金を使い込まない', () => {
+    // 資金 10000 では輸送艦(16500)に届かないため、工場の生産も見送って代金を貯める。
+    // 気まぐれの抽選は必ず当たる設定だが、工場ででたらめなユニットを買ったりはしない
+    const { ai, economy } = setup(
+      {
+        name: 'split-saving',
+        terrain: ['PFb...', '~~~~~~', 'b.c...'],
+        owners: [
+          { col: 0, row: 0, owner: 'enemy' },
+          { col: 1, row: 0, owner: 'enemy' },
+        ],
+        units: [{ col: 3, row: 0, unitType: 'infantry', army: 'enemy' }],
+      },
+      {
+        funds: 10000,
+        behavior: { ...DEFAULT_AI_BEHAVIOR, oddProductionRate: 1 },
+        random: () => 0,
+      },
+    );
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+    expect(economy.getFunds('enemy')).toBe(10000);
+  });
 });
