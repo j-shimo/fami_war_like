@@ -457,16 +457,25 @@ describe('叉海大島マップ(4P マップ)', () => {
     const nearest = (army: TurnArmy): number[] =>
       neutralCities.map((city) => costFromCamp(army, city)).sort((a, b) => a - b);
     const [p1, p2, p3, p4] = ARMIES.map(nearest);
-    // 1P・3P は最寄りの都市でも 2 ターン(移動コスト 4〜6)、2P・4P は 1 ターン(3 以下)で 2 個に届く
+    // 1P・3P は最寄りの都市でも 2 ターン(移動コスト 4〜6)、2P は 1 ターン(3 以下)で 2 個に届く
     expect(p1[0]).toBeGreaterThan(3);
     expect(p3[0]).toBeGreaterThan(3);
     expect(p2.filter((cost) => cost <= 3)).toHaveLength(2);
-    expect(p4.filter((cost) => cost <= 3)).toHaveLength(2);
-    // 2 ターンまでに届く都市の数も 2P・4P のほうが多いか同じ
+    // 2 ターンまでに届く都市の数も 2P のほうが多いか同じ
     expect(p2.filter((cost) => cost <= 6).length).toBeGreaterThanOrEqual(
       p1.filter((cost) => cost <= 6).length,
     );
-    expect(p4.filter((cost) => cost <= 6).length).toBeGreaterThanOrEqual(
+    // 4P は陣地のすぐ隣の都市を初めから持つ代わりに、中立都市へは 1 ターンでは届かない。
+    // 近くの中立都市 4 個は、1 個だけが 2 ターン(移動コスト 4〜6)・残り 3 個は 3 ターン(7〜8)
+    expect(p4[0]).toBeGreaterThan(3);
+    expect(p4.filter((cost) => cost <= 6)).toHaveLength(1);
+    expect(p4.filter((cost) => cost > 6 && cost <= 8)).toHaveLength(3);
+    // 初めから持つ都市を含めれば、2 ターンまでに手にできる都市の数は 3P より多い
+    let ownedCities = 0;
+    map.forEachTile((tile) => {
+      if (tile.owner === 'fourth' && tile.terrainType === 'city') ownedCities += 1;
+    });
+    expect(ownedCities + p4.filter((cost) => cost <= 6).length).toBeGreaterThan(
       p3.filter((cost) => cost <= 6).length,
     );
   });
