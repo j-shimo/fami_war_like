@@ -3,6 +3,7 @@
 
 import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import type { MapManager } from '@/core/map/MapManager';
+import type { TurnArmy } from '@/core/turn/TurnManager';
 import { Unit } from '@/core/units/Unit';
 import { canMerge, mergedHp } from '@/core/units/merge';
 import { canCarry } from '@/core/units/transport';
@@ -14,8 +15,8 @@ export interface UnitPlacement {
   readonly col: number;
   readonly row: number;
   readonly unitType: UnitType;
-  /** 所属軍。初期配置では自軍・敵軍のみを指定する */
-  readonly army: 'player' | 'enemy';
+  /** 所属軍。初期配置では手番を持つ軍勢(中立以外)を指定する */
+  readonly army: TurnArmy;
   /**
    * 開始時から搭乗させておく積荷の種別(輸送ユニットだけで指定できる)。
    * 「中戦車と対空戦車を積んだ輸送艦が浮かんでいる」といった初期配置を
@@ -28,8 +29,8 @@ export interface UnitPlacement {
 /** 生産で新規ユニットを生成するためのパラメータ */
 export interface SpawnParams {
   readonly unitType: UnitType;
-  /** 所属軍。生産できるのは自軍・敵軍のみ */
-  readonly army: 'player' | 'enemy';
+  /** 所属軍。生産できるのは手番を持つ軍勢(中立以外)のみ */
+  readonly army: TurnArmy;
   readonly position: GridPosition;
   /** 生成時に行動済みにするか(生産直後は行動できないため通常 true) */
   readonly hasActed?: boolean;

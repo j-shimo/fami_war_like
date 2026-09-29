@@ -1,4 +1,5 @@
-// ゲーム設定(敵の行動アニメ・モード選択の内容)の保存先を扱う。Phaser には依存しない。
+// ゲーム設定(敵の行動アニメ・モード選択の内容・4P マップの遊び方)の保存先を扱う。
+// Phaser には依存しない。
 // 中断データ(SaveStorage)とは別のキーで持ち、ゲームを中断・再開しても、
 // マップ選択画面へ戻っても選んだ設定が残るようにする。
 // localStorage が使えない環境(SSR・テスト・プライベートモード等)では静かに失敗し、
@@ -10,6 +11,11 @@ import {
   isVersusMode,
   type GameMode,
 } from '@/core/mode/GameMode';
+import {
+  DEFAULT_FOUR_PLAYER_SETUP,
+  isFourPlayerSetup,
+  type FourPlayerSetup,
+} from '@/core/mode/FourPlayerSetup';
 import { defaultStorage, type SaveStorageLike } from '@/core/save/SaveStorage';
 import {
   DEFAULT_ENEMY_ANIMATION_MODE,
@@ -26,6 +32,8 @@ export interface GameSettings {
   readonly enemyAnimationMode: EnemyAnimationMode;
   /** モード選択画面で選んだ遊び方(担当サイド・操作の設定) */
   readonly gameMode: GameMode;
+  /** 4P 設定画面で選んだ遊び方(1P〜4P の操作と指揮官) */
+  readonly fourPlayer: FourPlayerSetup;
 }
 
 /** 保存が無い・壊れているときに使う既定の設定 */
@@ -33,6 +41,7 @@ export function defaultSettings(): GameSettings {
   return {
     enemyAnimationMode: DEFAULT_ENEMY_ANIMATION_MODE,
     gameMode: DEFAULT_GAME_MODE,
+    fourPlayer: DEFAULT_FOUR_PLAYER_SETUP,
   };
 }
 
@@ -68,6 +77,7 @@ export function readSettings(
   const record = parsed as {
     enemyAnimationMode?: unknown;
     gameMode?: unknown;
+    fourPlayer?: unknown;
   };
   const mode = record.enemyAnimationMode;
   const gameMode = isRecord(record.gameMode) ? record.gameMode : {};
@@ -77,6 +87,9 @@ export function readSettings(
       side: isPlayerSide(gameMode.side) ? gameMode.side : fallback.gameMode.side,
       versus: isVersusMode(gameMode.versus) ? gameMode.versus : fallback.gameMode.versus,
     },
+    fourPlayer: isFourPlayerSetup(record.fourPlayer)
+      ? record.fourPlayer
+      : fallback.fourPlayer,
   };
 }
 
@@ -129,4 +142,19 @@ export function writeGameMode(
   storage: SaveStorageLike | null = defaultStorage(),
 ): boolean {
   return writeSettings({ ...readSettings(storage), gameMode: mode }, storage);
+}
+
+/** 4P マップの遊び方だけを読み込む(4P 設定画面を開くときに使う) */
+export function readFourPlayerSetup(
+  storage: SaveStorageLike | null = defaultStorage(),
+): FourPlayerSetup {
+  return readSettings(storage).fourPlayer;
+}
+
+/** 4P マップの遊び方だけを保存する(4P 設定画面での変更時に使う) */
+export function writeFourPlayerSetup(
+  setup: FourPlayerSetup,
+  storage: SaveStorageLike | null = defaultStorage(),
+): boolean {
+  return writeSettings({ ...readSettings(storage), fourPlayer: setup }, storage);
 }

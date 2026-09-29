@@ -1,0 +1,145 @@
+// 4P マップの遊び方(1P〜4P の各軍勢を誰が操作するか・どの指揮官が率いるか)の型と判定。
+// Phaser には依存しない純粋なロジックとして持ち、4P 設定画面・マップ選択・インゲーム・中断データで共有する。
+// docs/GameDesign.md「4Pモード」を参照。
+
+import { PLAYABLE_ARMIES } from '@/core/map/TerrainType';
+import type { TurnArmy } from '@/core/turn/TurnManager';
+
+/**
+ * 1 つの軍勢(スロット)の操作。
+ * - human: プレイヤーが操作する(1 台の画面を交代で使う)
+ * - cpu: コンピューター(敵軍AI)が操作する
+ * - none: 参加しない。その軍勢の陣地は中立の拠点になり、手番も回ってこない
+ */
+export type SlotControl = 'human' | 'cpu' | 'none';
+
+/** 選べる操作の一覧(4P 設定画面のボタンの並び順) */
+export const SLOT_CONTROLS: readonly SlotControl[] = ['human', 'cpu', 'none'];
+
+/** 軍勢 1 つぶんの設定 */
+export interface ArmySlot {
+  /** 誰が操作するか */
+  readonly control: SlotControl;
+  /**
+   * 率いる指揮官の識別子(AiCharacter.id)。
+   * プレイヤー操作なら攻撃補正だけが、コンピューター操作なら思考パターンと攻撃補正が効く。
+   */
+  readonly characterId: string;
+}
+
+/** 4P マップの遊び方(1P〜4P の各軍勢の設定) */
+export type FourPlayerSetup = Readonly<Record<TurnArmy, ArmySlot>>;
+
+/** 4P マップの軍勢の並び(1P → 2P → 3P → 4P。手番もこの順に回る) */
+export const FOUR_PLAYER_ARMIES: readonly TurnArmy[] = PLAYABLE_ARMIES;
+
+/** 対戦を始めるのに必要な、参加する軍勢の最小数 */
+export const MIN_PARTICIPANTS = 2;
+
+/** 既定の指揮官(aiCharacters の先頭と同じ識別子) */
+const DEFAULT_CHARACTER_ID = 'instructor';
+
+/** 何も選んでいないときの既定の設定(1P だけプレイヤー、2P〜4P はコンピューター) */
+export const DEFAULT_FOUR_PLAYER_SETUP: FourPlayerSetup = {
+  player: { control: 'human', characterId: DEFAULT_CHARACTER_ID },
+  enemy: { control: 'cpu', characterId: DEFAULT_CHARACTER_ID },
+  third: { control: 'cpu', characterId: DEFAULT_CHARACTER_ID },
+  fourth: { control: 'cpu', characterId: DEFAULT_CHARACTER_ID },
+};
+
+/** 軍勢の呼び名(1P〜4P) */
+const PLAYER_NUMBER_LABEL: Readonly<Record<TurnArmy, string>> = {
+  player: '1P',
+  enemy: '2P',
+  third: '3P',
+  fourth: '4P',
+};
+
+/** 操作の表示名 */
+const CONTROL_LABEL: Readonly<Record<SlotControl, string>> = {
+  human: 'プレイヤー',
+  cpu: 'コンピューター',
+  none: 'なし',
+};
+
+/** 軍勢の呼び名(1P / 2P / 3P / 4P)を返す */
+export function playerNumberLabel(army: TurnArmy): string {
+  return PLAYER_NUMBER_LABEL[army];
+}
+
+/** 操作の表示名を返す */
+export function slotControlLabel(control: SlotControl): string {
+  return CONTROL_LABEL[control];
+}
+
+/** 操作として妥当な値か */
+export function isSlotControl(value: unknown): value is SlotControl {
+  return value === 'human' || value === 'cpu' || value === 'none';
+}
+
+/** 値がオブジェクト(配列・null を除く)かどうか */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 軍勢 1 つぶんの設定として妥当か */
+function isArmySlot(value: unknown): value is ArmySlot {
+  return (
+    isRecord(value) &&
+    isSlotControl(value.control) &&
+    typeof value.characterId === 'string'
+  );
+}
+
+/** 4P マップの設定として妥当か(保存データ・中断データの検証に使う) */
+export function isFourPlayerSetup(value: unknown): value is FourPlayerSetup {
+  return isRecord(value) && FOUR_PLAYER_ARMIES.every((army) => isArmySlot(value[army]));
+}
+
+/** 参加する(操作が「なし」でない)軍勢を 1P → 4P の順に返す。手番の巡回順にもなる */
+export function participatingArmies(setup: FourPlayerSetup): readonly TurnArmy[] {
+  return FOUR_PLAYER_ARMIES.filter((army) => setup[army].control !== 'none');
+}
+
+/** 参加しない(操作が「なし」の)軍勢を返す */
+export function absentArmies(setup: FourPlayerSetup): readonly TurnArmy[] {
+  return FOUR_PLAYER_ARMIES.filter((army) => setup[army].control === 'none');
+}
+
+/** プレイヤーが操作する軍勢を 1P → 4P の順に返す */
+export function humanArmies(setup: FourPlayerSetup): readonly TurnArmy[] {
+  return FOUR_PLAYER_ARMIES.filter((army) => setup[army].control === 'human');
+}
+
+/** 指定した軍勢をコンピューターが操作するか */
+export function isCpuArmy(setup: FourPlayerSetup, army: TurnArmy): boolean {
+  return setup[army].control === 'cpu';
+}
+
+/** 対戦を始められる設定か(参加する軍勢が 2 つ以上) */
+export function canStartFourPlayer(setup: FourPlayerSetup): boolean {
+  return participatingArmies(setup).length >= MIN_PARTICIPANTS;
+}
+
+/** 操作の短い表示名(1 行の要約に使う) */
+const CONTROL_SHORT_LABEL: Readonly<Record<SlotControl, string>> = {
+  human: 'プレイヤー',
+  cpu: 'CPU',
+  none: 'なし',
+};
+
+/** 4P マップの遊び方を 1 行にまとめた表示("1P プレイヤー / 2P CPU / 3P CPU / 4P なし") */
+export function fourPlayerSummary(setup: FourPlayerSetup): string {
+  return FOUR_PLAYER_ARMIES.map(
+    (army) => `${playerNumberLabel(army)} ${CONTROL_SHORT_LABEL[setup[army].control]}`,
+  ).join(' / ');
+}
+
+/** 指定した軍勢の設定だけを差し替えた新しい設定を返す */
+export function withSlot(
+  setup: FourPlayerSetup,
+  army: TurnArmy,
+  slot: Partial<ArmySlot>,
+): FourPlayerSetup {
+  return { ...setup, [army]: { ...setup[army], ...slot } };
+}

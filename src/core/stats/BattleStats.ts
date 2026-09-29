@@ -25,12 +25,17 @@ export interface ArmyStats {
   readonly captured: number;
 }
 
-/** 1 ゲームぶんの戦績 */
+/**
+ * 1 ゲームぶんの戦績。
+ * 3P・4P は 4P マップでだけ数が入り、2 人で遊ぶマップでは 0 のまま残る。
+ */
 export interface BattleStats {
   /** 決着時のターン数 */
   readonly turns: number;
   readonly player: ArmyStats;
   readonly enemy: ArmyStats;
+  readonly third: ArmyStats;
+  readonly fourth: ArmyStats;
 }
 
 /** すべて 0 の戦績 */
@@ -40,20 +45,21 @@ export function emptyArmyStats(): ArmyStats {
 
 /** 何も起きていない状態の戦績 */
 export function emptyBattleStats(): BattleStats {
-  return { turns: 1, player: emptyArmyStats(), enemy: emptyArmyStats() };
+  return {
+    turns: 1,
+    player: emptyArmyStats(),
+    enemy: emptyArmyStats(),
+    third: emptyArmyStats(),
+    fourth: emptyArmyStats(),
+  };
 }
 
 /** 集計中の可変な戦績(記録用の内部表現) */
 type MutableArmyStats = { -readonly [K in keyof ArmyStats]: ArmyStats[K] };
 
-/** 相手の軍を返す */
-function opponentOf(army: TurnArmy): TurnArmy {
-  return army === 'player' ? 'enemy' : 'player';
-}
-
 /** 中立(拠点の所有者)を除いた、手番を持つ軍かどうか */
 function isTurnArmy(army: ArmyType): army is TurnArmy {
-  return army === 'player' || army === 'enemy';
+  return army !== 'neutral';
 }
 
 /**
@@ -70,16 +76,25 @@ export class BattleStatsRecorder {
   /** @param initial 中断データから再開するときに、保存されていた戦績を引き継ぐ */
   constructor(initial: BattleStats = emptyBattleStats()) {
     this.turns = initial.turns;
-    this.armies = { player: { ...initial.player }, enemy: { ...initial.enemy } };
+    this.armies = {
+      player: { ...initial.player },
+      enemy: { ...initial.enemy },
+      third: { ...initial.third },
+      fourth: { ...initial.fourth },
+    };
   }
 
-  /** 撃破 1 件を、撃破した側と失った側の両方へ数える */
-  private countDefeat(loser: ArmyType): void {
-    if (!isTurnArmy(loser)) {
-      return;
+  /**
+   * 撃破 1 件を、撃破した側と失った側の両方へ数える。
+   * 4P マップでは相手が 1 軍とは限らないため、撃破した側は戦闘の相手方から受け取る。
+   */
+  private countDefeat(loser: ArmyType, winner: ArmyType): void {
+    if (isTurnArmy(loser)) {
+      this.armies[loser].lost += 1;
     }
-    this.armies[loser].lost += 1;
-    this.armies[opponentOf(loser)].defeated += 1;
+    if (isTurnArmy(winner) && winner !== loser) {
+      this.armies[winner].defeated += 1;
+    }
   }
 
   /** 攻撃 1 回ぶんの結果(反撃・輸送中ユニットの巻き添えを含む)を数える */
@@ -87,14 +102,18 @@ export class BattleStatsRecorder {
     if (isTurnArmy(result.attacker.armyType)) {
       this.armies[result.attacker.armyType].attacks += 1;
     }
+    const attackerArmy = result.attacker.armyType;
+    const defenderArmy = result.defender.armyType;
     if (result.defenderDefeated) {
-      this.countDefeat(result.defender.armyType);
+      this.countDefeat(defenderArmy, attackerArmy);
     }
     if (result.attackerDefeated) {
-      this.countDefeat(result.attacker.armyType);
+      this.countDefeat(attackerArmy, defenderArmy);
     }
     for (const passenger of result.lostPassengers) {
-      this.countDefeat(passenger.armyType);
+      // 巻き添えは、積んでいた輸送ユニットを撃破した側の撃破として数える
+      const winner = passenger.armyType === attackerArmy ? defenderArmy : attackerArmy;
+      this.countDefeat(passenger.armyType, winner);
     }
   }
 
@@ -127,6 +146,8 @@ export class BattleStatsRecorder {
       turns: this.turns,
       player: { ...this.armies.player },
       enemy: { ...this.armies.enemy },
+      third: { ...this.armies.third },
+      fourth: { ...this.armies.fourth },
     };
   }
 }
@@ -137,12 +158,12 @@ function isArmyStats(value: unknown): value is ArmyStats {
     return false;
   }
   const stats = value as Record<string, unknown>;
-  return (['attacks', 'defeated', 'lost', 'produced', 'spent', 'captured'] as const).every(
-    (key) => {
-      const count = stats[key];
-      return typeof count === 'number' && Number.isInteger(count) && count >= 0;
-    },
-  );
+  return (
+    ['attacks', 'defeated', 'lost', 'produced', 'spent', 'captured'] as const
+  ).every((key) => {
+    const count = stats[key];
+    return typeof count === 'number' && Number.isInteger(count) && count >= 0;
+  });
 }
 
 /** 値が 1 ゲームぶんの戦績として妥当か(中断データの検証に使う) */
@@ -156,6 +177,8 @@ export function isBattleStats(value: unknown): value is BattleStats {
     Number.isInteger(stats.turns) &&
     stats.turns >= 1 &&
     isArmyStats(stats.player) &&
-    isArmyStats(stats.enemy)
+    isArmyStats(stats.enemy) &&
+    isArmyStats(stats.third) &&
+    isArmyStats(stats.fourth)
   );
 }

@@ -136,7 +136,7 @@ const MAP_MENU: readonly MapMenuItem[] = [
   {
     group: 'four',
     title: '4Pマップ',
-    caption: '4 人で遊べるマップから選びます',
+    caption: '1P〜4P の操作と指揮官を決めてから選びます',
   },
 ];
 
@@ -154,6 +154,8 @@ interface ToggleButton<T> {
  * - 担当サイド: 1P側(これまでどおり)か 2P側(自軍・敵軍を入れ替えて後手番)か
  * - 操作の設定: プレイヤー vs CPU か、プレイヤー vs プレイヤー(交代で操作)か
  * - マップ区分: 通常マップ / 新マップ / 4Pマップ のどの一覧へ進むか
+ *   (4Pマップは、先に 4P 設定画面で 1P〜4P の操作と指揮官を決めてからマップ選択へ進む。
+ *   担当サイド・操作の設定は 2 人で遊ぶマップ用で、4Pマップでは使わない)
  *
  * 新マップの入口は、通常マップをすべてクリアするまで「未解放」として開かない
  * (1P側・2P側のどちらかでクリアしていれば解放される)。
@@ -444,6 +446,11 @@ export class ModeSelectScene extends Phaser.Scene {
         button.setFillStyle(UNSELECTED_FILL);
       });
       button.on(Phaser.Input.Events.POINTER_DOWN, () => {
+        // 4Pマップは、マップ選択の前に 1P〜4P の操作と指揮官を決める設定画面を挟む
+        if (item.group === 'four') {
+          this.scene.start('FourPlayerSetupScene');
+          return;
+        }
         this.scene.start('MapSelectScene', { group: item.group });
       });
     });

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { emptyBattleStats, type BattleStats } from '@/core/stats/BattleStats';
+import {
+  emptyArmyStats,
+  emptyBattleStats,
+  type BattleStats,
+} from '@/core/stats/BattleStats';
 import { applyCommander, formatBattleStats } from '@/ui/endingInfo';
 import { ENDING_SLIDES } from '@/data/endingData';
 
@@ -22,6 +26,8 @@ const STATS: BattleStats = {
     spent: 240000,
     captured: 5,
   },
+  third: emptyArmyStats(),
+  fourth: emptyArmyStats(),
 };
 
 describe('formatBattleStats(戦績の行)', () => {

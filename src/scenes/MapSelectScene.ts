@@ -28,7 +28,8 @@ import {
   type GameMode,
   type MapGroup,
 } from '@/core/mode/GameMode';
-import { readGameMode } from '@/core/settings/SettingsStorage';
+import { fourPlayerSummary, type FourPlayerSetup } from '@/core/mode/FourPlayerSetup';
+import { readFourPlayerSetup, readGameMode } from '@/core/settings/SettingsStorage';
 import {
   MAP_LIST,
   STANDARD_MAP_LIST,
@@ -158,6 +159,8 @@ interface CardLayout {
  * 左上の「戻る」でモード選択画面へ戻って選び直せる。
  * クリア状況(カードの「★ クリア済み」・激ムズマップの解放)は担当サイドごとに分かれており、
  * 選んでいるサイドのぶんだけを反映する。対人戦ではクリア記録に残らないため、これらは表示しない。
+ * 4Pマップの一覧は 4P 設定画面から入り、指揮官は設定画面で選んだものを使うため、
+ * ここでは指揮官を選ばせない。「戻る」は 4P 設定画面へ戻り、クリア状況も表示しない。
  */
 export class MapSelectScene extends Phaser.Scene {
   /** ドラッグ(スワイプ)をクリックと区別するための移動量しきい値(画面ピクセル) */
@@ -189,6 +192,8 @@ export class MapSelectScene extends Phaser.Scene {
   private group: MapGroup = MapSelectScene.lastGroup;
   /** モード選択画面で選んだ遊び方(担当サイド・操作の設定) */
   private mode: GameMode = DEFAULT_GAME_MODE;
+  /** 4P 設定画面で選んだ遊び方(4Pマップの一覧のときだけ持つ。それ以外は null) */
+  private fourPlayer: FourPlayerSetup | null = null;
 
   /** 現在選んでいる戦闘モードが夜戦かどうか */
   private nightBattle = MapSelectScene.lastNightBattle;
@@ -264,6 +269,7 @@ export class MapSelectScene extends Phaser.Scene {
     this.clearProgress = readClearProgress();
     // モード選択画面で選んだ遊び方(担当サイド・操作の設定)を読み込む
     this.mode = readGameMode();
+    this.fourPlayer = this.group === 'four' ? readFourPlayerSetup() : null;
     // 新マップは通常マップをすべてクリアするまで開かない(未解放ならカードを並べない)
     this.entries = this.isGroupUnlocked()
       ? visibleMaps(this.groupMaps(), this.clearProgress, this.mode.side)
@@ -313,7 +319,10 @@ export class MapSelectScene extends Phaser.Scene {
     // 指揮官(自軍・対戦相手)の選択。対戦相手は敵軍AIの思考パターンが変わり、
     // どちらも攻撃補正を持つ指揮官なら、その軍の全ユニットの火力が上がる。
     // 対人戦では AI と戦わず補正もかけないため、指揮官は選ばせずその旨だけを出す。
-    if (this.mode.versus === 'human') {
+    // 4Pマップでは、4P 設定画面で選んだ指揮官をそのまま使う
+    if (this.fourPlayer) {
+      this.createFourPlayerNotice(width);
+    } else if (this.mode.versus === 'human') {
       this.createVersusHumanNotice(width);
     } else {
       this.createCharacterSelector(width);
@@ -409,7 +418,8 @@ export class MapSelectScene extends Phaser.Scene {
    * 対人戦は勝ってもクリア記録に残らないため、クリア状況は出さない。
    */
   private showsClearProgress(): boolean {
-    return this.mode.versus !== 'human';
+    // 4Pマップの勝敗もクリア記録に残さないため、クリア状況は出さない
+    return this.mode.versus !== 'human' && this.fourPlayer === null;
   }
 
   /**
@@ -845,14 +855,21 @@ export class MapSelectScene extends Phaser.Scene {
       button.setFillStyle(0x1f2740);
     });
     button.on(Phaser.Input.Events.POINTER_DOWN, () => {
-      this.scene.start('ModeSelectScene');
+      // 4Pマップの一覧からは、1P〜4P の設定を選び直せるよう 4P 設定画面へ戻る
+      this.scene.start(this.fourPlayer ? 'FourPlayerSetupScene' : 'ModeSelectScene');
     });
   }
 
-  /** モード選択画面で選んだ遊び方(担当サイド・操作の設定)を左上に表示する */
+  /**
+   * モード選択画面で選んだ遊び方(担当サイド・操作の設定)を左上に表示する。
+   * 4Pマップの一覧では「4Pモード」とだけ出す。
+   */
   private createModeSummary(): void {
+    // 4Pマップの 1P〜4P の内訳は長いため、ここには見出しだけを出し、
+    // 内訳は指揮官の行(createFourPlayerNotice)に出す
+    const summary = this.fourPlayer ? '4Pモード' : gameModeSummary(this.mode);
     this.add
-      .text(BACK_BUTTON_X, 50, gameModeSummary(this.mode), {
+      .text(BACK_BUTTON_X, 50, summary, {
         fontFamily: 'sans-serif',
         fontSize: '12px',
         color: '#ffd479',
@@ -872,6 +889,33 @@ export class MapSelectScene extends Phaser.Scene {
           fontFamily: 'sans-serif',
           fontSize: '12px',
           color: '#c8c8d8',
+        },
+      )
+      .setOrigin(0.5)
+      .setDepth(HEADER_DEPTH);
+  }
+
+  /**
+   * 4Pマップの一覧のときに、指揮官の選択の代わりに出す案内。
+   * 4P 設定画面で選んだ 1P〜4P の操作の内訳もここに出す。
+   */
+  private createFourPlayerNotice(width: number): void {
+    if (!this.fourPlayer) {
+      return;
+    }
+    this.add
+      .text(
+        width / 2,
+        CHARACTER_ROW_CENTER_Y,
+        [
+          fourPlayerSummary(this.fourPlayer),
+          '指揮官は 4P 設定画面で選んだものを使います(「← 戻る」で選び直せます)',
+        ],
+        {
+          fontFamily: 'sans-serif',
+          fontSize: '12px',
+          color: '#c8c8d8',
+          align: 'center',
         },
       )
       .setOrigin(0.5)
@@ -1135,13 +1179,15 @@ export class MapSelectScene extends Phaser.Scene {
       playerCharacterId: this.playerCharacterId,
       playerSide: this.mode.side,
       versusMode: this.mode.versus,
+      fourPlayer: this.fourPlayer ?? undefined,
     });
   }
 
   /**
    * 中断データからゲームを再開する。マップ選択画面のカードからの再開と、
    * モード選択画面の「中断から再開」の両方から使う。
-   * 戦闘モード・指揮官・担当サイド・操作の設定は中断データに保存されたものを使う。
+   * 戦闘モード・指揮官・担当サイド・操作の設定(4Pマップなら 1P〜4P の設定)は
+   * 中断データに保存されたものを使う。
    * ゲームを終えたり中断したりして戻ってきたときに、遊んでいたマップの区分の一覧を開くよう、
    * 直前の区分もそのマップの区分に合わせておく。
    */

@@ -18,7 +18,6 @@ import { RepairManager, type RepairResult } from '@/core/economy/RepairManager';
 import { equals, gridPosition, type GridPosition } from '@/core/map/GridPosition';
 import { gridToWorld, gridToWorldCenter, worldToGrid } from '@/core/map/coordinates';
 import { MapManager } from '@/core/map/MapManager';
-import type { ArmyType } from '@/core/map/TerrainType';
 import type { TileData } from '@/core/map/TileData';
 import {
   calculateMovementRange,
@@ -37,6 +36,14 @@ import {
   type PlayerSide,
   type VersusMode,
 } from '@/core/mode/GameMode';
+import {
+  absentArmies,
+  humanArmies,
+  isCpuArmy,
+  participatingArmies,
+  playerNumberLabel,
+  type FourPlayerSetup,
+} from '@/core/mode/FourPlayerSetup';
 import { computeVisibility, unitVision, Visibility } from '@/core/night/Visibility';
 import {
   BattleStatsRecorder,
@@ -62,10 +69,15 @@ import type { Unit } from '@/core/units/Unit';
 import { mergedHp } from '@/core/units/merge';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
+import { VictoryConditionChecker } from '@/core/victory/VictoryConditionChecker';
 import {
-  VictoryConditionChecker,
-  type VictoryResult,
-} from '@/core/victory/VictoryConditionChecker';
+  applyElimination,
+  EliminationChecker,
+  findHomeHeadquarters,
+  judgeFourPlayer,
+  type Elimination,
+  type FourPlayerOutcome,
+} from '@/core/victory/ArmyElimination';
 import { computeGameDimensions, INFO_PANEL_WIDTH, TILE_SIZE } from '@/data/gameConfig';
 import {
   DEFAULT_MAP_ENTRY,
@@ -75,7 +87,14 @@ import {
   type ResolvedMapEntry,
 } from '@/data/maps';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
+import { removeAbsentArmies } from '@/data/maps/armySlots';
 import { swapMapSides } from '@/data/maps/sideSwap';
+import {
+  ARMY_TEXT_COLOR,
+  OWNER_COLOR,
+  TURN_BANNER_COLOR,
+  UNIT_BODY_COLOR,
+} from '@/data/armyColors';
 import { getTerrainData } from '@/data/terrainData';
 import {
   formatCaptureLog,
@@ -106,7 +125,12 @@ import {
   type EnemyActionView,
 } from '@/rendering/enemyActionSequence';
 import { BattleEffects, DAMAGE_COLOR } from '@/rendering/battleEffects';
-import { formatResultMessage } from '@/ui/resultInfo';
+import {
+  formatEliminationMessage,
+  formatFourPlayerResult,
+  formatResultMessage,
+  type ResultMessage,
+} from '@/ui/resultInfo';
 import { formatTerrainInfo } from '@/ui/terrainInfo';
 import { armyLabel, formatTurnBanner, type ArmyLabelOptions } from '@/ui/turnInfo';
 import { formatUnitInfo } from '@/ui/unitInfo';
@@ -123,20 +147,6 @@ import { EnemyAnimationWindow } from '@/rendering/EnemyAnimationWindow';
 import { UnitGuideWindow } from '@/rendering/UnitGuideWindow';
 import { drawTerrainDecoration } from '@/rendering/terrainDecoration';
 import { addUnitIconLabel, drawUnitIcon } from '@/rendering/unitIcon';
-
-/** 占領地形の所有者を示す枠の色 */
-const OWNER_COLOR: Record<'player' | 'enemy' | 'neutral', number> = {
-  player: 0x3a7bd5,
-  enemy: 0xd53a3a,
-  neutral: 0xdddddd,
-};
-
-/** ユニット本体を軍勢ごとに塗り分ける色 */
-const UNIT_BODY_COLOR: Record<ArmyType, number> = {
-  player: 0x2f5fae,
-  enemy: 0xae2f2f,
-  neutral: 0x777777,
-};
 
 /** コマンド・生産ボタンの描画開始 Y 座標(情報パネル内) */
 const ACTION_BUTTON_TOP = 300;
@@ -227,12 +237,14 @@ const HP_BAR_COLOR = {
   low: 0xe0533a,
 } as const;
 
-/** ターン開始バナーの軍勢別の色 */
-const TURN_BANNER_COLOR: Record<ArmyType, number> = {
-  player: 0x2f5fae,
-  enemy: 0xae2f2f,
-  neutral: 0x555566,
-};
+/** 4P マップで軍勢が脱落したときに、次の手番へ移るまでに脱落を見せる時間(ミリ秒) */
+const ELIMINATION_HOLD_MS = 1400;
+
+/**
+ * 4P マップでコンピューターどうしの対戦を見ているときの、手番と手番の間(ミリ秒)。
+ * この間は情報メニュー(中断など)を開ける。
+ */
+const SPECTATE_TURN_GAP_MS = 400;
 
 /**
  * ゲーム本体のメインシーン。
@@ -273,6 +285,10 @@ const TURN_BANNER_COLOR: Record<ArmyType, number> = {
  * モード選択: モード選択画面で選んだ内容(担当サイド・操作の設定)に従って開始する。
  *   2P側では盤面の自軍・敵軍を入れ替え、敵軍(元の 1P 側)を先手にして後手番で戦う。
  *   対人戦(プレイヤー vs プレイヤー)では敵軍AIを動かさず、両陣営とも人間が交代で操作する。
+ * 4Pモード: 4P 設定画面で選んだ内容(1P〜4P の操作と指揮官)に従い、参加する軍勢が
+ *   1P → 2P → 3P → 4P の順に手番を回す。コンピューターの軍勢は軍勢ごとの敵軍AIが動かし、
+ *   「なし」の軍勢の陣地は中立の拠点になる。本拠地を占領された・全滅した軍勢は脱落し、
+ *   最後の 1 軍が残った時点で決着する(docs/GameDesign.md「4Pモード」を参照)。
  */
 export class MainScene extends Phaser.Scene {
   private map!: MapManager;
@@ -284,7 +300,18 @@ export class MainScene extends Phaser.Scene {
   private production!: ProductionManager;
   private repair!: RepairManager;
   private victory!: VictoryConditionChecker;
-  private ai!: EnemyAi;
+  /**
+   * コンピューターが操作する軍勢ごとの敵軍AI。
+   * 2 人で遊ぶマップの対 CPU では敵軍の 1 つだけ、4P マップではコンピューターの軍勢ぶん持つ。
+   */
+  private ais = new Map<TurnArmy, EnemyAi>();
+  /** 4P マップで脱落した軍勢を見つけるチェッカー(2 人で遊ぶマップでは使わない) */
+  private eliminationChecker: EliminationChecker | null = null;
+  /**
+   * 4P マップで、コンピューターの手番中に夜戦の視界の基準にするプレイヤーの軍勢。
+   * 直前に手番を持っていたプレイヤーの軍勢を控えておく(プレイヤーがいなければ null)。
+   */
+  private lastHumanView: TurnArmy | null = null;
   /** 効果音・BGM の再生を統括するサウンドマネージャ */
   private audio!: SoundManager;
   /** 初回のユーザー操作で AudioContext を起動し BGM を開始したか */
@@ -330,6 +357,11 @@ export class MainScene extends Phaser.Scene {
    * 再生中はマップ操作とターン終了を受け付けない。
    */
   private enemyTurnAnimating = false;
+  /**
+   * 4P マップで、プレイヤーの手番中にその軍勢が脱落し、次の手番へ移るのを待っているか。
+   * 待っている間は操作を受け付けない。
+   */
+  private turnHandoffPending = false;
   /**
    * 攻撃で撃破されたが、爆散の演出が終わるまで盤面に残して見せるユニット。
    * ゲームロジック上はすでに盤面から取り除かれている。
@@ -418,6 +450,13 @@ export class MainScene extends Phaser.Scene {
    * 戦闘・戦闘予測・敵軍AIの見積もりで同じ数値を使うよう、init() で 1 度だけ組み立てる。
    */
   private commanderBonus: CommanderBonus = NO_COMMANDER_BONUS;
+  /**
+   * 4P マップの遊び方(4P 設定画面で選ぶ 1P〜4P の操作と指揮官)。
+   * 2 人で遊ぶマップでは null で、担当サイド・操作の設定・指揮官の選択を使う。
+   */
+  private fourPlayer: FourPlayerSetup | null = null;
+  /** 4P マップで各軍勢を率いる指揮官(2 人で遊ぶマップでは使わない) */
+  private fourPlayerCharacters: Partial<Record<TurnArmy, AiCharacter>> = {};
   /** 担当するプレイヤーサイド(モード選択画面で選ぶ)。2P側は盤面を入れ替えて後手番になる */
   private playerSide: PlayerSide = DEFAULT_GAME_MODE.side;
   /** 操作の設定(モード選択画面で選ぶ)。対人戦では敵軍AIを動かさない */
@@ -467,6 +506,8 @@ export class MainScene extends Phaser.Scene {
    * マップ選択画面から遊ぶマップ・戦闘モード・対戦相手・モード選択の内容を受け取る
    * (未指定なら既定値)。2P側のときはここでマップ定義の自軍・敵軍を入れ替える。
    * 中断データから再開する場合は save も渡され、create() で盤面を復元する。
+   * 4P マップでは fourPlayer(1P〜4P の操作と指揮官)を受け取り、「なし」の軍勢を
+   * マップ定義から取り除く(再開時は中断データに保存された内容を使う)。
    */
   init(data: {
     map?: MapDefinition;
@@ -476,13 +517,20 @@ export class MainScene extends Phaser.Scene {
     playerCharacterId?: string;
     playerSide?: PlayerSide;
     versusMode?: VersusMode;
+    fourPlayer?: FourPlayerSetup;
     save?: SaveData;
   }): void {
+    this.fourPlayer = data.save ? data.save.fourPlayer : (data.fourPlayer ?? null);
     this.playerSide = data.playerSide ?? DEFAULT_GAME_MODE.side;
     this.versusMode = data.versusMode ?? DEFAULT_GAME_MODE.versus;
     const definition = data.map ?? DEFAULT_MAP_ENTRY.definition;
-    // 2P側では拠点の所有者とユニットの所属を入れ替え、これまで敵軍だった側を担当する
-    this.mapDef = swapsSides(this.playerSide) ? swapMapSides(definition) : definition;
+    if (this.fourPlayer) {
+      // 4P マップでは盤面を入れ替えない。参加しない軍勢の陣地だけを中立にする
+      this.mapDef = removeAbsentArmies(definition, absentArmies(this.fourPlayer));
+    } else {
+      // 2P側では拠点の所有者とユニットの所属を入れ替え、これまで敵軍だった側を担当する
+      this.mapDef = swapsSides(this.playerSide) ? swapMapSides(definition) : definition;
+    }
     this.mapId = data.mapId ?? DEFAULT_MAP_ENTRY.id;
     this.resumeSave = data.save ?? null;
     this.resumedStats = data.save?.stats ?? null;
@@ -491,24 +539,40 @@ export class MainScene extends Phaser.Scene {
     this.aiCharacter = getAiCharacter(data.aiCharacterId);
     this.playerCharacter = getAiCharacter(data.playerCharacterId);
     // 対人戦では指揮官を選ばない(どちらの手番も人が操作する)ため、補正もかけない。
-    // 対 CPU では自軍・敵軍それぞれの指揮官の攻撃補正がそのまま軍の補正になる
-    this.commanderBonus =
-      this.versusMode === 'human'
-        ? NO_COMMANDER_BONUS
-        : {
-            player: this.playerCharacter.attackBonus,
-            enemy: this.aiCharacter.attackBonus,
-          };
+    // 対 CPU では自軍・敵軍それぞれの指揮官の攻撃補正がそのまま軍の補正になる。
+    // 4P マップでは、プレイヤー・コンピューターを問わず各軍勢の指揮官の補正がかかる
+    this.fourPlayerCharacters = {};
+    if (this.fourPlayer) {
+      const bonus: Partial<Record<TurnArmy, number>> = {};
+      for (const army of participatingArmies(this.fourPlayer)) {
+        const character = getAiCharacter(this.fourPlayer[army].characterId);
+        this.fourPlayerCharacters[army] = character;
+        bonus[army] = character.attackBonus;
+      }
+      this.commanderBonus = bonus;
+    } else {
+      this.commanderBonus =
+        this.versusMode === 'human'
+          ? NO_COMMANDER_BONUS
+          : {
+              player: this.playerCharacter.attackBonus,
+              enemy: this.aiCharacter.attackBonus,
+            };
+    }
     // 敵の行動アニメは中断データではなくゲーム設定として保存しているため、
     // マップ・再開の内容とは関わりなく毎回保存済みの設定を読み直す
     this.enemyAnimationMode = readEnemyAnimationMode();
     // シーンを再入場したときのために状態を初期化しておく
     this.gameOver = false;
     this.audioStarted = false;
+    this.lastHumanView = null;
   }
 
   create(): void {
     this.map = MapManager.fromDefinition(this.mapDef);
+    // 4P マップの脱落判定に使う「各軍勢の自軍の本拠地」は、中断データを書き戻す前の
+    // (マップ定義どおりの)盤面から求める
+    const homes = findHomeHeadquarters(this.map);
     // 中断データを渡されていれば、保存時の盤面(ユニット・占領状況・ターン・資金)を復元する
     const restored = this.restoreFromSave();
     this.units =
@@ -526,35 +590,54 @@ export class MainScene extends Phaser.Scene {
     this.scale.resize(this.gameWidth, this.gameHeight);
     this.setupCamera();
     this.battle = new BattleManager(this.map, this.units, this.commanderBonus);
-    // 2P側は後手番。入れ替え後の敵軍(元の 1P 側)を先手にする
+    // 2P側は後手番。入れ替え後の敵軍(元の 1P 側)を先手にする。
+    // 4P マップでは参加する軍勢が 1P → 4P の順に手番を回す
     this.turn =
       restored?.turn ??
-      new TurnManager(this.units, undefined, firstArmy(this.playerSide));
+      new TurnManager(
+        this.units,
+        undefined,
+        this.fourPlayer
+          ? participatingArmies(this.fourPlayer)
+          : firstArmy(this.playerSide),
+      );
     this.economy =
       restored?.economy ?? new EconomyManager({ initialFunds: this.mapDef.initialFunds });
     this.capture = new CaptureSystem();
     this.production = new ProductionManager(this.map, this.units, this.economy);
     this.repair = new RepairManager(this.map, this.units, this.economy);
     this.victory = new VictoryConditionChecker(this.map, this.units);
+    this.eliminationChecker = this.fourPlayer
+      ? new EliminationChecker(this.map, this.units, homes)
+      : null;
     // 戦績は中断データにも保存する。再開時は保存されていた数から数え続ける
     // (中断データを復元できなかったときは新規ゲーム扱いなので 0 から数え直す)
     this.stats = new BattleStatsRecorder(
       (restored && this.resumedStats) || emptyBattleStats(),
     );
     this.resumedStats = null;
-    this.ai = new EnemyAi({
-      map: this.map,
-      units: this.units,
-      battle: this.battle,
-      capture: this.capture,
-      production: this.production,
-      // 夜戦では敵軍AIも自軍と同じ視界のルールで戦う
-      nightBattle: this.nightBattle,
-      // 選んだ敵指揮官の思考パターン(生産方針・進軍方針)で戦わせる
-      behavior: this.aiCharacter.behavior,
-      // 与ダメージ・被反撃の見積もりを実際の戦闘とそろえるため、同じ補正を渡す
-      commanderBonus: this.commanderBonus,
-    });
+    this.ais = new Map();
+    for (const army of this.cpuArmies()) {
+      this.ais.set(
+        army,
+        new EnemyAi(
+          {
+            map: this.map,
+            units: this.units,
+            battle: this.battle,
+            capture: this.capture,
+            production: this.production,
+            // 夜戦では敵軍AIも自軍と同じ視界のルールで戦う
+            nightBattle: this.nightBattle,
+            // 選んだ指揮官の思考パターン(生産方針・進軍方針)で戦わせる
+            behavior: this.characterOf(army).behavior,
+            // 与ダメージ・被反撃の見積もりを実際の戦闘とそろえるため、同じ補正を渡す
+            commanderBonus: this.commanderBonus,
+          },
+          army,
+        ),
+      );
+    }
     this.audio = new SoundManager();
     // ブラウザが非アクティブ(タブ切替・アプリ切替)の間はゲーム音を止める
     this.audio.bindPageVisibility();
@@ -578,6 +661,7 @@ export class MainScene extends Phaser.Scene {
     this.attackAnimating = false;
     this.moveAnimating = false;
     this.enemyTurnAnimating = false;
+    this.turnHandoffPending = false;
     this.animatingUnit = null;
     this.pendingDefeated = [];
 
@@ -595,14 +679,46 @@ export class MainScene extends Phaser.Scene {
     // 開始時は自軍の本拠地へカメラを寄せ、どこから始めるか分かりやすくする
     this.focusPlayerHeadquarters();
 
-    if (this.shouldRunAi()) {
-      // 2P側(後手番)では敵軍AIの手番から始まる。開始バナーは敵軍ターンの演出側で出す
-      this.runEnemyTurn(() => this.startPlayerTurn());
-      return;
-    }
+    // 先手の手番を始める(2P側の後手番や 4P マップでは、コンピューターの手番から始まることもある)
+    this.beginCurrentTurn();
+  }
 
-    // 開始演出として先手の第1ターンのバナーを表示する
-    this.showTurnStartBanner();
+  /**
+   * コンピューターが操作する軍勢の一覧。
+   * 2 人で遊ぶマップの対 CPU では敵軍だけ、対人戦では無し、
+   * 4P マップでは操作に「コンピューター」を選んだ軍勢。
+   */
+  private cpuArmies(): readonly TurnArmy[] {
+    if (this.fourPlayer) {
+      const setup = this.fourPlayer;
+      return participatingArmies(setup).filter((army) => isCpuArmy(setup, army));
+    }
+    return this.versusMode === 'cpu' ? ['enemy'] : [];
+  }
+
+  /**
+   * 指定した軍勢を率いる指揮官。
+   * 2 人で遊ぶマップでは敵軍が対戦相手・それ以外が自軍の指揮官になる。
+   */
+  private characterOf(army: TurnArmy): AiCharacter {
+    if (this.fourPlayer) {
+      return this.fourPlayerCharacters[army] ?? DEFAULT_AI_CHARACTER;
+    }
+    return army === 'enemy' ? this.aiCharacter : this.playerCharacter;
+  }
+
+  /**
+   * 情報パネルに出す、コンピューターの軍勢の呼び名(指揮官名)。
+   * 4P マップでは、どの軍勢の指揮官か分かるよう番号(3P など)を添える。
+   */
+  private commanderLabel(army: TurnArmy): string {
+    const label = aiCharacterLabel(this.characterOf(army));
+    return this.fourPlayer ? `${playerNumberLabel(army)} ${label}` : label;
+  }
+
+  /** いま手番を持っている軍勢の敵軍AI(プレイヤーの手番なら undefined) */
+  private currentAi(): EnemyAi | undefined {
+    return this.ais.get(this.turn.currentArmy);
   }
 
   /**
@@ -610,23 +726,61 @@ export class MainScene extends Phaser.Scene {
    * 対人戦では AI を動かさないため、常に false を返す。
    */
   private shouldRunAi(): boolean {
-    return this.versusMode === 'cpu' && this.turn.currentArmy === 'enemy';
+    return this.currentAi() !== undefined;
   }
 
   /**
    * 情報パネル・バナーで軍勢をどう呼ぶかの設定。
-   * 対人戦では「自軍 / 敵軍」ではなく先手・後手で「1P / 2P」と呼び分ける。
+   * 対人戦では「自軍 / 敵軍」ではなく先手・後手で「1P / 2P」と呼び分け、
+   * 4P マップでは各軍勢を 1P〜4P の番号で呼ぶ。
    */
   private armyLabelOptions(): ArmyLabelOptions {
-    return { versus: this.versusMode, side: this.playerSide };
+    return {
+      versus: this.versusMode,
+      side: this.playerSide,
+      fourPlayer: this.fourPlayer !== null,
+    };
   }
 
   /**
    * 盤面を見ている側の軍勢。夜戦の視界(暗幕)の基準に使う。
    * 対 CPU ではプレイヤーが操作する自軍で固定し、対人戦では手番側から見た視界にする。
+   * 4P マップでは、プレイヤーの手番はその軍勢から見た視界にし、コンピューターの手番は
+   * 直前に手番を持っていたプレイヤーの視界のままにする。
    */
   private viewArmy(): TurnArmy {
+    if (this.fourPlayer) {
+      const current = this.turn.currentArmy;
+      if (!isCpuArmy(this.fourPlayer, current)) {
+        this.lastHumanView = current;
+        return current;
+      }
+      return this.lastHumanView ?? humanArmies(this.fourPlayer)[0] ?? current;
+    }
     return this.versusMode === 'human' ? this.turn.currentArmy : 'player';
+  }
+
+  /**
+   * 夜戦の暗幕をかけるか。
+   * 4P マップでプレイヤーが 1 人もいない(コンピューターどうしの対戦を見ている)ときは、
+   * 誰の視界で見せても不公平になるため、夜戦でも盤面全体を見せる。
+   */
+  private isFogActive(): boolean {
+    if (!this.nightBattle) {
+      return false;
+    }
+    return !this.fourPlayer || humanArmies(this.fourPlayer).length > 0;
+  }
+
+  /**
+   * いまの手番がプレイヤーの操作する軍勢か(BGM・ジングルの切り替えに使う)。
+   * 2 人で遊ぶマップではこれまでどおり自軍の手番をプレイヤー側として扱う。
+   */
+  private isPlayerSideTurn(): boolean {
+    if (this.fourPlayer) {
+      return !isCpuArmy(this.fourPlayer, this.turn.currentArmy);
+    }
+    return this.turn.currentArmy === 'player';
   }
 
   /**
@@ -724,7 +878,7 @@ export class MainScene extends Phaser.Scene {
       this.map,
       this.units,
       this.viewArmy(),
-      this.nightBattle,
+      this.isFogActive(),
     );
     this.drawFog();
   }
@@ -1077,9 +1231,7 @@ export class MainScene extends Phaser.Scene {
     if (this.gameOver) {
       return;
     }
-    this.audio.startBgm(
-      this.turn.currentArmy === 'player' ? 'playerBattle' : 'enemyBattle',
-    );
+    this.audio.startBgm(this.isPlayerSideTurn() ? 'playerBattle' : 'enemyBattle');
   }
 
   /** ターン終了ボタンを情報パネル下部に作成する */
@@ -1242,7 +1394,8 @@ export class MainScene extends Phaser.Scene {
       this.gameOver ||
       this.attackAnimating ||
       this.moveAnimating ||
-      this.enemyTurnAnimating
+      this.enemyTurnAnimating ||
+      this.turnHandoffPending
     );
   }
 
@@ -1272,16 +1425,29 @@ export class MainScene extends Phaser.Scene {
     const army = this.turn.currentArmy;
     const state = this.turn.state;
     // 手番開始のジングルを鳴らし、手番に応じた BGM へ切り替える
-    this.audio.playSfx(army === 'player' ? 'turnPlayer' : 'turnEnemy');
+    this.audio.playSfx(this.isPlayerSideTurn() ? 'turnPlayer' : 'turnEnemy');
     this.updateBattleBgm();
-    const label = `${armyLabel(army, this.armyLabelOptions())}ターン`;
+    this.showBanner(
+      `${armyLabel(army, this.armyLabelOptions())}ターン`,
+      this.nightBattle
+        ? `第${state.turnNumber}ターン(夜戦)`
+        : `第${state.turnNumber}ターン`,
+      TURN_BANNER_COLOR[army],
+    );
+  }
+
+  /**
+   * 画面中央に帯状のバナーを表示する(ターン開始・4P マップでの脱落の知らせに使う)。
+   * 見出しと補足の 2 行を大きく示し、スライドインしてフェードアウトする。
+   */
+  private showBanner(label: string, subLabel: string, color: number): void {
     const bannerHeight = 72;
     // マップのスクロールに追従せず、常にビューポート中央へ表示する
     const centerY = this.viewHeight / 2;
 
     // 帯状の背景(ビューポート幅いっぱい)
     const bg = this.add.graphics();
-    bg.fillStyle(TURN_BANNER_COLOR[army], 0.9);
+    bg.fillStyle(color, 0.9);
     bg.fillRect(0, centerY - bannerHeight / 2, this.viewWidth, bannerHeight);
     bg.lineStyle(2, 0xffffff, 0.8);
     bg.lineBetween(
@@ -1306,18 +1472,11 @@ export class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     const sub = this.add
-      .text(
-        this.viewWidth / 2,
-        centerY + 20,
-        this.nightBattle
-          ? `第${state.turnNumber}ターン(夜戦)`
-          : `第${state.turnNumber}ターン`,
-        {
-          fontFamily: 'sans-serif',
-          fontSize: '16px',
-          color: '#ffffff',
-        },
-      )
+      .text(this.viewWidth / 2, centerY + 20, subLabel, {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
       .setOrigin(0.5);
 
     const banner = this.add
@@ -1376,67 +1535,85 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * 現在の手番を終了する。
-   * 対 CPU では敵軍へ手番を移して敵軍AIを自動実行し、決着しなければ自軍へ手番を戻す。
-   * 対人戦では AI を動かさず、そのまま相手プレイヤーの手番を始める。
-   * 手番が移るたびに、その軍の収入計上と拠点上ユニットの修理を行う。
+   * 現在の手番を終了する(「ターン終了」ボタン)。
+   * 次の軍勢へ手番を移し、それがコンピューターの軍勢なら敵軍AIを自動実行する。
+   * 決着しなければ、プレイヤーの手番が来るまで同じ流れで手番を回し続ける。
    *
    * 「敵の行動アニメ」が「簡単」以上のときは敵軍の行動を 1 つずつ演出するため、
-   * 敵軍ターンの終わりは非同期に訪れる(自軍へ手番を戻す処理は startPlayerTurn が担う)。
+   * 敵軍ターンの終わりは非同期に訪れる(次の手番へ移す処理は advanceTurn が担う)。
    */
   private handleEndTurn(): void {
-    // 勝敗が決した後と攻撃演出の再生中はターン終了も受け付けない
-    if (this.isInputLocked()) {
+    // 勝敗が決した後と攻撃演出の再生中はターン終了も受け付けない。
+    // コンピューターの手番(観戦の手番の合間)に押しても、その手番を飛ばさないよう何もしない
+    if (this.isInputLocked() || this.shouldRunAi()) {
       return;
     }
     this.clearSelection();
-
-    // 次の軍勢へ手番を移し、その軍の開始時経済処理(収入・修理)を行う。
-    this.turn.endTurn();
-    const repairs = this.runTurnStartEconomy();
-    // 演出しながら進める場合は、相手の手番であることが見出しと資金表示に出る
-    this.updateTurnText();
-    this.updateEconomyText();
-    this.drawUnits();
-
-    if (!this.shouldRunAi()) {
-      // 対人戦では AI を動かさず、そのままもう一方のプレイヤーの手番を始める
-      this.drawTerrain();
-      if (repairs.length > 0) {
-        this.audio.playSfx('repair');
-        this.infoText.setText(formatRepairLog(repairs));
-      }
-      this.showTurnStartBanner();
-      return;
-    }
-
-    // 敵軍AIを実行する。占領・撃破で勝敗が決したらそこで止める。
-    this.runEnemyTurn(() => this.startPlayerTurn());
+    this.advanceTurn();
   }
 
   /**
-   * 敵軍ターンが終わったあと、自軍へ手番を戻して開始時の処理(収入・修理)を行う。
-   * 敵軍の行動で勝敗が決していれば何もしない。
+   * 次の軍勢へ手番を移し、その軍の開始時の処理(収入・修理)を行ってから手番を始める。
+   * 勝敗が決していれば何もしない。
    */
-  private startPlayerTurn(): void {
+  private advanceTurn(): void {
     if (this.gameOver) {
       return;
     }
-    // 敵軍 → 自軍。自軍の開始時経済処理を行い、表示を更新する。
     this.turn.endTurn();
     const repairs = this.runTurnStartEconomy();
+    // 相手の手番であることが見出しと資金表示に出る
     this.updateTurnText();
     this.updateEconomyText();
     // 占領による所有者変更・修理での HP 変化・行動済みリセットを反映して再描画する
     this.drawTerrain();
     this.drawUnits();
-    // 修理があればその内容を、なければ敵軍の行動サマリを表示したままにする
+    // 修理があればその内容を、なければ直前の行動サマリを表示したままにする
     if (repairs.length > 0) {
       this.audio.playSfx('repair');
       this.infoText.setText(formatRepairLog(repairs));
     }
-    // 自軍ターンの開始演出を表示する
+    this.beginCurrentTurn();
+  }
+
+  /**
+   * 現在の手番を始める。
+   * コンピューターの軍勢なら敵軍AIを動かし、終わったら次の手番へ移す
+   * (開始バナーは敵軍ターンの演出側で出す)。プレイヤーの手番なら開始バナーを出して操作を待つ。
+   */
+  private beginCurrentTurn(): void {
+    if (this.shouldRunAi()) {
+      if (this.isSpectating()) {
+        this.scheduleSpectatorTurn();
+        return;
+      }
+      this.runEnemyTurn(() => this.advanceTurn());
+      return;
+    }
     this.showTurnStartBanner();
+  }
+
+  /**
+   * コンピューターどうしの対戦を見ているときに、少し間を置いてから次のコンピューターの手番を動かす。
+   * 「超速」でも全手番を一度に回し切って画面が固まらないようにするための間で、この間は
+   * 情報メニュー(中断など)を開ける。ウィンドウや情報メニューを開いている間は手番を進めずに待つ。
+   */
+  private scheduleSpectatorTurn(): void {
+    this.time.delayedCall(SPECTATE_TURN_GAP_MS, () => {
+      if (this.gameOver) {
+        return;
+      }
+      if (this.isAnyWindowOpen() || this.infoMenuOpen) {
+        this.scheduleSpectatorTurn();
+        return;
+      }
+      this.runEnemyTurn(() => this.advanceTurn());
+    });
+  }
+
+  /** 4P マップで、プレイヤーが 1 人もいない(コンピューターどうしの対戦を見ている)か */
+  private isSpectating(): boolean {
+    return this.fourPlayer !== null && humanArmies(this.fourPlayer).length === 0;
   }
 
   /**
@@ -1446,12 +1623,38 @@ export class MainScene extends Phaser.Scene {
    * 「簡単」以上では 1 行動ずつ実行し、カメラ移動と演出を挟みながら見せる。
    */
   private runEnemyTurn(onComplete: () => void): void {
-    if (this.enemyAnimationMode === 'instant') {
-      this.finishEnemyTurn(this.ai.run());
+    const ai = this.currentAi();
+    if (!ai) {
       onComplete();
       return;
     }
-    this.playEnemyTurn(onComplete);
+    if (this.enemyAnimationMode === 'instant') {
+      this.finishEnemyTurn(this.runAiInstantly(ai));
+      onComplete();
+      return;
+    }
+    this.playEnemyTurn(ai, onComplete);
+  }
+
+  /**
+   * 敵軍AIの手番を演出なしで一度に実行し、実行した行動を返す。
+   * 4P マップでは 1 行動ごとに脱落を判定し、決着したり手番の軍勢が脱落したりしたら
+   * そこで手番を打ち切る(2 人で遊ぶマップは従来どおりまとめて実行する)。
+   */
+  private runAiInstantly(ai: EnemyAi): AiAction[] {
+    if (!this.fourPlayer) {
+      return ai.run();
+    }
+    const army = this.turn.currentArmy;
+    const actions: AiAction[] = [];
+    for (const action of ai.runSteps()) {
+      actions.push(action);
+      this.resolveEliminations();
+      if (this.gameOver || this.turn.isEliminated(army)) {
+        break;
+      }
+    }
+    return actions;
   }
 
   /**
@@ -1461,8 +1664,9 @@ export class MainScene extends Phaser.Scene {
    * (暗い)範囲だけで起きた行動は演出せず、盤面へ反映するだけにする。
    * 途中で勝敗が決したら、残りの行動は見せずに手番を終える。
    */
-  private playEnemyTurn(onComplete: () => void): void {
+  private playEnemyTurn(ai: EnemyAi, onComplete: () => void): void {
     this.enemyTurnAnimating = true;
+    const army = this.turn.currentArmy;
     // 敵軍のターンが始まったことをバナー・ジングル・BGM で知らせる
     this.showTurnStartBanner();
 
@@ -1470,7 +1674,7 @@ export class MainScene extends Phaser.Scene {
     const camera = this.cameras.main;
     const returnTo = { x: camera.scrollX, y: camera.scrollY };
 
-    const steps = this.ai.runSteps();
+    const steps = ai.runSteps();
     const actions: AiAction[] = [];
     const finish = (): void => {
       this.enemyTurnAnimating = false;
@@ -1483,7 +1687,12 @@ export class MainScene extends Phaser.Scene {
 
     const runNext = (): void => {
       // 行動で盤面が変わる前の視界を控える(暗い範囲での行動を写さない判定に使う)
-      const sight = computeVisibility(this.map, this.units, 'player', this.nightBattle);
+      const sight = computeVisibility(
+        this.map,
+        this.units,
+        this.viewArmy(),
+        this.isFogActive(),
+      );
       const next = steps.next();
       if (next.done === true) {
         finish();
@@ -1492,8 +1701,15 @@ export class MainScene extends Phaser.Scene {
       const action = next.value;
       actions.push(action);
       this.showEnemyAction(action, sight, (shown) => {
-        // 敵軍の占領・撃破で勝敗が決したら、残りの行動は見せずに手番を終える
-        if (this.victory.check().outcome !== 'ongoing') {
+        // 敵軍の占領・撃破で勝敗が決したら、残りの行動は見せずに手番を終える。
+        // 4P マップでは 1 行動ごとに脱落を判定し、手番の軍勢が脱落した場合も手番を終える
+        if (this.fourPlayer) {
+          this.resolveEliminations();
+          if (this.gameOver || this.turn.isEliminated(army)) {
+            finish();
+            return;
+          }
+        } else if (this.victory.check().outcome !== 'ongoing') {
           finish();
           return;
         }
@@ -1523,10 +1739,13 @@ export class MainScene extends Phaser.Scene {
     this.drawUnits();
     this.updateEconomyText();
     this.infoText.setText(
-      formatEnemyTurnSummary(actions, { commander: aiCharacterLabel(this.aiCharacter) }),
+      formatEnemyTurnSummary(actions, {
+        commander: this.commanderLabel(this.turn.currentArmy),
+      }),
     );
     // 敵軍の占領・撃破で勝敗が決していないか判定する
-    this.checkGameEnd();
+    // (手番の終わりなので、脱落しても次の手番へは呼び出し側が移す)
+    this.checkGameEnd({ advanceIfEliminated: false });
   }
 
   /** 敵軍AIの行動一覧から、攻撃・占領・生産を戦績へ数える */
@@ -1572,7 +1791,9 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.infoText.setText(
-      formatEnemyActionLog(action, { commander: aiCharacterLabel(this.aiCharacter) }),
+      formatEnemyActionLog(action, {
+        commander: this.commanderLabel(this.turn.currentArmy),
+      }),
     );
     // 手動で操作しているように、行動するマスまで画面を動かしてから見せる
     this.panCameraTo(view.focus, ENEMY_CAMERA_PAN_MS, () =>
@@ -2178,6 +2399,7 @@ export class MainScene extends Phaser.Scene {
         playerCharacterId: this.playerCharacter.id,
         playerSide: this.playerSide,
         versusMode: this.versusMode,
+        fourPlayer: this.fourPlayer,
         stats: this.stats.snapshot(),
         map: this.map,
         units: this.units,
@@ -2283,7 +2505,9 @@ export class MainScene extends Phaser.Scene {
     // 夜戦で見つけていない敵は「いない」ものとして扱う(選択しても情報が出ない)
     const unit = this.visibleUnitAt(pos);
     // 手番の軍勢の未行動ユニットを選択したら移動可能範囲と攻撃対象を表示する
-    if (unit && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
+    // (コンピューターの手番のユニットは、観戦の手番の合間に選んでも動かせない)
+    const playerTurn = !this.shouldRunAi();
+    if (unit && playerTurn && this.turn.isCurrentArmy(unit.armyType) && !unit.hasActed) {
       this.audio.playSfx('select');
       this.movingUnit = unit;
       const moveOptions = this.movementOptions();
@@ -2323,7 +2547,11 @@ export class MainScene extends Phaser.Scene {
 
     // ユニットのいない自軍の生産拠点を選んだら「生産」コマンドを表示する
     // (canProduceAt は実際の占有を見るため、見えていない敵がいる拠点では生産できない)
-    if (!unit && this.production.canProduceAt(this.turn.currentArmy, tile)) {
+    if (
+      !unit &&
+      playerTurn &&
+      this.production.canProduceAt(this.turn.currentArmy, tile)
+    ) {
       this.showProductionCommand(tile);
     }
   }
@@ -2910,7 +3138,22 @@ export class MainScene extends Phaser.Scene {
    * 現在の盤面で勝敗が決していないか判定する。
    * 決着していれば結果オーバーレイを表示し、以降の操作を止める。
    */
-  private checkGameEnd(): void {
+  private checkGameEnd(options: { advanceIfEliminated?: boolean } = {}): void {
+    if (this.fourPlayer) {
+      this.resolveEliminations();
+      // プレイヤーの手番中に、その軍勢自身が脱落した(反撃で最後のユニットを失ったなど)
+      // ときは、脱落を見せてから次の手番へ移す
+      const advance = options.advanceIfEliminated ?? true;
+      if (!this.gameOver && advance && this.turn.isEliminated(this.turn.currentArmy)) {
+        this.turnHandoffPending = true;
+        this.time.delayedCall(ELIMINATION_HOLD_MS, () => {
+          this.turnHandoffPending = false;
+          this.clearSelection();
+          this.advanceTurn();
+        });
+      }
+      return;
+    }
     const result = this.victory.check();
     if (result.outcome === 'ongoing') {
       return;
@@ -2933,7 +3176,85 @@ export class MainScene extends Phaser.Scene {
     this.audio.stopBgm();
     this.audio.playSfx(result.outcome === 'player_victory' ? 'victory' : 'lose');
     this.resetSelection();
-    this.showResultOverlay(result, unlocked, ending);
+    this.showResultOverlay(
+      formatResultMessage(result, this.armyLabelOptions()),
+      result.outcome === 'player_victory',
+      { unlocked, ending },
+    );
+  }
+
+  /**
+   * 4P マップで、脱落した軍勢を見つけて後始末(ユニットの撤去・拠点の移動)をし、
+   * 盤面と表示を更新する。最後の 1 軍が残った(またはプレイヤーが全員脱落した)ら決着させる。
+   * 2 人で遊ぶマップでは何もしない。脱落した軍勢の一覧を返す。
+   */
+  private resolveEliminations(): Elimination[] {
+    const setup = this.fourPlayer;
+    if (!setup || !this.eliminationChecker || this.gameOver) {
+      return [];
+    }
+    const eliminations = this.eliminationChecker.check(this.turn.activeArmies);
+    for (const elimination of eliminations) {
+      applyElimination(elimination, this.map, this.units);
+      this.turn.eliminate(elimination.army);
+    }
+    const outcome = judgeFourPlayer(this.turn.activeArmies, humanArmies(setup));
+    if (eliminations.length > 0) {
+      // 決着したときは結果の表示と重なるので、脱落のバナーは出さない
+      this.announceEliminations(eliminations, outcome.kind === 'ongoing');
+    }
+    if (outcome.kind !== 'ongoing') {
+      this.endFourPlayerGame(outcome);
+    }
+    return eliminations;
+  }
+
+  /**
+   * 軍勢の脱落を盤面・情報パネルで知らせる。
+   * withBanner が true なら、画面中央のバナーと効果音でも知らせる。
+   */
+  private announceEliminations(
+    eliminations: readonly Elimination[],
+    withBanner: boolean,
+  ): void {
+    this.drawTerrain();
+    this.drawUnits();
+    this.updateEconomyText();
+    const options = this.armyLabelOptions();
+    const messages = eliminations.map((e) => formatEliminationMessage(e, options));
+    this.infoText.setText(messages.flatMap((message) => message.lines));
+    if (!withBanner) {
+      return;
+    }
+    this.audio.playSfx('defeat');
+    this.showBanner(
+      messages[0].title,
+      messages[0].detail,
+      TURN_BANNER_COLOR[eliminations[0].army],
+    );
+  }
+
+  /** 4P マップの決着を結果オーバーレイで知らせ、以降の操作を止める */
+  private endFourPlayerGame(
+    outcome: Exclude<FourPlayerOutcome, { kind: 'ongoing' }>,
+  ): void {
+    const setup = this.fourPlayer;
+    if (!setup) {
+      return;
+    }
+    this.gameOver = true;
+    // 4P マップの勝敗はクリア記録に残さない(激ムズマップの解放条件は対 CPU の 2 人用マップのみ)
+    const result = formatFourPlayerResult(
+      outcome,
+      humanArmies(setup),
+      this.armyLabelOptions(),
+    );
+    this.audio.stopBgm();
+    this.audio.playSfx(result.isVictory ? 'victory' : 'lose');
+    this.resetSelection();
+    this.showResultOverlay(result, result.isVictory, {
+      titleColor: outcome.kind === 'winner' ? ARMY_TEXT_COLOR[outcome.army] : undefined,
+    });
   }
 
   /** 遊んでいるマップが激ムズマップ(区分 extra)かどうか */
@@ -2969,14 +3290,15 @@ export class MainScene extends Phaser.Scene {
    * 勝敗結果を画面中央のオーバーレイとして表示する。
    * unlocked が true(今回のクリアで激ムズマップが解放された)なら、その知らせも添える。
    * ending が true(激ムズマップを対 CPU で勝利した)なら、ボタンでエンディングへ進む。
+   * titleColor を渡すと見出しをその色にする(4P マップで勝ち残った軍勢の色を使う)。
    */
   private showResultOverlay(
-    result: VictoryResult,
-    unlocked = false,
-    ending = false,
+    message: ResultMessage,
+    isVictory: boolean,
+    options: { unlocked?: boolean; ending?: boolean; titleColor?: string } = {},
   ): void {
-    const isVictory = result.outcome === 'player_victory';
-    const message = formatResultMessage(result, this.armyLabelOptions());
+    const unlocked = options.unlocked ?? false;
+    const ending = options.ending ?? false;
 
     // 画面全体を暗くする半透明オーバーレイ(マップスクロールに追従せず画面へ固定する)
     const overlay = this.add.graphics().setScrollFactor(0);
@@ -2992,7 +3314,7 @@ export class MainScene extends Phaser.Scene {
         fontFamily: 'sans-serif',
         fontSize: '48px',
         fontStyle: 'bold',
-        color: isVictory ? '#ffd479' : '#ff6a6a',
+        color: options.titleColor ?? (isVictory ? '#ffd479' : '#ff6a6a'),
       })
       .setOrigin(0.5)
       .setScrollFactor(0);
