@@ -349,7 +349,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(isWestOfRiver(RIVAL_HQ)).toBe(false);
   });
 
-  it('装輪車両が川を越えられるのは 3 つの橋と線路の鉄橋だけ', () => {
+  it('車両が川を越えられるのは 3 つの橋と線路の鉄橋だけ', () => {
     for (const bridge of BRIDGES) {
       expect(map.getTile(bridge)?.terrainType).toBe('road');
       // 橋の上下は川
@@ -373,7 +373,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
       (pos) => !CROSSINGS.some((crossing) => key(crossing) === key(pos)) && wheeled(pos),
     );
     expect(withoutCrossings.has(key(RIVAL_HQ))).toBe(false);
-    // 歩兵と装軌車両は橋も鉄橋も無くても川を渡れる
+    // 歩兵だけは橋も鉄橋も無くても川を渡れる。装軌車両は装輪車両と同じく橋と鉄橋が頼り
     for (const movementType of ['infantry', 'vehicle'] as const) {
       const reach = floodFill(
         map,
@@ -382,7 +382,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
           !CROSSINGS.some((crossing) => key(crossing) === key(pos)) &&
           passable(map, movementType)(pos),
       );
-      expect(reach.has(key(RIVAL_HQ))).toBe(true);
+      expect(reach.has(key(RIVAL_HQ))).toBe(movementType === 'infantry');
     }
   });
 

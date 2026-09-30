@@ -991,7 +991,7 @@ export class MainScene extends Phaser.Scene {
 
   /**
    * 帯としてつながって見せる地形(道路・線路・川)の接続方向を返す。
-   * 道路は道路と拠点へ、線路は線路と駅へ、川は川と水面(海・海岸・港)へつながる。
+   * 道路は道路と拠点へ、線路は線路と駅へ、川は川と水面(海・浅瀬・海岸・港)へつながる。
    * それ以外の地形では undefined。
    */
   private terrainLinksAt(tile: TileData): RoadLinks | undefined {

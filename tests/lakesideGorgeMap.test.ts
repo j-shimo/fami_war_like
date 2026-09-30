@@ -192,8 +192,10 @@ describe('湖畔と山峡マップの盤面', () => {
   });
 
   it('川を渡って南へ降りられるのは歩兵だけで、車両の南北路は湖の右の街道 1 本だけ', () => {
-    // 川の南岸が山なので、川を渡れる装軌車両も南へは降りられない
-    expect(map.getMoveCost(gridPosition(15, 7), 'vehicle')).not.toBeNull();
+    // 車両はそもそも川へ入れず、川の南岸も山なので、南へ降りられるのは歩兵だけ
+    expect(map.getMoveCost(gridPosition(15, 7), 'infantry')).not.toBeNull();
+    expect(map.getMoveCost(gridPosition(15, 8), 'infantry')).not.toBeNull();
+    expect(map.getMoveCost(gridPosition(15, 7), 'vehicle')).toBeNull();
     expect(map.getMoveCost(gridPosition(15, 8), 'vehicle')).toBeNull();
     expect(map.getMoveCost(gridPosition(15, 7), 'wheeled')).toBeNull();
     // 湖の右の街道(col 33)は row 3〜19 まで一本につながっている
@@ -382,12 +384,11 @@ describe('湖畔と山峡マップの北西の窪地', () => {
     for (const pos of POCKET_BEACH) {
       expect(seaFromWestPort.get(pos)).toBeLessThan(Infinity);
     }
-    // 輸送艦がなくても、新型戦車は自力で川を渡渉して北の森へ抜けられる(移動力 6 で 3 ターン)
+    // 新型戦車(装軌車両)は川へ入れないので、輸送艦がなければ窪地から出られない
     expect(getUnitData('newTank').movementType).toBe('vehicle');
-    expect(getUnitData('newTank').movement).toBe(6);
-    expect(fromLab.get(gridPosition(3, 6))).toBe(15);
-    // 川を遡れば装軌車両は外から窪地へも入れる(そのぶん研究所は守りにくい)
-    expect(minCost(POCKET_LABORATORY, PLAYER_BASES, 'vehicle')).toBe(56);
+    expect(fromLab.get(gridPosition(3, 6))).toBeUndefined();
+    // 逆に、装軌車両が外から自力で窪地へ入ることもできない
+    expect(minCost(POCKET_LABORATORY, PLAYER_BASES, 'vehicle')).toBe(Infinity);
   });
 
   it('敵軍は西岸の海岸へ揚陸して窪地を狙える', () => {

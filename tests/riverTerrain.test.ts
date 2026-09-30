@@ -25,12 +25,12 @@ describe('地形「川」(river)のパラメータ', () => {
     expect(map.getTile(gridPosition(0, 0))?.terrainType).toBe('river');
   });
 
-  it('歩兵はコスト 2、装軌車両はコスト 3 で渡れる', () => {
+  it('歩兵はコスト 2 で渡れる', () => {
     expect(cost('river', 'infantry')).toBe(2);
-    expect(cost('river', 'vehicle')).toBe(3);
   });
 
-  it('装輪車両(偵察車・ロケット砲)と列車砲(軌道)は渡れない', () => {
+  it('車両(装軌・装輪)と列車砲(軌道)は渡れない', () => {
+    expect(cost('river', 'vehicle')).toBeNull();
     expect(cost('river', 'wheeled')).toBeNull();
     expect(cost('river', 'rail')).toBeNull();
   });
@@ -40,7 +40,7 @@ describe('地形「川」(river)のパラメータ', () => {
     expect(cost('river', 'air')).toBe(1);
   });
 
-  it('遮蔽の無い浅瀬なので防御値は 0(海・海岸と同じ)', () => {
+  it('遮蔽の無い水面なので防御値は 0(海・海岸と同じ)', () => {
     expect(getTerrainData('river').defense).toBe(0);
     expect(getTerrainData('river').defense).toBe(getTerrainData('beach').defense);
   });
@@ -71,10 +71,11 @@ describe('地形「川」(river)のパラメータ', () => {
     ).toThrow();
   });
 
-  it('海と違って地上ユニットが渡れる(そこが海との唯一の違いになる)', () => {
-    for (const movementType of ['infantry', 'vehicle'] as const) {
-      expect(cost('sea', movementType)).toBeNull();
-      expect(cost('river', movementType)).not.toBeNull();
+  it('海と違って歩兵が渡れる(そこが海との唯一の違いになる)', () => {
+    expect(cost('sea', 'infantry')).toBeNull();
+    expect(cost('river', 'infantry')).not.toBeNull();
+    for (const movementType of ['vehicle', 'wheeled'] as const) {
+      expect(cost('river', movementType)).toBe(cost('sea', movementType));
     }
   });
 });
@@ -104,10 +105,10 @@ describe('川の渡河(幅 1 マスの川を挟んだ盤面)', () => {
     expect(range.getCost(gridPosition(2, 0))).toBe(3);
   });
 
-  it('装軌車両(中戦車)はコスト 3 で渡れる', () => {
+  it('装軌車両(中戦車)は渡れない', () => {
     const range = rangeFrom('mediumTank');
-    expect(range.getCost(gridPosition(1, 0))).toBe(3);
-    expect(range.canReach(gridPosition(2, 0))).toBe(true);
+    expect(range.canReach(gridPosition(1, 0))).toBe(false);
+    expect(range.canReach(gridPosition(2, 0))).toBe(false);
   });
 
   it('装輪車両(偵察車)は移動力 8 でも渡れない', () => {
@@ -162,6 +163,13 @@ describe('computeRiverLinks', () => {
       left: true,
       right: false,
     });
+  });
+
+  it('浅瀬も水面としてつながる(川が浅瀬へ注ぐ描画のため)', () => {
+    const def: MapDefinition = { name: '川と浅瀬', terrain: ['sw.'] };
+    const links = linksAt(def, 1, 0);
+    expect(links.left).toBe(true);
+    expect(links.right).toBe(false);
   });
 
   it('港も水面としてつながる(川が港へ注ぐ描画のため)', () => {

@@ -49,8 +49,8 @@ const ENEMY_BASES: readonly GridPosition[] = [
 /** 盤面中央の高台にある中立の駅。線路の中間点 */
 const NEUTRAL_STATION = gridPosition(14, 1);
 
-/** 中央の陸地を横断する川(幅 1 マス)。左右の入江をつなぐ水路でもある */
-const RIVER: readonly GridPosition[] = [12, 13, 14, 15, 16].map((col) =>
+/** 中央の陸地を横断する浅瀬(幅 1 マス)。左右の入江をつなぐ水路でもある */
+const SHOAL: readonly GridPosition[] = [12, 13, 14, 15, 16].map((col) =>
   gridPosition(col, 5),
 );
 
@@ -335,38 +335,44 @@ describe('三叉鉄橋マップの線路', () => {
   });
 });
 
-describe('三叉鉄橋マップの川', () => {
-  it('中央の陸地を横断する幅 1 マスの川で、高台と下の陸地がつながっている', () => {
-    for (const pos of RIVER) {
-      expect(map.getTile(pos)?.terrainType).toBe('river');
+describe('三叉鉄橋マップの浅瀬', () => {
+  it('中央の陸地を横断する幅 1 マスの浅瀬で、高台と下の陸地がつながっている', () => {
+    for (const pos of SHOAL) {
+      expect(map.getTile(pos)?.terrainType).toBe('shoal');
     }
-    // 川の南北はどちらも陸地(高台 row 4 と、下の陸地 row 6)
+    // 浅瀬の南北はどちらも陸地(高台 row 4 と、下の陸地 row 6)
     expect(map.getMoveCost(gridPosition(14, 4), 'infantry')).not.toBeNull();
     expect(map.getMoveCost(gridPosition(14, 6), 'infantry')).not.toBeNull();
   });
 
-  it('川は左右の入江につながっていて、海上ユニットの水路になる', () => {
+  it('浅瀬は左右の入江につながっていて、海上ユニットの水路になる', () => {
     expect(map.getTile(gridPosition(11, 5))?.terrainType).toBe('sea');
     expect(map.getTile(gridPosition(17, 5))?.terrainType).toBe('sea');
-    // 自軍の港から敵軍の港までの海路は 24。川を陸(平地)に変えると到達できなくなる
+    // 自軍の港から敵軍の港までの海路は 24。浅瀬を陸(平地)に変えると到達できなくなる
     expect(distancesFrom(map, PLAYER_PORT, 'sea').get(ENEMY_PORT)).toBe(24);
     expect(
-      distancesFrom(replacedMap('w', '.'), PLAYER_PORT, 'sea').get(ENEMY_PORT),
+      distancesFrom(replacedMap('s', '.'), PLAYER_PORT, 'sea').get(ENEMY_PORT),
     ).toBeUndefined();
   });
 
-  it('装輪車両は川を渡れないので、南から中立駅の高台へは上がれない', () => {
-    // 線路を落とした盤面(南岸回りのみ)では、装輪車両は中立駅へ到達できない
-    expect(minCost(NEUTRAL_STATION, PLAYER_BASES, 'wheeled', replacedMap('=', '~'))).toBe(
-      Infinity,
+  it('地上ユニットはどれも浅瀬を渡って、南から中立駅の高台へ上がれる', () => {
+    // 線路を落とした盤面(南岸回りのみ)でも、歩兵・装軌車両・装輪車両は中立駅へ届く
+    const noRail = replacedMap('=', '~');
+    const costs = (['infantry', 'vehicle', 'wheeled'] as const).map((movementType) =>
+      minCost(NEUTRAL_STATION, PLAYER_BASES, movementType, noRail),
     );
-    // 歩兵・装軌車両は渡れる
-    expect(
-      minCost(NEUTRAL_STATION, PLAYER_BASES, 'vehicle', replacedMap('=', '~')),
-    ).toBeLessThan(Infinity);
+    expect(costs).toEqual([36, 37, 45]);
+    // 浅瀬を海に変えると、南から高台へ上がる陸路は無くなる
+    const noShoal = MapManager.fromDefinition({
+      ...RAIL_BRIDGE_MAP,
+      terrain: RAIL_BRIDGE_MAP.terrain.map((line) =>
+        line.split('=').join('~').split('s').join('~'),
+      ),
+    });
+    expect(minCost(NEUTRAL_STATION, PLAYER_BASES, 'infantry', noShoal)).toBe(Infinity);
   });
 
-  it('高台へ揚陸できるよう、川の北の両端に海岸を置いてある', () => {
+  it('高台へ揚陸できるよう、浅瀬の北の両端に海岸を置いてある', () => {
     for (const pos of [gridPosition(12, 4), gridPosition(16, 4)]) {
       expect(map.getTile(pos)?.terrainType).toBe('beach');
       expect(distancesFrom(map, PLAYER_PORT, 'sea').get(pos)).toBeLessThan(Infinity);

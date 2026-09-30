@@ -73,7 +73,7 @@ export function computeRailLinks(map: MapManager, pos: GridPosition): RoadLinks 
 
 /**
  * 指定座標の隣接マスが川として連結して見えるかを返す。
- * 川どうしに加えて、川が注ぎ込む先の水面(海・海岸・港)も接続先とみなす
+ * 川どうしに加えて、川が注ぎ込む先の水面(海・浅瀬・海岸・港)も接続先とみなす
  * (陸地へはつながらない。川は水の流れとして描く)。
  */
 function isRiverConnectable(map: MapManager, pos: GridPosition): boolean {
@@ -84,6 +84,7 @@ function isRiverConnectable(map: MapManager, pos: GridPosition): boolean {
   return (
     tile.terrainType === 'river' ||
     tile.terrainType === 'sea' ||
+    tile.terrainType === 'shoal' ||
     tile.terrainType === 'beach' ||
     tile.terrainType === 'port'
   );

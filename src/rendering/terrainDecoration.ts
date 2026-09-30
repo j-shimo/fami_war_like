@@ -1,6 +1,6 @@
 // 地形マスの上にコードで模様を描き込み、単色の四角よりリッチに見せる。
 // 外部画像アセットは使わず(グラフィックはすべてオリジナルとする方針)、
-// Phaser の Graphics プリミティブだけで草・木・山・道路・線路・川を描く。
+// Phaser の Graphics プリミティブだけで草・木・山・道路・線路・川・浅瀬を描く。
 // マップ状態には依存せず描画のみを担うため、Vitest の対象外(MainScene と同様)。
 
 import Phaser from 'phaser';
@@ -153,8 +153,8 @@ function drawSea(ctx: TerrainDecorationContext): void {
 }
 
 /**
- * 川: 流れの筋と、水面から覗く川石を描いて浅瀬を表現する。
- * 海(短い波線を散らす)と見分けられるよう、流れの向きにそろえた長い筋で描く。
+ * 川: 流れの筋を描いて、車両では渡れない水の流れを表現する。
+ * 海(短い波線を散らす)・浅瀬(砂底と小石)と見分けられるよう、流れの向きにそろえた長い筋で描く。
  * 向きは roadLinks(computeRiverLinks)の接続方向から決め、左右へ続いていれば横に、
  * それ以外(上下へ続く川・単独のマス)は縦に流す。
  */
@@ -178,7 +178,36 @@ function drawRiver(ctx: TerrainDecorationContext): void {
       g.lineBetween(x + across, y + along, x + across, y + along + len);
     }
   }
-  // 川石。浅瀬であること(歩いて渡れること)を見た目でも示す
+}
+
+/**
+ * 浅瀬: 水面越しに透ける砂底の斑と、水面から覗く小石を描く。
+ * 川(流れの筋)と見分けられるよう、流れの向きを持たない斑点と、さざ波の短い線で描く。
+ * 小石で「歩いて(履帯で)渡れる浅さ」であることを見た目でも示す。
+ */
+function drawShoal(ctx: TerrainDecorationContext): void {
+  const { graphics: g, x, y, size, col, row } = ctx;
+  const sand = 0xcfd9a8;
+  const ripple = 0xc8eee6;
+  // 砂底の斑
+  const patches = 3;
+  for (let i = 0; i < patches; i++) {
+    const px = x + size * (0.2 + 0.6 * hash01(col, row, i * 3 + 101));
+    const py = y + size * (0.2 + 0.6 * hash01(col, row, i * 3 + 102));
+    const r = size * (0.08 + 0.06 * hash01(col, row, i * 3 + 103));
+    g.fillStyle(sand, 0.45);
+    g.fillCircle(px, py, r);
+  }
+  // さざ波
+  const ripples = 3;
+  for (let i = 0; i < ripples; i++) {
+    const py = y + size * (0.15 + 0.7 * hash01(col, row, i * 2 + 111));
+    const px = x + size * (0.1 + 0.5 * hash01(col, row, i * 2 + 112));
+    const len = size * 0.22;
+    g.lineStyle(1, ripple, 0.8);
+    g.lineBetween(px, py, px + len, py);
+  }
+  // 小石
   const stones = 3;
   for (let i = 0; i < stones; i++) {
     const px = x + size * (0.15 + 0.7 * hash01(col, row, i * 2 + 81));
@@ -750,7 +779,7 @@ function drawHeadquarters(ctx: TerrainDecorationContext): void {
 
 /**
  * 地形種別に応じた装飾を描く。
- * 自然地形(平地・森・山・道路・線路・海・川・海岸)に加え、
+ * 自然地形(平地・森・山・道路・線路・海・川・浅瀬・海岸)に加え、
  * 拠点(都市・研究所・工場・空港・港・駅・本拠地)も建物のシルエットと所有者旗で表現する。
  */
 export function drawTerrainDecoration(
@@ -778,6 +807,9 @@ export function drawTerrainDecoration(
       break;
     case 'river':
       drawRiver(ctx);
+      break;
+    case 'shoal':
+      drawShoal(ctx);
       break;
     case 'beach':
       drawBeach(ctx);
