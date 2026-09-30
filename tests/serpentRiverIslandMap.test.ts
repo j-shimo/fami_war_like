@@ -125,8 +125,8 @@ const FORK = gridPosition(19, 13);
 /** 自軍の本拠地から少し東へ進んだところで北へ折れる角 */
 const STEM_CORNER = gridPosition(8, 23);
 
-/** 敵軍の駅から西へ伸びる線路の終点(川の東岸)にある中立の「西の駅」 */
-const WEST_STATION = gridPosition(25, 10);
+/** 敵軍の駅から row 6 をまっすぐ西へ伸びる線路の終点(川の東岸)にある中立の「西の駅」 */
+const WEST_STATION = gridPosition(23, 6);
 
 /** 敵軍の駅から南へ下りる線路の終点にある中立の「南の駅」 */
 const SOUTH_STATION = gridPosition(29, 17);
@@ -275,13 +275,20 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
   it('敵軍の駅から左(西)と下(南)へ線路が伸び、どちらの駅へも列車砲で 1 ターンで着く', () => {
     const rail = distancesFrom(map, RIVAL_STATION, 'rail');
     const railgun = getUnitData('railgun');
-    expect(rail.get(WEST_STATION)).toBe(10);
+    expect(rail.get(WEST_STATION)).toBe(8);
     expect(rail.get(SOUTH_STATION)).toBe(13);
     for (const station of [WEST_STATION, SOUTH_STATION]) {
       expect(rail.get(station)).toBeLessThanOrEqual(railgun.movement);
     }
     // 西の駅は敵軍の駅より左、南の駅は下にある
     expect(WEST_STATION.col).toBeLessThan(RIVAL_STATION.col);
+    // 西へ伸びる線路は敵軍の駅と同じ row をまっすぐ走る
+    expect(WEST_STATION.row).toBe(RIVAL_STATION.row);
+    for (let col = WEST_STATION.col + 1; col < RIVAL_STATION.col; col += 1) {
+      expect(map.getTile(gridPosition(col, RIVAL_STATION.row))?.terrainType).toBe(
+        'railway',
+      );
+    }
     expect(SOUTH_STATION.row).toBeGreaterThan(RIVAL_STATION.row);
     // 線路のマスはすべて敵軍の駅から走って行ける
     const rails = collect(map, (tile) => tile.terrainType === 'railway');
