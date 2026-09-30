@@ -26,6 +26,7 @@ import { STRAIT_MAP } from '@/data/maps/straitMap';
 import { TEST_MAP } from '@/data/maps/testMap';
 import { TWIN_CONTINENTS_MAP } from '@/data/maps/twinContinentsMap';
 import { TWIN_ISLAND_RAIL_MAP } from '@/data/maps/twinIslandRailMap';
+import { TWIN_SHOAL_ISLANDS_MAP } from '@/data/maps/twinShoalIslandsMap';
 
 /** マップ選択画面に並べる 1 枚ぶんのエントリ */
 export interface MapEntry {
@@ -244,6 +245,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       description:
         'Y 字の海が 1 つの大きな島を 3 つに割る 30x26 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、手番は 1P → 2P → 3P → 4P の順に回る。初期の拠点は 1P が本拠地 1・工場 3・空港 2(収入 6000)、2P・3P が本拠地 1・工場 4・空港 2(収入 7000)、4P が本拠地 1・工場 4・空港 2・都市 4(収入 11000)で、1P がはっきり不利・4P がはっきり有利。1P と 3P は西の陸に同居し、2P は北東の陸・4P はいちばん広い南東の陸を独り占めする。4 軍の陣地は「日」の字の道路で結ばれ、海は道路の橋で渡る。「日」の右上の部分は 2P の「口」の字の道路に置き換わり、その右上の角が 2P の本拠地。4P の陣地のまわりは山地帯。研究所は「日」の上の線と真ん中の線に 1 個ずつあり、上の研究所は最速で向かえば 1P が先に着く。中立空港は上・中・下に 1 個ずつ、中立都市 29 個はどれも道路沿いで、陣地のすぐ隣の都市は 2P と 4P だけが 1 ターンで届く(1P と 3P は 2 ターン)。',
       // 4 人で遊ぶ 4Pマップの 2 枚目
+      group: 'four',
+    },
+    {
+      id: 'twinShoalIslands',
+      definition: TWIN_SHOAL_ISLANDS_MAP,
+      description:
+        '4 つの島に 4 つの軍勢が 1 島ずつ陣取る 20x24 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、島はどれも横 8 マス・縦 10 マスの細長い島。4 軍とも本拠地 1 + 工場 4 + 空港 2 + 港 2(収入 9000)・初期資金 0 から始まり、手番は 1P → 2P → 3P → 4P の順に回る。港は工場から 1〜2 マスの陣地のそばにあり、1P・3P は島の左側・2P・4P は島の右側。1P と 2P の島、3P と 4P の島は縦 4 マスの浅瀬でつながり、歩兵と装軌車両は歩いて渡れる(装輪車両は渡れない)。北の 2 島と南の 2 島のあいだは幅 2 マスの海で、地上ユニットは輸送艦か輸送ヘリでしか渡れないが、ロケット砲なら海越しに向かいの島を撃てる。山は無く、島の中は平地が主で、都市へ向かう道路と少しの森がある。中立都市は島ごとに 6 個で、陣地と合わせて島を取り切ると収入 15000。4 つの島は鏡写しではなく形も配置も少しずつ違い、都市は手番の遅い軍ほどわずかに取りやすい。',
+      // 4 人で遊ぶ 4Pマップの 3 枚目
       group: 'four',
     },
   ] as const satisfies readonly MapEntry[]
