@@ -24,7 +24,7 @@ import {
   writeFourPlayerSetup,
 } from '@/core/settings/SettingsStorage';
 import type { TurnArmy } from '@/core/turn/TurnManager';
-import { aiCharacterLabel, getAiCharacter } from '@/data/aiCharacters';
+import { aiCharacterLabel, getAiCharacter, shortBonusLabel } from '@/data/aiCharacters';
 import { ARMY_TEXT_COLOR, UNIT_BODY_COLOR } from '@/data/armyColors';
 import { DEFAULT_DIMENSIONS } from '@/data/gameConfig';
 import { AiCharacterWindow } from '@/rendering/AiCharacterWindow';
@@ -551,8 +551,7 @@ export class FourPlayerSetupScene extends Phaser.Scene {
       return;
     }
     const character = getAiCharacter(slot.characterId);
-    const bonus =
-      character.attackBonus > 0 ? ` +${Math.round(character.attackBonus * 100)}%` : '';
+    const bonus = shortBonusLabel(character);
     row.characterRect.setFillStyle(UNSELECTED_FILL).setStrokeStyle(2, UNSELECTED_STROKE);
     row.characterLabel
       .setText(`${aiCharacterLabel(character)}${bonus}`)

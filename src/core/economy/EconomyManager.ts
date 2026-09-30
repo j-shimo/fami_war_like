@@ -1,5 +1,6 @@
 // 各軍の資金と、ターン開始時の収入を管理する。Phaser には依存しない純粋なロジック。
 // 所有する占領拠点の数に応じて収入を加算する。
+// 指揮官によっては、拠点の数に関わらず毎ターン一定額の収入補正(incomeBonus)が上乗せされる。
 // docs/DevelopmentPlan.md Phase 7、docs/GameDesign.md「収入」を参照。
 
 import type { MapManager } from '@/core/map/MapManager';
@@ -22,6 +23,8 @@ export interface EconomyOptions {
 export class EconomyManager {
   private readonly funds: Record<EconomyArmy, number>;
   private readonly incomePerBase: number;
+  /** 軍ごとの収入補正(毎ターン拠点収入に上乗せする額)。書いていない軍は 0 */
+  private readonly incomeBonus: Partial<Record<EconomyArmy, number>> = {};
 
   constructor(options?: EconomyOptions) {
     const initial = options?.initialFunds ?? INITIAL_FUNDS;
@@ -54,6 +57,23 @@ export class EconomyManager {
     this.funds[army] = amount;
   }
 
+  /**
+   * 指定した軍の収入補正(毎ターン拠点収入に上乗せする額、0 以上)を設定する。
+   * 指揮官の特性(aiCharacters の incomeBonus)を軍へ反映するときに使う。
+   * 補正は資金ではなくゲームの設定なので中断データには保存せず、再開時に設定し直す。
+   */
+  setIncomeBonus(army: EconomyArmy, amount: number): void {
+    if (amount < 0) {
+      throw new Error('収入補正は 0 以上である必要があります');
+    }
+    this.incomeBonus[army] = amount;
+  }
+
+  /** 指定した軍の収入補正を返す(補正が無ければ 0) */
+  getIncomeBonus(army: EconomyArmy): number {
+    return this.incomeBonus[army] ?? 0;
+  }
+
   /** 指定した軍が cost を支払えるか */
   canAfford(army: EconomyArmy, cost: number): boolean {
     return this.funds[army] >= cost;
@@ -83,15 +103,16 @@ export class EconomyManager {
 
   /**
    * 指定した軍が現在の所有拠点から、次のターン開始時に得られる収入を返す。
-   * 収入 = 所有拠点数 × 拠点あたり収入。資金は加算しないので、情報パネルの表示にも使う。
+   * 収入 = 所有拠点数 × 拠点あたり収入 + 収入補正。資金は加算しないので、情報パネルの表示にも使う。
+   * 収入補正は拠点を 1 つも持っていなくても入る。
    */
   getIncome(army: EconomyArmy, map: MapManager): number {
-    return this.countBases(army, map) * this.incomePerBase;
+    return this.countBases(army, map) * this.incomePerBase + this.getIncomeBonus(army);
   }
 
   /**
    * ターン開始時の収入を計算して加算し、加算した金額を返す。
-   * 収入 = 所有拠点数 × 拠点あたり収入。
+   * 収入 = 所有拠点数 × 拠点あたり収入 + 収入補正。
    */
   collectIncome(army: EconomyArmy, map: MapManager): number {
     const income = this.getIncome(army, map);

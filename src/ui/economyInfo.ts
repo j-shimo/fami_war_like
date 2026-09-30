@@ -30,9 +30,11 @@ export function formatFunds(
 /**
  * ターン開始時に得られる収入を「収入: 5000 (拠点5)」の形式に整形する。
  * 資金行のすぐ下に置く想定で、どの軍かは資金行が示すため軍名は付けない。
+ * 指揮官の収入補正がある軍は、内訳が分かるよう「収入: 15000 (拠点5+10000)」と補正額を添える。
  */
-export function formatIncome(income: number, bases: number): string {
-  return `収入: ${income} (拠点${bases})`;
+export function formatIncome(income: number, bases: number, bonus = 0): string {
+  const extra = bonus > 0 ? `+${bonus}` : '';
+  return `収入: ${income} (拠点${bases}${extra})`;
 }
 
 /** 生産メニューのボタン表示名を「歩兵 (1000)」の形式に整形する */

@@ -12,7 +12,11 @@ import { ProductionManager } from '@/core/economy/ProductionManager';
 import { MapManager } from '@/core/map/MapManager';
 import { distancesFrom } from '@/core/movement/PathDistance';
 import { UnitManager } from '@/core/units/UnitManager';
-import { AI_CHARACTERS, DEFAULT_AI_CHARACTER } from '@/data/aiCharacters';
+import {
+  AI_CHARACTERS,
+  DEFAULT_AI_CHARACTER,
+  type AiCharacter,
+} from '@/data/aiCharacters';
 import { FOUR_ISLANDS_MAP } from '@/data/maps/fourIslandsMap';
 import { ISLAND_MAP } from '@/data/maps/islandMap';
 import type { MapDefinition } from '@/data/maps/mapDefinition';
@@ -21,11 +25,26 @@ import type { MapDefinition } from '@/data/maps/mapDefinition';
 const ENEMY_HEADQUARTERS = { col: 12, row: 21 };
 
 /**
+ * シード値から決まった列を返す乱数(mulberry32)。
+ * 気まぐれな生産・行動のしくじりを持つ指揮官でも、毎回同じ盤面の進み方で確かめるために使う。
+ */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
  * 敵軍AIだけを turns ターンぶん動かし、実行された行動をすべて返す。
  * 自軍は何もしない(ユニットを置かない)ため、AI が自力で戦線を広げられるかだけを見る。
+ * 指揮官の収入補正(incomeBonus)も、実際のゲームと同じく毎ターンの収入に上乗せする。
  */
 function runEnemyTurns(
-  behavior: AI_BEHAVIOR,
+  character: AiCharacter,
   turns: number,
   definition: MapDefinition = ISLAND_MAP,
 ): AiAction[] {
@@ -33,10 +52,19 @@ function runEnemyTurns(
   const units = UnitManager.fromPlacements(definition.units ?? [], map);
   const economy = new EconomyManager();
   economy.setFunds('enemy', definition.initialFunds ?? 0);
+  economy.setIncomeBonus('enemy', character.incomeBonus);
   const battle = new BattleManager(map, units);
   const capture = new CaptureSystem();
   const production = new ProductionManager(map, units, economy);
-  const ai = new EnemyAi({ map, units, battle, capture, production, behavior });
+  const ai = new EnemyAi({
+    map,
+    units,
+    battle,
+    capture,
+    production,
+    behavior: character.behavior,
+    random: seededRandom(1),
+  });
 
   const actions: AiAction[] = [];
   for (let turn = 1; turn <= turns; turn++) {
@@ -49,8 +77,6 @@ function runEnemyTurns(
   return actions;
 }
 
-type AI_BEHAVIOR = (typeof AI_CHARACTERS)[number]['behavior'];
-
 describe('分断列島マップでの敵軍AIの海越え', () => {
   // 歩兵が敵軍本拠地から歩いて行ける範囲(＝敵軍の島)。
   // ここから外れたマスへ降ろせていれば、海を越えたことになる。
@@ -62,7 +88,7 @@ describe('分断列島マップでの敵軍AIの海越え', () => {
 
   for (const character of AI_CHARACTERS) {
     it(`${character.name} は輸送艦を作り、歩兵を乗せて自分の島の外へ降ろす`, () => {
-      const actions = runEnemyTurns(character.behavior, 40);
+      const actions = runEnemyTurns(character, 40);
 
       const produced = actions.filter((action) => action.kind === 'produce');
       expect(
@@ -90,7 +116,7 @@ describe('四島空戦マップでの敵軍AIの海越え', () => {
   );
 
   it('輸送ヘリを作り、歩兵を乗せて自分の島の外(中立島・自軍の島)へ降ろす', () => {
-    const actions = runEnemyTurns(DEFAULT_AI_CHARACTER.behavior, 40, FOUR_ISLANDS_MAP);
+    const actions = runEnemyTurns(DEFAULT_AI_CHARACTER, 40, FOUR_ISLANDS_MAP);
 
     const produced = actions.filter((action) => action.kind === 'produce');
     expect(

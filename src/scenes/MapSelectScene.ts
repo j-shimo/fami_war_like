@@ -7,6 +7,7 @@ import {
   DEFAULT_AI_CHARACTER,
   aiCharacterLabel,
   getAiCharacter,
+  shortBonusLabel,
 } from '@/data/aiCharacters';
 import {
   clearRecordOf,
@@ -669,9 +670,8 @@ export class MapSelectScene extends Phaser.Scene {
       return;
     }
     const character = getAiCharacter(id);
-    // 攻撃補正を持つ指揮官は、ボタンの時点で分かるよう名前のうしろに添える
-    const bonus =
-      character.attackBonus > 0 ? ` +${Math.round(character.attackBonus * 100)}%` : '';
+    // 攻撃補正・収入補正を持つ指揮官は、ボタンの時点で分かるよう名前のうしろに添える
+    const bonus = shortBonusLabel(character);
     button.label.setText(`${aiCharacterLabel(character)}${bonus}`);
     const cx = button.left + CHARACTER_EMBLEM_MARGIN + CHARACTER_EMBLEM_RADIUS;
     button.emblem.clear();

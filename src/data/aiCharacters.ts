@@ -35,6 +35,12 @@ export interface AiCharacter {
    * 自軍の指揮官に選べばこちらの火力が上がり、対戦相手に選べば相手の火力が上がる。
    */
   readonly attackBonus: number;
+  /**
+   * この指揮官が率いる軍の収入補正。ターン開始時の収入に、拠点の数に関わらず毎ターンこの額が上乗せされる。
+   * 補正を持たない指揮官は 0(これまでどおりの収入)。攻撃補正と同じく、自軍の指揮官に選べばこちらの、
+   * 対戦相手に選べば相手の収入が増える。
+   */
+  readonly incomeBonus: number;
   /** この指揮官の思考パターン(敵軍AIが使う。自軍の指揮官に選んだときは使わない) */
   readonly behavior: AiBehavior;
 }
@@ -54,6 +60,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       '目の前の敵と拠点を順に片づける、基本に忠実な指揮官。遠くを見ないぶん動きが読みやすく、まずはこの相手で戦い方を覚えられる。攻撃できる敵がいれば必ず攻撃し、移動できる範囲に拠点があれば占領する。生産はまず占領役の歩兵 3 体をそろえ、そのあとは毎ターン、資金で買えるいちばん高価なユニットを選ぶ。',
     // 補正を持たない基本の指揮官。ここを基準に、他の指揮官の強さを測る
     attackBonus: 0,
+    incomeBonus: 0,
     // 敵AIを導入した当初からの思考パターン。既定値そのままの素朴な方針
     // (占領役の歩兵の目標数だけは、拠点が増えないまま詰まらないよう既定値ごと 3 体にしてある)。
     behavior: {
@@ -83,6 +90,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     description:
       'まず歩兵 6 体をそろえて中立都市を押さえ、伸ばした収入で重装備を整える指揮官。歩兵がそろうまでは歩兵だけを生産し、そのあとは安いユニットを買わずに資金を貯めて強力なユニットを狙う。戦闘ユニットは敵が 1 体も見えていなくても、通れるマスをたどって自軍の本拠地へ突き進む。',
     attackBonus: 0,
+    incomeBonus: 0,
     behavior: {
       // 序盤は歩兵で中立都市を取りに行き、収入を伸ばしてから戦力を整える
       production: 'infantryFirst',
@@ -114,6 +122,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     description:
       '編成を組み、戦力を一段ずつ積み上げてくる指揮官。占領役の歩兵と目になる偵察車を切らさず、同じユニットを並べるより一段強いユニットを狙って資金を貯める。ただし戦力で押されているあいだは貯めこまず、買えるものを買って盛り返してくる。自走砲は間合いを取って一方的に撃ち、部隊は固まって前進するため各個撃破しにくい。夜戦では視界の狭い鈍重なユニットを買わず、目の利く戦力でそろえてくる。',
     attackBonus: 0,
+    incomeBonus: 0,
     behavior: {
       // 「最低限の編成をそろえてから、一段ずつ強い戦力へ乗り換える」方針
       production: 'roster',
@@ -154,6 +163,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       '攻め込まず、自陣を固めて受け止める指揮官。まず歩兵 8 体で拠点を広げ、そのあとは自走砲やロケット砲などの遠距離ユニットを先に生産する(戦車・偵察車も買うが、遠距離が前に立つ戦力を上回るまでは後回し)。戦闘ユニットは本拠地へ突撃せず、自軍の拠点のそばで構えて近づいた敵だけを迎え撃つ。相性で不利な戦い(反撃のほうが重くなる攻撃)はしかけず、撃破できるときだけ手を出す。',
     // 特別な力を持たない指揮官。強さの違いは思考パターンだけにある
     attackBonus: 0,
+    incomeBonus: 0,
     behavior: {
       // 占領役を厚めにそろえてから戦力を整える。拠点が増えるほど守る場所も収入も増える
       production: 'infantryFirst',
@@ -182,6 +192,42 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     },
   },
   {
+    id: 'heir',
+    name: 'ロラン',
+    title: '御曹司',
+    difficulty: '最凶',
+    emblemColor: 0xe07ab8,
+    description:
+      '大富豪の家に生まれた坊ちゃん指揮官。実家からの仕送りで、拠点の数に関わらず毎ターンの収入が 10000 増える。資金の差だけで押しつぶしてくる最凶の相手だが、腕前はノーラにも及ばない。ときどき思いつきで役に立たないユニットを買い、目の前の敵を放ってあらぬ方へ歩き出すこともある。そのしくじりを突いて、物量に呑まれる前に本拠地を落としたい。',
+    // 攻撃補正は持たない。強さはすべて資金(収入補正)から来る
+    attackBonus: 0,
+    // 実家からの仕送り。拠点 10 か所ぶんの収入が毎ターン上乗せされる
+    incomeBonus: 10000,
+    // 思考の土台はノーラ(既定)と同じだが、気まぐれな生産と行動のしくじりが加わるぶんノーラより弱い
+    behavior: {
+      production: 'strongest',
+      // 占領役の歩兵 3 体だけは高価なユニットより先にそろえる(ノーラと同じ)
+      infantryQuota: 3,
+      roster: [],
+      powerCostRatio: 0,
+      saveForUpgrade: false,
+      indirectPriority: false,
+      advance: 'nearestEnemy',
+      routing: 'direct',
+      preferNeutralCapture: false,
+      avoidUnfavorableAttack: false,
+      indirectStandoff: false,
+      nightVisionFloor: 0,
+      regroupRadius: 0,
+      // 生産拠点ごとに 3 割の確率で、方針を無視して買えるものからでたらめに選ぶ
+      // (敵に攻撃できない戦闘機や、運ぶ相手のいない輸送ユニットを買うこともある)。
+      // 海を渡る輸送ユニットを 1 体そろえるまでは、気まぐれを起こさずにその代金を守る
+      oddProductionRate: 0.3,
+      // ユニットごとに 2 割の確率で判断を飛ばし、でたらめなマスへ動いて待機する
+      blunderRate: 0.2,
+    },
+  },
+  {
     id: 'gunnery',
     name: 'イグナ',
     title: '火力長',
@@ -192,6 +238,7 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
     // ノーラと同じ +10% の攻撃補正だけを持つ指揮官。
     // 撃ち合いの一手ぶんが重くなるため、相手にするとノーラより一段手ごわい
     attackBonus: 0.1,
+    incomeBonus: 0,
     // 思考パターンはノーラ(既定)と同一。強さの違いを攻撃補正だけに絞っている
     behavior: {
       production: 'strongest',
@@ -227,6 +274,48 @@ export function getAiCharacter(id: string | undefined): AiCharacter {
 /** 肩書つきの表示名(例: 「教導官 ノーラ」)を返す */
 export function aiCharacterLabel(character: AiCharacter): string {
   return `${character.title} ${character.name}`;
+}
+
+/**
+ * 収入補正の表示文(例: 「毎ターンの収入 +10000」)を返す。
+ * 補正を持たない指揮官は、補正が無いことをはっきり示す文言を返す。
+ */
+export function incomeBonusLabel(character: AiCharacter): string {
+  if (character.incomeBonus <= 0) {
+    return '収入補正なし';
+  }
+  return `毎ターンの収入 +${character.incomeBonus}`;
+}
+
+/**
+ * 選択ボタンや一覧で名前・想定プレイヤー層のうしろに添える、補正の短い表示
+ * (例: 「攻撃 +10%」「収入 +10000」)。補正を持たない指揮官は空の配列を返す。
+ */
+export function bonusBadges(character: AiCharacter): string[] {
+  const badges: string[] = [];
+  if (character.attackBonus > 0) {
+    badges.push(`攻撃 +${Math.round(character.attackBonus * 100)}%`);
+  }
+  if (character.incomeBonus > 0) {
+    badges.push(`収入 +${character.incomeBonus}`);
+  }
+  return badges;
+}
+
+/**
+ * 指揮官の選択ボタンで名前のうしろに添える、補正のごく短い表示(例: 「 +10%」「 +1万」)。
+ * ボタンの幅が狭いため、収入補正は万単位で縮める。補正を持たない指揮官は空文字を返す。
+ */
+export function shortBonusLabel(character: AiCharacter): string {
+  let label = '';
+  if (character.attackBonus > 0) {
+    label += ` +${Math.round(character.attackBonus * 100)}%`;
+  }
+  if (character.incomeBonus > 0) {
+    const amount = character.incomeBonus;
+    label += amount % 10000 === 0 ? ` +${amount / 10000}万` : ` +${amount}`;
+  }
+  return label;
 }
 
 /**

@@ -5,7 +5,10 @@ import {
   DEFAULT_AI_CHARACTER,
   aiCharacterLabel,
   attackBonusLabel,
+  bonusBadges,
   getAiCharacter,
+  incomeBonusLabel,
+  shortBonusLabel,
 } from '@/data/aiCharacters';
 
 describe('AI_CHARACTERS(対戦キャラクター)', () => {
@@ -157,6 +160,43 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
     // 既定の指揮官(ノーラ)自身は補正を持たない
     expect(DEFAULT_AI_CHARACTER.attackBonus).toBe(0);
   });
+
+  it('収入補正を持つ指揮官がいて、ノーラより弱い思考パターンで戦う', () => {
+    const heir = AI_CHARACTERS.find((character) => character.incomeBonus > 0);
+    expect(heir).toBeDefined();
+    // 拠点の数に関わらず、毎ターンの収入が 10000 増える
+    expect(heir?.incomeBonus).toBe(10000);
+    expect(heir?.attackBonus).toBe(0);
+    // 思考の土台はノーラと同じで、気まぐれな生産と行動のしくじりだけが加わっている
+    const { oddProductionRate, blunderRate, ...rest } = heir!.behavior;
+    expect(rest).toEqual(DEFAULT_AI_CHARACTER.behavior);
+    expect(oddProductionRate).toBeGreaterThan(0);
+    expect(blunderRate).toBeGreaterThan(0);
+  });
+
+  it('収入補正を持つのは御曹司だけで、他の指揮官の収入はこれまでどおり', () => {
+    for (const character of AI_CHARACTERS) {
+      expect(character.incomeBonus).toBeGreaterThanOrEqual(0);
+      if (character.id !== 'heir') {
+        expect(character.incomeBonus).toBe(0);
+      }
+    }
+  });
+
+  it('気まぐれ・しくじりの確率は 0〜1 に収まり、持つのは御曹司だけ', () => {
+    for (const character of AI_CHARACTERS) {
+      for (const rate of [
+        character.behavior.oddProductionRate ?? 0,
+        character.behavior.blunderRate ?? 0,
+      ]) {
+        expect(rate).toBeGreaterThanOrEqual(0);
+        expect(rate).toBeLessThanOrEqual(1);
+        if (character.id !== 'heir') {
+          expect(rate).toBe(0);
+        }
+      }
+    }
+  });
 });
 
 describe('getAiCharacter', () => {
@@ -188,5 +228,29 @@ describe('attackBonusLabel', () => {
 
   it('補正を持たない指揮官は補正が無いことを示す', () => {
     expect(attackBonusLabel(DEFAULT_AI_CHARACTER)).toBe('攻撃補正なし');
+  });
+});
+
+describe('incomeBonusLabel', () => {
+  it('収入補正を持つ指揮官は金額つきの説明を返す', () => {
+    expect(incomeBonusLabel(getAiCharacter('heir'))).toBe('毎ターンの収入 +10000');
+  });
+
+  it('補正を持たない指揮官は補正が無いことを示す', () => {
+    expect(incomeBonusLabel(DEFAULT_AI_CHARACTER)).toBe('収入補正なし');
+  });
+});
+
+describe('bonusBadges / shortBonusLabel', () => {
+  it('補正ごとの短い表示を返す', () => {
+    expect(bonusBadges(getAiCharacter('gunnery'))).toEqual(['攻撃 +10%']);
+    expect(bonusBadges(getAiCharacter('heir'))).toEqual(['収入 +10000']);
+    expect(bonusBadges(DEFAULT_AI_CHARACTER)).toEqual([]);
+  });
+
+  it('選択ボタン向けに、収入補正は万単位へ縮める', () => {
+    expect(shortBonusLabel(getAiCharacter('gunnery'))).toBe(' +10%');
+    expect(shortBonusLabel(getAiCharacter('heir'))).toBe(' +1万');
+    expect(shortBonusLabel(DEFAULT_AI_CHARACTER)).toBe('');
   });
 });

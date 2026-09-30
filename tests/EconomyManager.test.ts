@@ -83,4 +83,32 @@ describe('EconomyManager', () => {
     // 敵軍は 1 拠点ぶんのみ
     expect(economy.collectIncome('enemy', map)).toBe(1000);
   });
+
+  it('収入補正は拠点の収入に毎ターン上乗せされる', () => {
+    const map = MapManager.fromDefinition(ECONOMY_MAP);
+    const economy = new EconomyManager({ initialFunds: 0 });
+    economy.setIncomeBonus('enemy', 10000);
+
+    // 敵軍は都市 1 つ(1000)+ 補正 10000
+    expect(economy.getIncomeBonus('enemy')).toBe(10000);
+    expect(economy.getIncome('enemy', map)).toBe(11000);
+    expect(economy.collectIncome('enemy', map)).toBe(11000);
+    expect(economy.getFunds('enemy')).toBe(11000);
+    // 補正を設定していない軍はこれまでどおり
+    expect(economy.getIncomeBonus('player')).toBe(0);
+    expect(economy.getIncome('player', map)).toBe(3000);
+  });
+
+  it('収入補正は拠点を 1 つも持っていなくても入る', () => {
+    const map = MapManager.fromDefinition(ECONOMY_MAP);
+    const economy = new EconomyManager({ initialFunds: 0 });
+    economy.setIncomeBonus('third', 10000);
+
+    expect(economy.countBases('third', map)).toBe(0);
+    expect(economy.collectIncome('third', map)).toBe(10000);
+  });
+
+  it('負の収入補正は例外を投げる', () => {
+    expect(() => new EconomyManager().setIncomeBonus('enemy', -1)).toThrow();
+  });
 });
