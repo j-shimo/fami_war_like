@@ -28,6 +28,7 @@ import { MAP_LIST, mapsInGroup } from '@/data/maps';
 import { removeAbsentArmies } from '@/data/maps/armySlots';
 import { TWIN_SHOAL_ISLANDS_MAP } from '@/data/maps/twinShoalIslandsMap';
 import { getTerrainData } from '@/data/terrainData';
+import { getUnitData } from '@/data/unitData';
 
 /** 座標を集合のキーにする */
 function key(pos: GridPosition): string {
@@ -76,16 +77,19 @@ const ARMIES: readonly TurnArmy[] = ['player', 'enemy', 'third', 'fourth'];
 
 /** 各軍の本拠地 */
 const HQ: Readonly<Record<TurnArmy, GridPosition>> = {
-  player: gridPosition(3, 3),
-  enemy: gridPosition(28, 3),
-  third: gridPosition(3, 24),
-  fourth: gridPosition(28, 24),
+  player: gridPosition(3, 2),
+  enemy: gridPosition(16, 3),
+  third: gridPosition(3, 20),
+  fourth: gridPosition(16, 20),
 };
 
 describe('双瀬四島マップ(4P マップ)', () => {
   const map = MapManager.fromDefinition(TWIN_SHOAL_ISLANDS_MAP);
   const midCol = map.cols / 2;
   const midRow = map.rows / 2;
+  /** 西の島・東の島の横の範囲 */
+  const WEST_COLS = [1, 8] as const;
+  const EAST_COLS = [11, 18] as const;
 
   /** そのマスがどの軍の島(盤面の 4 分の 1)に入るか */
   const quarterOf = (pos: GridPosition): TurnArmy => {
@@ -125,9 +129,9 @@ describe('双瀬四島マップ(4P マップ)', () => {
       ),
     );
 
-  it('32x28 の 4P マップとして一覧に登録されている', () => {
-    expect(map.cols).toBe(32);
-    expect(map.rows).toBe(28);
+  it('20x24 の 4P マップとして一覧に登録されている', () => {
+    expect(map.cols).toBe(20);
+    expect(map.rows).toBe(24);
     const entry = MAP_LIST.find((item) => item.id === 'twinShoalIslands');
     expect(entry?.group).toBe('four');
     expect(entry?.category).toBe('normal');
@@ -179,12 +183,28 @@ describe('双瀬四島マップ(4P マップ)', () => {
     expect(tilesOf(map, 'station')).toHaveLength(0);
   });
 
-  it('盤面は左右・上下とも鏡写し', () => {
+  it('島はどれも横 8 マス以内で、4 つの島は鏡写しではなく少しずつ違う', () => {
+    map.forEachTile((tile) => {
+      if (!isLand(tile.position)) return;
+      const [from, to] = tile.position.col < midCol ? WEST_COLS : EAST_COLS;
+      expect(tile.position.col).toBeGreaterThanOrEqual(from);
+      expect(tile.position.col).toBeLessThanOrEqual(to);
+    });
+    // 各島を 1P の島の向きにそろえて(左右・上下を反転して)比べても、どの 2 島も一致しない
     const rows = TWIN_SHOAL_ISLANDS_MAP.terrain;
-    for (let row = 0; row < rows.length; row += 1) {
-      expect([...rows[row]].reverse().join('')).toBe(rows[row]);
-      expect(rows[rows.length - 1 - row]).toBe(rows[row]);
-    }
+    const island = (army: TurnArmy): string[] => {
+      const east = army === 'enemy' || army === 'fourth';
+      const south = army === 'third' || army === 'fourth';
+      const [from, to] = east ? EAST_COLS : WEST_COLS;
+      const band = south ? rows.slice(13, 23) : rows.slice(1, 11);
+      const cells = band.map((line) => {
+        const part = line.slice(from, to + 1);
+        return east ? [...part].reverse().join('') : part;
+      });
+      return south ? cells.reverse() : cells;
+    };
+    const shapes = ARMIES.map((army) => island(army).join('/'));
+    expect(new Set(shapes).size).toBe(4);
   });
 
   it('陸は 4 つの島に分かれ、外周はすべて海', () => {
@@ -214,18 +234,19 @@ describe('双瀬四島マップ(4P マップ)', () => {
   });
 
   it('1P と 2P・3P と 4P の島だけが浅瀬でつながり、北と南は海で隔てられる', () => {
-    // 浅瀬は島のあいだの海峡(col 15〜16)にだけあり、北と南に 3 マス幅で 1 か所ずつ
+    // 浅瀬は島のあいだの海峡(col 9〜10)にだけあり、北と南に縦 4 マスで 1 か所ずつ
     const shoals = tilesOf(map, 'river');
-    expect(shoals).toHaveLength(12);
+    expect(shoals).toHaveLength(16);
     for (const shoal of shoals) {
-      expect([15, 16]).toContain(shoal.col);
+      expect([9, 10]).toContain(shoal.col);
     }
-    expect(
-      shoals
-        .filter((pos) => pos.row < midRow)
-        .map((pos) => pos.row)
-        .sort(),
-    ).toEqual([6, 6, 7, 7, 8, 8]);
+    const shoalRows = (north: boolean): number[] => [
+      ...new Set(
+        shoals.filter((pos) => pos.row < midRow === north).map((pos) => pos.row),
+      ),
+    ];
+    expect(shoalRows(true)).toEqual([4, 5, 6, 7]);
+    expect(shoalRows(false)).toEqual([16, 17, 18, 19]);
     const walkable = (pos: GridPosition): boolean => !isSea(pos);
     const north = floodFill(map, HQ.player, walkable);
     expect(north.has(key(HQ.enemy))).toBe(true);
@@ -234,8 +255,8 @@ describe('双瀬四島マップ(4P マップ)', () => {
     const south = floodFill(map, HQ.third, walkable);
     expect(south.has(key(HQ.fourth))).toBe(true);
     expect(south.has(key(HQ.player))).toBe(false);
-    // 北の島と南の島のあいだ(row 11〜16)は端から端まで海
-    for (let row = 11; row <= 16; row += 1) {
+    // 北の島と南の島のあいだ(row 11〜12)は端から端まで海
+    for (let row = 11; row <= 12; row += 1) {
       for (let col = 0; col < map.cols; col += 1) {
         expect(isSea(gridPosition(col, row))).toBe(true);
       }
@@ -243,25 +264,54 @@ describe('双瀬四島マップ(4P マップ)', () => {
   });
 
   it('浅瀬は歩兵と装軌車両なら渡れるが、装輪車両は渡れない', () => {
-    expect(costFromCamp('player', HQ.enemy, 'infantry')).toBe(31);
-    expect(costFromCamp('player', HQ.enemy, 'vehicle')).toBe(33);
+    expect(costFromCamp('player', HQ.enemy, 'infantry')).toBe(16);
+    expect(costFromCamp('player', HQ.enemy, 'vehicle')).toBe(18);
     expect(costFromCamp('player', HQ.enemy, 'wheeled')).toBe(Infinity);
-    expect(costFromCamp('third', HQ.fourth, 'infantry')).toBe(31);
+    expect(costFromCamp('enemy', HQ.player, 'infantry')).toBe(17);
+    expect(costFromCamp('third', HQ.fourth, 'infantry')).toBe(16);
+    expect(costFromCamp('fourth', HQ.third, 'vehicle')).toBe(19);
+    expect(costFromCamp('fourth', HQ.third, 'wheeled')).toBe(Infinity);
     // 海を隔てた相手の本拠地へは、地上ユニットは歩いて行けない
     expect(costFromCamp('player', HQ.third, 'infantry')).toBe(Infinity);
     expect(costFromCamp('enemy', HQ.fourth, 'vehicle')).toBe(Infinity);
   });
 
-  it('港は海に面していて、向かいの島の港まで海路 7 マス', () => {
+  it('港は陣地のそば(工場から 3 マス以内)で、1P・3P は島の左側・2P・4P は島の右側', () => {
     for (const port of tilesOf(map, 'port')) {
-      expect(neighbors(port).some(isSea)).toBe(true);
+      const army = map.getTile(port)?.owner as TurnArmy;
+      const factories = producers(army).filter((pos) => terrainAt(pos) === 'factory');
+      const nearest = Math.min(
+        ...factories.map(
+          (factory) =>
+            Math.abs(factory.col - port.col) + Math.abs(factory.row - port.row),
+        ),
+      );
+      expect(nearest).toBeGreaterThanOrEqual(1);
+      expect(nearest).toBeLessThanOrEqual(3);
+      // 島の外側の海岸に面している
+      const west = army === 'player' || army === 'third';
+      expect(port.col).toBe(west ? WEST_COLS[0] : EAST_COLS[1]);
+      expect(isSea(gridPosition(west ? port.col - 1 : port.col + 1, port.row))).toBe(
+        true,
+      );
     }
-    const seaCost = (from: GridPosition, to: GridPosition): number | undefined =>
-      distancesFrom(map, from, 'sea').get(to);
-    expect(seaCost(gridPosition(3, 10), gridPosition(3, 17))).toBe(7);
-    expect(seaCost(gridPosition(10, 10), gridPosition(10, 17))).toBe(7);
-    expect(seaCost(gridPosition(21, 10), gridPosition(21, 17))).toBe(7);
-    expect(seaCost(gridPosition(28, 10), gridPosition(28, 17))).toBe(7);
+  });
+
+  it('北と南のあいだの海は幅 2 マスで、ロケット砲は海越しに向かいの島を撃てる', () => {
+    const rocket = getUnitData('rocketArtillery');
+    // 北の島の南の海岸(row 10)から南の島の北の海岸(row 13)までは 3 マス
+    const gap = 13 - 10;
+    expect(gap).toBeGreaterThanOrEqual(rocket.minAttackRange);
+    expect(gap).toBeLessThanOrEqual(rocket.maxAttackRange);
+    // 西の島どうし・東の島どうしで、真向かいに陸が向き合う海岸がある
+    for (const col of [2, 12]) {
+      expect(isLand(gridPosition(col, 10))).toBe(true);
+      expect(isLand(gridPosition(col, 13))).toBe(true);
+    }
+    // 1P の港 (1,4) から、海を渡って 3P の港 (1,19) までは海路 17
+    expect(distancesFrom(map, gridPosition(1, 4), 'sea').get(gridPosition(1, 19))).toBe(
+      17,
+    );
   });
 
   it('山は無く、陸は平地が主で、森は少し', () => {
@@ -285,15 +335,17 @@ describe('双瀬四島マップ(4P マップ)', () => {
     }
   });
 
-  it('どの軍も、自分の島の中立都市へ同じ距離で届く', () => {
-    const nearest = (army: TurnArmy): number[] =>
+  it('自分の島の中立都市は、手番の遅い軍ほどわずかに取りやすい', () => {
+    const costs = (army: TurnArmy): number[] =>
       tilesOf(map, 'city')
         .filter((pos) => quarterOf(pos) === army)
-        .map((city) => costFromCamp(army, city))
-        .sort((a, b) => a - b);
-    const expected = [2, 4, 4, 4, 5, 5, 6, 6, 7, 8, 8, 10, 11, 12, 13];
+        .map((city) => costFromCamp(army, city));
+    const total = (army: TurnArmy): number =>
+      costs(army).reduce((sum, cost) => sum + cost, 0);
+    expect(ARMIES.map(total)).toEqual([78, 76, 74, 72]);
+    // 1 ターン(移動コスト 3 以内)で届く都市は 4 軍とも 4 個
     for (const army of ARMIES) {
-      expect(nearest(army)).toEqual(expected);
+      expect(costs(army).filter((cost) => cost <= 3)).toHaveLength(4);
     }
   });
 
