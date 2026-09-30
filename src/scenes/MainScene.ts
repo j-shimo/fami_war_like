@@ -1080,14 +1080,53 @@ export class MainScene extends Phaser.Scene {
         this.drawHpIndicator(graphics, unit, x, y, radius);
       }
 
-      // 輸送ユニットがユニットを運んでいるときは、右上に小さな搭乗マーカーを描く
-      if (unit.isCarrying) {
-        const markerX = x + radius * 0.7;
-        const markerY = y - radius * 0.7;
-        graphics.fillStyle(0x12121e, unit.hasActed ? 0.5 : 0.85);
-        graphics.fillCircle(markerX, markerY, radius * 0.28);
-        graphics.fillStyle(BOARD_TARGET_COLOR, unit.hasActed ? 0.5 : 1);
-        graphics.fillCircle(markerX, markerY, radius * 0.18);
+      // 輸送ユニットには、右下に輸送枠の搭乗状況(ピップ)を描く
+      if (unit.capacity > 0) {
+        this.drawCargoPips(graphics, unit, x, y, radius);
+      }
+    }
+  }
+
+  /**
+   * 輸送ユニットの搭乗状況を、トークン右下のカプセル型バッジに輸送枠ぶんのピップで描く。
+   * 乗せている枠は水色の丸(搭乗できる輸送ユニットを示す枠と同じ色)、空いている枠は暗い丸にする。
+   * 右上は種別バッジ(輸送ヘリの「輸」など)、左上は HP の数値が使うため、空いている右下に置く。
+   * 輸送艦・列車砲のように枠が 2 つあるものは、右端をそろえて左へ並べる。
+   */
+  private drawCargoPips(
+    graphics: Phaser.GameObjects.Graphics,
+    unit: Unit,
+    x: number,
+    y: number,
+    radius: number,
+  ): void {
+    const alpha = unit.hasActed ? 0.5 : 1;
+    const pipRadius = radius * 0.2;
+    const gap = radius * 0.12;
+    const padding = radius * 0.1;
+    const width = unit.capacity * pipRadius * 2 + (unit.capacity - 1) * gap + padding * 2;
+    const height = pipRadius * 2 + padding * 2;
+    // 下端が HP バーにかからない高さに置く
+    const right = x + radius * 1.02;
+    const centerY = y + radius * 0.72;
+
+    // 地形の色に埋もれないよう、暗い下地と白い縁取りをつける
+    const left = right - width;
+    const top = centerY - height / 2;
+    graphics.fillStyle(0x12121e, 0.85 * alpha);
+    graphics.fillRoundedRect(left, top, width, height, height / 2);
+    graphics.lineStyle(1, 0xffffff, 0.8 * alpha);
+    graphics.strokeRoundedRect(left, top, width, height, height / 2);
+
+    for (let i = 0; i < unit.capacity; i++) {
+      const pipX =
+        right - padding - pipRadius - (unit.capacity - 1 - i) * (pipRadius * 2 + gap);
+      if (i < unit.carried.length) {
+        graphics.fillStyle(BOARD_TARGET_COLOR, alpha);
+        graphics.fillCircle(pipX, centerY, pipRadius);
+      } else {
+        graphics.lineStyle(1, 0x9aa0b4, alpha);
+        graphics.strokeCircle(pipX, centerY, pipRadius * 0.85);
       }
     }
   }
