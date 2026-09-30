@@ -118,6 +118,12 @@ const MIDDLE_BRIDGE = gridPosition(23, 12);
 const SOUTH_BRIDGE = gridPosition(23, 21);
 const BRIDGES: readonly GridPosition[] = [NORTH_BRIDGE, MIDDLE_BRIDGE, SOUTH_BRIDGE];
 
+/** 西へ伸びる線路が川を渡る鉄橋(幅 2 マス) */
+const RAIL_BRIDGE: readonly GridPosition[] = [gridPosition(20, 6), gridPosition(21, 6)];
+
+/** 川を渡る場所すべて(街道の橋 3 つと線路の鉄橋) */
+const CROSSINGS: readonly GridPosition[] = [...BRIDGES, ...RAIL_BRIDGE];
+
 /** 中央の T 字路と、その少し東で中央ルート・下ルートに分かれる分岐点 */
 const T_JUNCTION = gridPosition(15, 13);
 const FORK = gridPosition(19, 13);
@@ -125,8 +131,8 @@ const FORK = gridPosition(19, 13);
 /** 自軍の本拠地から少し東へ進んだところで北へ折れる角 */
 const STEM_CORNER = gridPosition(8, 23);
 
-/** 敵軍の駅から西へ伸びる線路の終点(川の東岸)にある中立の「西の駅」 */
-const WEST_STATION = gridPosition(25, 10);
+/** 敵軍の駅から row 6 をまっすぐ西へ伸び、鉄橋で川を越えた線路の終点にある中立の「西の駅」 */
+const WEST_STATION = gridPosition(16, 6);
 
 /** 敵軍の駅から南へ下りる線路の終点にある中立の「南の駅」 */
 const SOUTH_STATION = gridPosition(29, 17);
@@ -148,11 +154,11 @@ function onRoadNetwork(excluded: readonly GridPosition[] = []) {
 }
 
 /**
- * 川の西側(自軍の陣地の側)のマス。橋を落とした状態で、自軍の本拠地から
+ * 川の西側(自軍の陣地の側)のマス。橋と鉄橋を落とした状態で、自軍の本拠地から
  * 川と海を越えずに行けるマスを集める(川の岸に沿って盤面を東西に分ける)。
  */
 const WEST_OF_RIVER = floodFill(map, SELF_HQ, (pos) => {
-  if (BRIDGES.some((bridge) => key(bridge) === key(pos))) return false;
+  if (CROSSINGS.some((crossing) => key(crossing) === key(pos))) return false;
   const terrain = map.getTile(pos)?.terrainType;
   return terrain !== 'river' && terrain !== 'sea';
 });
@@ -261,11 +267,13 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(map.getTile(RIVAL_STATION)?.owner).toBe('player');
     expect(map.getTile(WEST_STATION)?.owner).toBe('neutral');
     expect(map.getTile(SOUTH_STATION)?.owner).toBe('neutral');
-    // 中立の駅は 2 つとも川の東にあり、歩兵で先に届くのも敵軍
+    // 西の駅は鉄橋で川を越えた先(川の西)、南の駅は川の東にある。
+    // どちらも歩兵で先に届くのは敵軍(西の駅へも線路づたいに歩いて行ける)
+    expect(isWestOfRiver(WEST_STATION)).toBe(true);
+    expect(isWestOfRiver(SOUTH_STATION)).toBe(false);
     const fromSelf = distancesFrom(map, SELF_HQ, 'infantry');
     const fromRival = distancesFrom(map, RIVAL_HQ, 'infantry');
     for (const station of [WEST_STATION, SOUTH_STATION]) {
-      expect(isWestOfRiver(station)).toBe(false);
       expect(fromRival.get(station) ?? Infinity).toBeLessThan(
         fromSelf.get(station) ?? Infinity,
       );
@@ -275,13 +283,26 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
   it('敵軍の駅から左(西)と下(南)へ線路が伸び、どちらの駅へも列車砲で 1 ターンで着く', () => {
     const rail = distancesFrom(map, RIVAL_STATION, 'rail');
     const railgun = getUnitData('railgun');
-    expect(rail.get(WEST_STATION)).toBe(10);
+    // 西の駅は列車砲の移動力ぎりぎりの 15 マス先
+    expect(rail.get(WEST_STATION)).toBe(railgun.movement);
     expect(rail.get(SOUTH_STATION)).toBe(13);
     for (const station of [WEST_STATION, SOUTH_STATION]) {
       expect(rail.get(station)).toBeLessThanOrEqual(railgun.movement);
     }
     // 西の駅は敵軍の駅より左、南の駅は下にある
     expect(WEST_STATION.col).toBeLessThan(RIVAL_STATION.col);
+    // 西へ伸びる線路は敵軍の駅と同じ row をまっすぐ走り、途中の鉄橋で川を渡る
+    expect(WEST_STATION.row).toBe(RIVAL_STATION.row);
+    for (const pos of RAIL_BRIDGE) {
+      expect(pos.row).toBe(RIVAL_STATION.row);
+      expect(pos.col).toBeGreaterThan(WEST_STATION.col);
+      expect(pos.col).toBeLessThan(RIVAL_STATION.col);
+    }
+    for (let col = WEST_STATION.col + 1; col < RIVAL_STATION.col; col += 1) {
+      expect(map.getTile(gridPosition(col, RIVAL_STATION.row))?.terrainType).toBe(
+        'railway',
+      );
+    }
     expect(SOUTH_STATION.row).toBeGreaterThan(RIVAL_STATION.row);
     // 線路のマスはすべて敵軍の駅から走って行ける
     const rails = collect(map, (tile) => tile.terrainType === 'railway');
@@ -296,9 +317,9 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     }
   });
 
-  it('列車砲は西の駅から中央の橋を撃てる', () => {
+  it('列車砲は西の駅から北の橋を撃てる', () => {
     const railgun = getUnitData('railgun');
-    const distance = manhattan(WEST_STATION, MIDDLE_BRIDGE);
+    const distance = manhattan(WEST_STATION, NORTH_BRIDGE);
     expect(distance).toBeGreaterThanOrEqual(railgun.minAttackRange);
     expect(distance).toBeLessThanOrEqual(railgun.maxAttackRange);
   });
@@ -310,8 +331,8 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(
       map.getTile(gridPosition(RIVER_MOUTH.col, RIVER_MOUTH.row + 1))?.terrainType,
     ).toBe('sea');
-    // 川(と橋)は源から河口まで 1 本につながっている
-    const bridgeKeys = new Set(BRIDGES.map(key));
+    // 川(と橋・鉄橋)は源から河口まで 1 本につながっている
+    const bridgeKeys = new Set(CROSSINGS.map(key));
     const course = floodFill(
       map,
       RIVER_SOURCE,
@@ -328,7 +349,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(isWestOfRiver(RIVAL_HQ)).toBe(false);
   });
 
-  it('装輪車両が川を越えられるのは 3 つの橋だけ', () => {
+  it('装輪車両が川を越えられるのは 3 つの橋と線路の鉄橋だけ', () => {
     for (const bridge of BRIDGES) {
       expect(map.getTile(bridge)?.terrainType).toBe('road');
       // 橋の上下は川
@@ -339,22 +360,26 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
         'river',
       );
     }
+    // 鉄橋は線路のマスで、装輪車両もコスト 4 で渡れる
+    for (const pos of RAIL_BRIDGE) {
+      expect(map.getTile(pos)?.terrainType).toBe('railway');
+    }
     const wheeled = passable(map, 'wheeled');
     expect(floodFill(map, SELF_HQ, wheeled).has(key(RIVAL_HQ))).toBe(true);
-    // 3 つの橋を落とすと、装輪車両は敵軍の陣地へ届かない
-    const withoutBridges = floodFill(
+    // 3 つの橋と鉄橋を落とすと、装輪車両は敵軍の陣地へ届かない
+    const withoutCrossings = floodFill(
       map,
       SELF_HQ,
-      (pos) => !BRIDGES.some((bridge) => key(bridge) === key(pos)) && wheeled(pos),
+      (pos) => !CROSSINGS.some((crossing) => key(crossing) === key(pos)) && wheeled(pos),
     );
-    expect(withoutBridges.has(key(RIVAL_HQ))).toBe(false);
-    // 歩兵と装軌車両は橋が無くても川を渡れる
+    expect(withoutCrossings.has(key(RIVAL_HQ))).toBe(false);
+    // 歩兵と装軌車両は橋も鉄橋も無くても川を渡れる
     for (const movementType of ['infantry', 'vehicle'] as const) {
       const reach = floodFill(
         map,
         SELF_HQ,
         (pos) =>
-          !BRIDGES.some((bridge) => key(bridge) === key(pos)) &&
+          !CROSSINGS.some((crossing) => key(crossing) === key(pos)) &&
           passable(map, movementType)(pos),
       );
       expect(reach.has(key(RIVAL_HQ))).toBe(true);
@@ -505,25 +530,50 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(neutral.filter((pos) => isWestOfRiver(pos))).toHaveLength(25);
   });
 
-  it('敵軍だけが初期部隊を持つ(戦闘機・爆撃機 2・中戦車・ロケット砲・対空戦車)', () => {
+  it('敵軍だけが初期部隊を持ち、陣地のまわりに 6 体・南の駅に 2 体・西の駅のまわりに 10 体を置く', () => {
     const manager = UnitManager.fromPlacements(SERPENT_RIVER_ISLAND_MAP.units ?? [], map);
     // 定義上の enemy(= 遊ぶ人の自軍)は 1 体も持たない
     expect(manager.getUnitsByArmy('enemy')).toHaveLength(0);
     const rivals = manager.getUnitsByArmy('player');
-    expect(rivals).toHaveLength(6);
-    const countOf = (unitType: string): number =>
-      rivals.filter((unit) => unit.unitType === unitType).length;
-    expect(countOf('fighter')).toBe(1);
-    expect(countOf('bomber')).toBe(2);
-    expect(countOf('mediumTank')).toBe(1);
-    expect(countOf('rocketArtillery')).toBe(1);
-    expect(countOf('antiAirTank')).toBe(1);
-    // すべて川の東(敵軍の側)に置いてある
-    for (const unit of rivals) {
-      expect(isWestOfRiver(unit.position)).toBe(false);
+    expect(rivals).toHaveLength(18);
+    const countIn = (units: typeof rivals, unitType: string): number =>
+      units.filter((unit) => unit.unitType === unitType).length;
+    // 川の東: 陣地のまわりの 6 体と、南の駅のまわりの 2 体
+    const east = rivals.filter((unit) => !isWestOfRiver(unit.position));
+    expect(east).toHaveLength(8);
+    // 南の駅のまわり: 偵察車と歩兵が 1 体ずつ、駅の隣のマスにいる
+    const southGuard = east.filter(
+      (unit) => manhattan(unit.position, SOUTH_STATION) <= 1,
+    );
+    expect(southGuard).toHaveLength(2);
+    expect(countIn(southGuard, 'recon')).toBe(1);
+    expect(countIn(southGuard, 'infantry')).toBe(1);
+    // 陣地のまわり: 戦闘機・爆撃機 2・中戦車・ロケット砲・対空戦車の 6 体
+    const home = east.filter((unit) => !southGuard.includes(unit));
+    expect(home).toHaveLength(6);
+    expect(countIn(home, 'fighter')).toBe(1);
+    expect(countIn(home, 'bomber')).toBe(2);
+    expect(countIn(home, 'mediumTank')).toBe(1);
+    expect(countIn(home, 'rocketArtillery')).toBe(1);
+    expect(countIn(home, 'antiAirTank')).toBe(1);
+    // 川の西(西の駅のまわり): ロケット砲 2・対空ロケット砲 2・重戦車 2・中戦車 2・戦闘ヘリ・偵察車の 10 体
+    const front = rivals.filter((unit) => isWestOfRiver(unit.position));
+    expect(front).toHaveLength(10);
+    expect(countIn(front, 'rocketArtillery')).toBe(2);
+    expect(countIn(front, 'antiAirRocketArtillery')).toBe(2);
+    expect(countIn(front, 'heavyTank')).toBe(2);
+    expect(countIn(front, 'mediumTank')).toBe(2);
+    expect(countIn(front, 'attackHelicopter')).toBe(1);
+    expect(countIn(front, 'recon')).toBe(1);
+    for (const unit of front) {
+      expect(manhattan(unit.position, WEST_STATION)).toBeLessThanOrEqual(5);
+      // 駅と線路の上には置かない(列車砲の通り道をふさがない)
+      const terrain = map.getTile(unit.position)?.terrainType;
+      expect(terrain).not.toBe('station');
+      expect(terrain).not.toBe('railway');
     }
-    // ロケット砲は中央の橋を射程に収める
-    const rocket = rivals.find((unit) => unit.unitType === 'rocketArtillery');
+    // 陣地のロケット砲は中央の橋を射程に収める
+    const rocket = home.find((unit) => unit.unitType === 'rocketArtillery');
     const rocketData = getUnitData('rocketArtillery');
     const distance = manhattan(rocket?.position ?? RIVAL_HQ, MIDDLE_BRIDGE);
     expect(distance).toBeGreaterThanOrEqual(rocketData.minAttackRange);
@@ -540,7 +590,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     const aiMap = MapManager.fromDefinition(swappedDef);
     const units = UnitManager.fromPlacements(swappedDef.units ?? [], aiMap);
     // 入れ替え後は CPU の敵軍が enemy になる
-    expect(units.getUnitsByArmy('enemy')).toHaveLength(6);
+    expect(units.getUnitsByArmy('enemy')).toHaveLength(18);
     expect(units.getUnitsByArmy('player')).toHaveLength(0);
     const economy = new EconomyManager({ initialFunds: swappedDef.initialFunds });
     const ai = new EnemyAi({
