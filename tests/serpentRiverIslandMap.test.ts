@@ -104,7 +104,7 @@ const RIVAL_AIRPORTS: readonly GridPosition[] = [
 const RIVAL_CITIES: readonly GridPosition[] = [
   gridPosition(34, 2),
   gridPosition(27, 4),
-  gridPosition(30, 8),
+  gridPosition(29, 8),
   gridPosition(34, 8),
 ];
 
@@ -125,16 +125,23 @@ const FORK = gridPosition(19, 13);
 /** 自軍の本拠地から少し東へ進んだところで北へ折れる角 */
 const STEM_CORNER = gridPosition(8, 23);
 
-/** 敵軍の線路の南端(川の東岸) */
-const RAIL_END = gridPosition(25, 10);
+/** 敵軍の駅から西へ伸びる線路の終点(川の東岸)にある中立の「西の駅」 */
+const WEST_STATION = gridPosition(25, 10);
+
+/** 敵軍の駅から南へ下りる線路の終点にある中立の「南の駅」 */
+const SOUTH_STATION = gridPosition(29, 17);
+
+/** 南へ下りる線路が中央ルートを横切る踏切 */
+const LEVEL_CROSSING = gridPosition(30, 12);
 
 const map = MapManager.fromDefinition(SERPENT_RIVER_ISLAND_MAP);
 
-/** 道路・拠点だけをたどる(街道網のつながりを見る) */
+/** 道路・拠点(と踏切)だけをたどる(街道網のつながりを見る) */
 function onRoadNetwork(excluded: readonly GridPosition[] = []) {
   const skip = new Set(excluded.map(key));
   return (pos: GridPosition): boolean => {
     if (skip.has(key(pos))) return false;
+    if (key(pos) === key(LEVEL_CROSSING)) return true;
     const terrain = map.getTile(pos)?.terrainType;
     return terrain === 'road' || terrain === 'headquarters' || terrain === 'factory';
   };
@@ -245,26 +252,55 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     }
   });
 
-  it('駅は盤面に 1 つだけで、敵軍(先手)しか列車砲を作れない', () => {
+  it('駅は敵軍の駅と中立の駅 2 つで、開始時に列車砲を作れるのは敵軍(先手)だけ', () => {
     const stations = collect(map, (tile) => tile.terrainType === 'station');
-    expect(stations).toEqual([RIVAL_STATION]);
+    expect(stations).toHaveLength(3);
+    expect(stations).toEqual(
+      expect.arrayContaining([RIVAL_STATION, WEST_STATION, SOUTH_STATION]),
+    );
     expect(map.getTile(RIVAL_STATION)?.owner).toBe('player');
+    expect(map.getTile(WEST_STATION)?.owner).toBe('neutral');
+    expect(map.getTile(SOUTH_STATION)?.owner).toBe('neutral');
+    // 中立の駅は 2 つとも川の東にあり、歩兵で先に届くのも敵軍
+    const fromSelf = distancesFrom(map, SELF_HQ, 'infantry');
+    const fromRival = distancesFrom(map, RIVAL_HQ, 'infantry');
+    for (const station of [WEST_STATION, SOUTH_STATION]) {
+      expect(isWestOfRiver(station)).toBe(false);
+      expect(fromRival.get(station) ?? Infinity).toBeLessThan(
+        fromSelf.get(station) ?? Infinity,
+      );
+    }
   });
 
-  it('敵軍の線路は駅から川の東岸まで伸び、列車砲は線路の南端から中央の橋を撃てる', () => {
+  it('敵軍の駅から左(西)と下(南)へ線路が伸び、どちらの駅へも列車砲で 1 ターンで着く', () => {
     const rail = distancesFrom(map, RIVAL_STATION, 'rail');
-    expect(rail.get(RAIL_END)).toBe(10);
-    // 線路網は駅から伸びる 1 本だけで、線路のマスはすべて駅から走って行ける
+    const railgun = getUnitData('railgun');
+    expect(rail.get(WEST_STATION)).toBe(10);
+    expect(rail.get(SOUTH_STATION)).toBe(13);
+    for (const station of [WEST_STATION, SOUTH_STATION]) {
+      expect(rail.get(station)).toBeLessThanOrEqual(railgun.movement);
+    }
+    // 西の駅は敵軍の駅より左、南の駅は下にある
+    expect(WEST_STATION.col).toBeLessThan(RIVAL_STATION.col);
+    expect(SOUTH_STATION.row).toBeGreaterThan(RIVAL_STATION.row);
+    // 線路のマスはすべて敵軍の駅から走って行ける
     const rails = collect(map, (tile) => tile.terrainType === 'railway');
     for (const pos of rails) {
       expect(rail.get(pos)).toBeDefined();
     }
+    // 南へ下りる線路は踏切で中央ルートを横切る(踏切の東西は街道)
+    expect(map.getTile(LEVEL_CROSSING)?.terrainType).toBe('railway');
+    for (const side of [-1, 1]) {
+      const pos = gridPosition(LEVEL_CROSSING.col + side, LEVEL_CROSSING.row);
+      expect(map.getTile(pos)?.terrainType).toBe('road');
+    }
+  });
+
+  it('列車砲は西の駅から中央の橋を撃てる', () => {
     const railgun = getUnitData('railgun');
-    const distance = manhattan(RAIL_END, MIDDLE_BRIDGE);
+    const distance = manhattan(WEST_STATION, MIDDLE_BRIDGE);
     expect(distance).toBeGreaterThanOrEqual(railgun.minAttackRange);
     expect(distance).toBeLessThanOrEqual(railgun.maxAttackRange);
-    // 線路の南端は川の東岸にあり、川そのものは越えない
-    expect(isWestOfRiver(RAIL_END)).toBe(false);
   });
 
   it('川は北岸から東へ回り込んで南岸へ抜け、島を東西に分ける', () => {
@@ -435,10 +471,15 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     }
   });
 
-  it('中立拠点は都市 45 個で、先に届くのは自軍 23 個・敵軍 22 個', () => {
-    const neutral = collect(
+  it('中立都市は 45 個で、先に届くのは自軍 23 個・敵軍 22 個', () => {
+    const neutralProperties = collect(
       map,
       (tile) => getTerrainData(tile.terrainType).canCapture && tile.owner === 'neutral',
+    );
+    // 中立拠点は都市 45 個と、中立の駅 2 つ(西の駅・南の駅)
+    expect(neutralProperties).toHaveLength(47);
+    const neutral = neutralProperties.filter(
+      (pos) => map.getTile(pos)?.terrainType !== 'station',
     );
     expect(neutral).toHaveLength(45);
     for (const pos of neutral) {
@@ -489,10 +530,10 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(distance).toBeLessThanOrEqual(rocketData.maxAttackRange);
   });
 
-  it('陣地から陣地までは歩兵 47・装軌車両 48・装輪車両 50', () => {
+  it('陣地から陣地までは歩兵 47・装軌車両 49・装輪車両 52', () => {
     expect(distancesFrom(map, SELF_HQ, 'infantry').get(RIVAL_HQ)).toBe(47);
-    expect(distancesFrom(map, SELF_HQ, 'vehicle').get(RIVAL_HQ)).toBe(48);
-    expect(distancesFrom(map, SELF_HQ, 'wheeled').get(RIVAL_HQ)).toBe(50);
+    expect(distancesFrom(map, SELF_HQ, 'vehicle').get(RIVAL_HQ)).toBe(49);
+    expect(distancesFrom(map, SELF_HQ, 'wheeled').get(RIVAL_HQ)).toBe(52);
   });
   it('2P側で入れ替えた盤面でも、CPU(右上の敵軍)が初期部隊と収入で手番を回せる', () => {
     const swappedDef = swapMapSides(SERPENT_RIVER_ISLAND_MAP);
