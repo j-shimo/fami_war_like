@@ -164,7 +164,7 @@ describe('双瀬四島マップ(4P マップ)', () => {
     }
   });
 
-  it('中立の拠点は都市だけで、島ごとに 15 個(収入 15000)', () => {
+  it('中立の拠点は都市だけで島ごとに 6 個。陣地と合わせて島ごとの収入は 15000', () => {
     const neutralBases: GridPosition[] = [];
     map.forEachTile((tile) => {
       if (tile.owner === 'neutral' && getTerrainData(tile.terrainType).canCapture) {
@@ -176,8 +176,10 @@ describe('双瀬四島マップ(4P マップ)', () => {
     }
     for (const army of ARMIES) {
       const cities = neutralBases.filter((pos) => quarterOf(pos) === army);
-      expect(cities).toHaveLength(15);
-      expect(cities.length * INCOME_PER_BASE).toBe(15000);
+      expect(cities).toHaveLength(6);
+      // 陣地の収入 9000 + 都市 6 個ぶん = 島を取り切ったときの収入 15000
+      const campIncome = new EconomyManager({ initialFunds: 0 }).getIncome(army, map);
+      expect(campIncome + cities.length * INCOME_PER_BASE).toBe(15000);
     }
     expect(tilesOf(map, 'laboratory')).toHaveLength(0);
     expect(tilesOf(map, 'station')).toHaveLength(0);
@@ -342,10 +344,10 @@ describe('双瀬四島マップ(4P マップ)', () => {
         .map((city) => costFromCamp(army, city));
     const total = (army: TurnArmy): number =>
       costs(army).reduce((sum, cost) => sum + cost, 0);
-    expect(ARMIES.map(total)).toEqual([78, 76, 74, 72]);
-    // 1 ターン(移動コスト 3 以内)で届く都市は 4 軍とも 4 個
+    expect(ARMIES.map(total)).toEqual([31, 30, 29, 28]);
+    // 1 ターン(移動コスト 3 以内)で届く都市は 4 軍とも 2 個
     for (const army of ARMIES) {
-      expect(costs(army).filter((cost) => cost <= 3)).toHaveLength(4);
+      expect(costs(army).filter((cost) => cost <= 3)).toHaveLength(2);
     }
   });
 
