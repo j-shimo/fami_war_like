@@ -530,16 +530,26 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     expect(neutral.filter((pos) => isWestOfRiver(pos))).toHaveLength(25);
   });
 
-  it('敵軍だけが初期部隊を持ち、陣地のまわりに 6 体・西の駅のまわりに 10 体を置く', () => {
+  it('敵軍だけが初期部隊を持ち、陣地のまわりに 6 体・南の駅に 2 体・西の駅のまわりに 10 体を置く', () => {
     const manager = UnitManager.fromPlacements(SERPENT_RIVER_ISLAND_MAP.units ?? [], map);
     // 定義上の enemy(= 遊ぶ人の自軍)は 1 体も持たない
     expect(manager.getUnitsByArmy('enemy')).toHaveLength(0);
     const rivals = manager.getUnitsByArmy('player');
-    expect(rivals).toHaveLength(16);
+    expect(rivals).toHaveLength(18);
     const countIn = (units: typeof rivals, unitType: string): number =>
       units.filter((unit) => unit.unitType === unitType).length;
-    // 川の東(陣地のまわり): 戦闘機・爆撃機 2・中戦車・ロケット砲・対空戦車の 6 体
-    const home = rivals.filter((unit) => !isWestOfRiver(unit.position));
+    // 川の東: 陣地のまわりの 6 体と、南の駅のまわりの 2 体
+    const east = rivals.filter((unit) => !isWestOfRiver(unit.position));
+    expect(east).toHaveLength(8);
+    // 南の駅のまわり: 偵察車と歩兵が 1 体ずつ、駅の隣のマスにいる
+    const southGuard = east.filter(
+      (unit) => manhattan(unit.position, SOUTH_STATION) <= 1,
+    );
+    expect(southGuard).toHaveLength(2);
+    expect(countIn(southGuard, 'recon')).toBe(1);
+    expect(countIn(southGuard, 'infantry')).toBe(1);
+    // 陣地のまわり: 戦闘機・爆撃機 2・中戦車・ロケット砲・対空戦車の 6 体
+    const home = east.filter((unit) => !southGuard.includes(unit));
     expect(home).toHaveLength(6);
     expect(countIn(home, 'fighter')).toBe(1);
     expect(countIn(home, 'bomber')).toBe(2);
@@ -580,7 +590,7 @@ describe('SERPENT_RIVER_ISLAND_MAP(蛇河大島マップ)', () => {
     const aiMap = MapManager.fromDefinition(swappedDef);
     const units = UnitManager.fromPlacements(swappedDef.units ?? [], aiMap);
     // 入れ替え後は CPU の敵軍が enemy になる
-    expect(units.getUnitsByArmy('enemy')).toHaveLength(16);
+    expect(units.getUnitsByArmy('enemy')).toHaveLength(18);
     expect(units.getUnitsByArmy('player')).toHaveLength(0);
     const economy = new EconomyManager({ initialFunds: swappedDef.initialFunds });
     const ai = new EnemyAi({
