@@ -355,14 +355,16 @@ describe('三叉鉄橋マップの川', () => {
     ).toBeUndefined();
   });
 
-  it('装輪車両は川を渡れないので、南から中立駅の高台へは上がれない', () => {
-    // 線路を落とした盤面(南岸回りのみ)では、装輪車両は中立駅へ到達できない
-    expect(minCost(NEUTRAL_STATION, PLAYER_BASES, 'wheeled', replacedMap('=', '~'))).toBe(
-      Infinity,
-    );
-    // 歩兵・装軌車両は渡れる
+  it('車両は川を渡れないので、南から中立駅の高台へは上がれない', () => {
+    // 線路を落とした盤面(南岸回りのみ)では、車両(装軌・装輪)は中立駅へ到達できない
+    for (const movementType of ['vehicle', 'wheeled'] as const) {
+      expect(
+        minCost(NEUTRAL_STATION, PLAYER_BASES, movementType, replacedMap('=', '~')),
+      ).toBe(Infinity);
+    }
+    // 歩兵は渡れる
     expect(
-      minCost(NEUTRAL_STATION, PLAYER_BASES, 'vehicle', replacedMap('=', '~')),
+      minCost(NEUTRAL_STATION, PLAYER_BASES, 'infantry', replacedMap('=', '~')),
     ).toBeLessThan(Infinity);
   });
 

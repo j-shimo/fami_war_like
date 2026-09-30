@@ -100,7 +100,7 @@ describe('双瀬四島マップ(4P マップ)', () => {
   const terrainAt = (pos: GridPosition): TerrainType | undefined =>
     map.getTile(pos)?.terrainType;
   const isSea = (pos: GridPosition): boolean => terrainAt(pos) === 'sea';
-  const isShoal = (pos: GridPosition): boolean => terrainAt(pos) === 'river';
+  const isShoal = (pos: GridPosition): boolean => terrainAt(pos) === 'shoal';
   const isLand = (pos: GridPosition): boolean => !isSea(pos) && !isShoal(pos);
 
   /** 指定した軍が地上ユニットを生産できるマス(工場・本拠地) */
@@ -237,7 +237,7 @@ describe('双瀬四島マップ(4P マップ)', () => {
 
   it('1P と 2P・3P と 4P の島だけが浅瀬でつながり、北と南は海で隔てられる', () => {
     // 浅瀬は島のあいだの海峡(col 9〜10)にだけあり、北と南に縦 4 マスで 1 か所ずつ
-    const shoals = tilesOf(map, 'river');
+    const shoals = tilesOf(map, 'shoal');
     expect(shoals).toHaveLength(16);
     for (const shoal of shoals) {
       expect([9, 10]).toContain(shoal.col);
@@ -265,14 +265,16 @@ describe('双瀬四島マップ(4P マップ)', () => {
     }
   });
 
-  it('浅瀬は歩兵と装軌車両なら渡れるが、装輪車両は渡れない', () => {
+  it('浅瀬は歩兵・装軌車両・装輪車両のどれでも渡れる', () => {
     expect(costFromCamp('player', HQ.enemy, 'infantry')).toBe(16);
-    expect(costFromCamp('player', HQ.enemy, 'vehicle')).toBe(18);
-    expect(costFromCamp('player', HQ.enemy, 'wheeled')).toBe(Infinity);
+    expect(costFromCamp('player', HQ.enemy, 'vehicle')).toBe(14);
+    expect(costFromCamp('player', HQ.enemy, 'wheeled')).toBe(24);
     expect(costFromCamp('enemy', HQ.player, 'infantry')).toBe(17);
+    expect(costFromCamp('enemy', HQ.player, 'vehicle')).toBe(15);
+    expect(costFromCamp('enemy', HQ.player, 'wheeled')).toBe(25);
     expect(costFromCamp('third', HQ.fourth, 'infantry')).toBe(16);
-    expect(costFromCamp('fourth', HQ.third, 'vehicle')).toBe(19);
-    expect(costFromCamp('fourth', HQ.third, 'wheeled')).toBe(Infinity);
+    expect(costFromCamp('fourth', HQ.third, 'vehicle')).toBe(15);
+    expect(costFromCamp('fourth', HQ.third, 'wheeled')).toBe(24);
     // 海を隔てた相手の本拠地へは、地上ユニットは歩いて行けない
     expect(costFromCamp('player', HQ.third, 'infantry')).toBe(Infinity);
     expect(costFromCamp('enemy', HQ.fourth, 'vehicle')).toBe(Infinity);
