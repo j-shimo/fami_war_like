@@ -64,6 +64,7 @@ const CHARGE_BEHAVIOR: AiBehavior = {
   indirectStandoff: false,
   nightVisionFloor: 0,
   regroupRadius: 0,
+  antiAirLimit: 2,
 };
 
 /**
@@ -87,6 +88,7 @@ const HUNTER_BEHAVIOR: AiBehavior = {
   indirectStandoff: true,
   nightVisionFloor: 2,
   regroupRadius: 2,
+  antiAirLimit: 2,
 };
 
 /**
@@ -107,6 +109,7 @@ const DEFEND_BEHAVIOR: AiBehavior = {
   indirectStandoff: false,
   nightVisionFloor: 0,
   regroupRadius: 0,
+  antiAirLimit: 2,
 };
 
 /** 行動ログから指定種別のものだけ取り出す */
@@ -382,7 +385,8 @@ describe('EnemyAi.run', () => {
   });
 
   it('歩兵がそろっていれば、空の生産拠点で最も高価なユニットを生産する', () => {
-    // col0 に敵軍の工場(空)。資金 10000 で工場で最も高価な対空戦車(8000)を生産する。
+    // col0 に敵軍の工場(空)。資金 10000 で工場で最も高価な軽戦車(6000)を生産する
+    // (対空戦車 8000 のほうが高価だが、空の脅威が無いマップなので候補に入らない)。
     // 生産したユニットの行き先になるよう、端に中立都市を置いてある。
     // 占領役の歩兵は目標数(既定は 3 体)を満たしているので、生産は強力なユニットへ回る
     const { units, economy, ai } = setup({
@@ -400,12 +404,12 @@ describe('EnemyAi.run', () => {
     const produced = actionsOfKind(actions, 'produce');
 
     expect(produced).toHaveLength(1);
-    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
-    // 資金 10000 − 対空戦車 8000 = 2000
-    expect(economy.getFunds('enemy')).toBe(2000);
+    expect(produced[0].result.unit.unitType).toBe('lightTank');
+    // 資金 10000 − 軽戦車 6000 = 4000
+    expect(economy.getFunds('enemy')).toBe(4000);
     // 生産されたユニットは工場マスに配置され、このターンは行動済み
     const spawned = units.getUnitAt(gridPosition(0, 0));
-    expect(spawned?.unitType).toBe('antiAirTank');
+    expect(spawned?.unitType).toBe('lightTank');
     expect(spawned?.hasActed).toBe(true);
   });
 
@@ -577,7 +581,7 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
 
   it('空港のないマップでは、相手が見えていなくても対空ロケット砲を買わない', () => {
     // 資金 14000 で工場で買えるいちばん高価なユニットは対空ロケット砲(13000)。
-    // 空港のあるマップではそれを買うが、空港がなければ飛行ユニットが出てこないため
+    // 相手が空港を持つマップではそれを買うが、空港がなければ飛行ユニットが出てこないため
     // 生産候補から外れ、次に高価な中戦車(12000)を買う。
     const infantrySquad = [
       { col: 1, row: 0, unitType: 'infantry', army: 'enemy' },
@@ -588,7 +592,10 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
       {
         name: 'airport',
         terrain: ['F.........A'],
-        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        owners: [
+          { col: 0, row: 0, owner: 'enemy' },
+          { col: 10, row: 0, owner: 'player' },
+        ],
         units: [...infantrySquad],
       },
       { funds: 14000 },
@@ -644,6 +651,116 @@ describe('EnemyAi.run(生産の絞り込み)', () => {
     const dayProduced = actionsOfKind(day.ai.run(), 'produce');
     expect(dayProduced).toHaveLength(1);
     expect(dayProduced[0].result.unit.unitType).toBe('fighter');
+  });
+});
+
+describe('EnemyAi.run(対空ユニットの数)', () => {
+  /**
+   * col0 に敵軍の工場、col1〜3 に占領役の歩兵 3 体(既定の目標数を満たす)と、
+   * 指定した自軍の対空ユニットを並べたマップ。col19 には空港を置き、airportOwner で持ち主を決める。
+   * 自軍(player)のユニットは敵AIの手が届かない遠く(col15〜)に置く。
+   */
+  function antiAirMap(options: {
+    airportOwner: 'player' | 'neutral';
+    ownAntiAir?: number;
+    playerUnits?: readonly UnitType[];
+  }): MapDefinition {
+    const own: UnitType[] = [
+      'infantry',
+      'infantry',
+      'infantry',
+      ...Array<UnitType>(options.ownAntiAir ?? 0).fill('antiAirTank'),
+    ];
+    return {
+      name: 'anti-air',
+      terrain: ['F..................A'],
+      owners: [
+        { col: 0, row: 0, owner: 'enemy' },
+        { col: 19, row: 0, owner: options.airportOwner },
+      ],
+      units: [
+        ...own.map((unitType, index) => ({
+          col: index + 1,
+          row: 0,
+          unitType,
+          army: 'enemy' as const,
+        })),
+        ...(options.playerUnits ?? ['infantry']).map((unitType, index) => ({
+          col: 15 + index,
+          row: 0,
+          unitType,
+          army: 'player' as const,
+        })),
+      ],
+    };
+  }
+
+  /** 1 ターン動かして、生産した種別を返す(生産しなければ null) */
+  function producedType(def: MapDefinition, nightBattle = false, behavior?: AiBehavior) {
+    const { ai } = setup(def, { funds: 10000, nightBattle, behavior });
+    const produced = actionsOfKind(ai.run(), 'produce');
+    return produced.length > 0 ? produced[0].result.unit.unitType : null;
+  }
+
+  it('空の脅威が無ければ、収入 1 万でも対空戦車ではなく軽戦車を買う', () => {
+    // マップに空港はあるが中立のまま。相手の飛行ユニットも見えていない
+    expect(producedType(antiAirMap({ airportOwner: 'neutral' }))).toBe('lightTank');
+  });
+
+  it('相手の飛行ユニットが見えていれば、対空戦車を買う', () => {
+    const def = antiAirMap({
+      airportOwner: 'neutral',
+      playerUnits: ['attackHelicopter'],
+    });
+    expect(producedType(def)).toBe('antiAirTank');
+  });
+
+  it('対空ユニットが上限(2 台)に届いていれば、それ以上は買わない', () => {
+    const def = antiAirMap({
+      airportOwner: 'neutral',
+      ownAntiAir: 2,
+      playerUnits: ['attackHelicopter'],
+    });
+    expect(producedType(def)).toBe('lightTank');
+  });
+
+  it('見えている飛行ユニットが上限より多ければ、その数まで買い足す', () => {
+    // 戦闘ヘリ 3 機に対して対空戦車 2 台では足りないので、3 台目を買う
+    const def = antiAirMap({
+      airportOwner: 'neutral',
+      ownAntiAir: 2,
+      playerUnits: ['attackHelicopter', 'attackHelicopter', 'attackHelicopter'],
+    });
+    expect(producedType(def)).toBe('antiAirTank');
+  });
+
+  it('飛行ユニットが見えていなくても、相手が空港を持っていれば上限まで備える', () => {
+    expect(producedType(antiAirMap({ airportOwner: 'player' }))).toBe('antiAirTank');
+    expect(producedType(antiAirMap({ airportOwner: 'player', ownAntiAir: 2 }))).toBe(
+      'lightTank',
+    );
+  });
+
+  it('夜戦で飛行ユニットが見えないときは、相手の空港の有無で判断する', () => {
+    // 戦闘ヘリは col15 にいて、敵歩兵(視界 2)からは見えない
+    const neutralAirport = antiAirMap({
+      airportOwner: 'neutral',
+      playerUnits: ['attackHelicopter'],
+    });
+    expect(producedType(neutralAirport, true)).toBe('lightTank');
+
+    const playerAirport = antiAirMap({
+      airportOwner: 'player',
+      playerUnits: ['attackHelicopter'],
+    });
+    expect(producedType(playerAirport, true)).toBe('antiAirTank');
+  });
+
+  it('上限を 0 にした思考パターンは、相手が空港を持つだけでは対空ユニットを買わない', () => {
+    const behavior: AiBehavior = { ...DEFAULT_AI_BEHAVIOR, antiAirLimit: 0 };
+    expect(producedType(antiAirMap({ airportOwner: 'player' }), false, behavior)).toBe(
+      'lightTank',
+    );
   });
 });
 
@@ -826,7 +943,7 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
   }
 
   it('編成表に足りない種別があれば、強力なユニットより先に補充する', () => {
-    // 資金 10000。編成表を持たなければ対空戦車(8000)を買うところで、歩兵から埋める
+    // 資金 10000。編成表を持たなければ軽戦車(6000)を買うところで、歩兵から埋める
     const { economy, ai } = setup(factoryMap([]), {
       behavior: HUNTER_BEHAVIOR,
       funds: 10000,
@@ -852,7 +969,8 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
   });
 
   it('編成表がそろったら、買える中で最も強力なユニットを生産する', () => {
-    // 歩兵 4 体・偵察車 1 台で編成表を満たしている。資金 10000 で買える最強は対空戦車(8000)
+    // 歩兵 4 体・偵察車 1 台で編成表を満たしている。資金 10000 で買える最強は軽戦車(6000)
+    // (対空戦車 8000 は、空の脅威が無いため候補に入らない)
     const roster: UnitType[] = ['infantry', 'infantry', 'infantry', 'infantry', 'recon'];
     const { ai } = setup(factoryMap(roster), {
       behavior: HUNTER_BEHAVIOR,
@@ -862,18 +980,18 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
     const produced = actionsOfKind(ai.run(), 'produce');
 
     expect(produced).toHaveLength(1);
-    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+    expect(produced[0].result.unit.unitType).toBe('lightTank');
   });
 
   it('すでに持っている種別しか買えないターンは、一段上のために資金を貯める', () => {
-    // 対空戦車(8000)はもう 1 台持っている。より高価な中戦車(12000)がまだ無いので見送る
+    // 軽戦車(6000)はもう 1 台持っている。より高価な中戦車(12000)がまだ無いので見送る
     const roster: UnitType[] = [
       'infantry',
       'infantry',
       'infantry',
       'infantry',
       'recon',
-      'antiAirTank',
+      'lightTank',
     ];
     const { economy, ai } = setup(factoryMap(roster), {
       behavior: HUNTER_BEHAVIOR,
@@ -891,7 +1009,7 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
       'infantry',
       'infantry',
       'recon',
-      'antiAirTank',
+      'lightTank',
     ];
     const { ai } = setup(factoryMap(roster), {
       behavior: HUNTER_BEHAVIOR,
@@ -906,14 +1024,14 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
 
   it('戦力で負けているあいだは貯めず、いま買えるものを買って頭数を戻す', () => {
     // 編成は「すでに持っている種別しか買えない」状態(通常なら一段上のために見送る)。
-    // ただし相手の中戦車 2 両(24000)に対して自軍の戦力は 15500 で劣勢なので、貯めずに買う
+    // ただし相手の中戦車 2 両(24000)に対して自軍の戦力は 13500 で劣勢なので、貯めずに買う
     const roster: UnitType[] = [
       'infantry',
       'infantry',
       'infantry',
       'infantry',
       'recon',
-      'antiAirTank',
+      'lightTank',
     ];
     const { ai } = setup(
       {
@@ -938,19 +1056,19 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
     const produced = actionsOfKind(ai.run(), 'produce');
 
     expect(produced).toHaveLength(1);
-    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+    expect(produced[0].result.unit.unitType).toBe('lightTank');
   });
 
   it('傷ついた相手は戦力を割り引いて数える(HP が減っていれば劣勢にならない)', () => {
     // 相手の中戦車 2 両は HP1 まで削れており、戦力は 24000 × 0.1 × 2 = 4800。
-    // 自軍(15500)のほうが上なので、従来どおり一段上のために資金を貯める
+    // 自軍(13500)のほうが上なので、従来どおり一段上のために資金を貯める
     const roster: UnitType[] = [
       'infantry',
       'infantry',
       'infantry',
       'infantry',
       'recon',
-      'antiAirTank',
+      'lightTank',
     ];
     const { units, ai } = setup(
       {
@@ -985,7 +1103,7 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
       'infantry',
       'infantry',
       'recon',
-      'antiAirTank',
+      'lightTank',
     ];
     const { ai } = setup(factoryMap(roster), {
       behavior: { ...HUNTER_BEHAVIOR, saveForUpgrade: false },
@@ -995,7 +1113,7 @@ describe('EnemyAi.run(編成表と資金の積み上げ)', () => {
     const produced = actionsOfKind(ai.run(), 'produce');
 
     expect(produced).toHaveLength(1);
-    expect(produced[0].result.unit.unitType).toBe('antiAirTank');
+    expect(produced[0].result.unit.unitType).toBe('lightTank');
   });
 
   it('夜戦では、視界の狭い重戦車を買わずに目の利く中戦車を選ぶ', () => {
