@@ -79,6 +79,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
     },
   },
   {
@@ -111,6 +113,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
     },
   },
   {
@@ -151,6 +155,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       nightVisionFloor: 2,
       // 味方から 2 マス以内を保って進む。足の速いユニットだけが突出しない
       regroupRadius: 2,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
     },
   },
   {
@@ -189,6 +195,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       // 夜戦でも遠距離ユニット(視界 1)を軸にするため、視界での絞り込みはしない
       nightVisionFloor: 0,
       regroupRadius: 0,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
     },
   },
   {
@@ -219,6 +227,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
       // 生産拠点ごとに 3 割の確率で、方針を無視して買えるものからでたらめに選ぶ
       // (敵に攻撃できない戦闘機や、運ぶ相手のいない輸送ユニットを買うこともある)。
       // 海を渡る輸送ユニットを 1 体そろえるまでは、気まぐれを起こさずにその代金を守る
@@ -256,6 +266,8 @@ export const AI_CHARACTERS: readonly AiCharacter[] = [
       indirectStandoff: false,
       nightVisionFloor: 0,
       regroupRadius: 0,
+      // 空の脅威(見えている飛行ユニット・相手の空港)があるときに持つ対空ユニットの上限
+      antiAirLimit: 2,
     },
   },
 ];

@@ -12,6 +12,8 @@
 //
 // 生産では、その拠点で作れる種別のうち「いまの相手の編成に 1 体も攻撃できないもの」
 // (相手に飛行ユニットがいないときの戦闘機など)を候補から外してから選ぶ。
+// 対空ユニットは「空の脅威」(見えている相手の飛行ユニット・相手の空港)があるときだけ、
+// 思考パターンの antiAirLimit を上限に候補へ入れる。
 //
 // 「4. どこへ近づくか」と「何を生産するか」は思考パターン(AiBehavior)で切り替わる。
 // 思考パターンは対戦キャラクターごとに紐づいており(src/data/aiCharacters.ts)、
@@ -80,7 +82,11 @@ import { areAllied } from '@/core/team/Alliance';
 import { canCarry, canLoadOn } from '@/core/units/transport';
 import type { Unit } from '@/core/units/Unit';
 import type { UnitManager } from '@/core/units/UnitManager';
-import type { UnitType } from '@/core/units/UnitType';
+import {
+  AIR_UNIT_TYPES,
+  ANTI_AIR_UNIT_TYPES,
+  type UnitType,
+} from '@/core/units/UnitType';
 import { canDamage } from '@/data/damageTable';
 import { getTerrainData } from '@/data/terrainData';
 import { getUnitData, isFerryUnit, producibleUnitTypesAt } from '@/data/unitData';
@@ -1744,6 +1750,7 @@ export class EnemyAi {
    * 「いまの相手の編成に対して 1 体も攻撃できない種別」を除いてから選ぶ
    * (usableAgainst)。相手に飛行ユニットが 1 体もいないのに戦闘機を買う、
    * といった無駄づかいを防ぐための絞り込み。
+   * 対空ユニットは空の脅威があるときだけ、antiAirLimit を上限に候補へ残す(withinAntiAirLimit)。
    *
    * 生存する歩兵が infantryQuota に届くまでは歩兵を生産するのは、
    * 方針によらず共通(占領役がいないと拠点も収入も増えないため)。そのうえで、
@@ -1775,7 +1782,9 @@ export class EnemyAi {
     const combatTypes = byCostDesc.filter(
       (type) => !isFerryUnit(type) && this.canReachAnyTarget(tile, type),
     );
-    const candidates = this.withNightVision(this.usableAgainst(combatTypes, opponents));
+    const candidates = this.withNightVision(
+      this.withinAntiAirLimit(this.usableAgainst(combatTypes, opponents), opponents),
+    );
 
     // 海を挟んだ拠点へ兵を送る足が無ければ、何より先に輸送ユニットを 1 体そろえる。
     // まだ資金が足りないうちは、他の拠点での生産を見送って足のために貯める
@@ -2047,6 +2056,68 @@ export class EnemyAi {
       opponents.some((opponent) => canDamage(type, opponent.unitType)),
     );
     return usable.length > 0 ? usable : types;
+  }
+
+  /**
+   * 生産候補から、対空ユニット(対空戦車・対空自走砲・対空ロケット砲)を必要なぶんだけ残す。
+   * 自軍の対空ユニットが上限(antiAirCap)に届いていれば、対空ユニットを候補から取り除く。
+   *
+   * 対空戦車は地上ユニットも撃てるため usableAgainst では落ちず、収入 1 万前後のマップでは
+   * 「工場で買えるいちばん高価なユニット」として対空戦車ばかりが並んでしまう。
+   * 空の脅威が無いうちは買わず、あっても数を区切って、残りの資金を戦車・自走砲へ回す。
+   *
+   * @param types 生産候補(高価な順に並んでいること。並び順は保たれる)
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
+   */
+  private withinAntiAirLimit(
+    types: readonly UnitType[],
+    opponents: readonly Unit[],
+  ): readonly UnitType[] {
+    const owned = this.units
+      .getUnitsByArmy(this.army)
+      .filter((unit) => ANTI_AIR_UNIT_TYPES.includes(unit.unitType)).length;
+    if (owned < this.antiAirCap(opponents)) {
+      return types;
+    }
+    return types.filter((type) => !ANTI_AIR_UNIT_TYPES.includes(type));
+  }
+
+  /**
+   * いま持っておきたい対空ユニットの上限を返す。
+   *
+   * - 相手の飛行ユニットが見えている: antiAirLimit と、見えている飛行ユニットの数の多いほう
+   * - 見えていないが、相手(同盟軍を除く)が空港を持っている: antiAirLimit
+   * - どちらでもない: 0
+   *
+   * 夜戦では見えている敵だけを数える。拠点の持ち主は夜でも分かるため、
+   * 視界の外にいるヘリへの備えは相手の空港で判断する。
+   *
+   * @param opponents 相手軍の編成(夜戦では見えている敵だけ)
+   */
+  private antiAirCap(opponents: readonly Unit[]): number {
+    const limit = this.behavior.antiAirLimit;
+    const sightedAir = opponents.filter((unit) =>
+      AIR_UNIT_TYPES.includes(unit.unitType),
+    ).length;
+    if (sightedAir > 0) {
+      return Math.max(limit, sightedAir);
+    }
+    return this.opponentHasAirport() ? limit : 0;
+  }
+
+  /** 相手(中立・同盟軍を除く)が空港を 1 つ以上持っているか */
+  private opponentHasAirport(): boolean {
+    let found = false;
+    this.map.forEachTile((tile) => {
+      if (
+        tile.terrainType === 'airport' &&
+        tile.owner !== 'neutral' &&
+        !this.isFriendly(tile.owner)
+      ) {
+        found = true;
+      }
+    });
+    return found;
   }
 
   /**
