@@ -834,10 +834,36 @@ export class MainScene extends Phaser.Scene {
    * 従来どおりの表示になる。本拠地が無いマップでは自軍所有の拠点、それも無ければ何もしない。
    */
   private focusPlayerHeadquarters(): void {
+    const focusTile = this.findHeadquartersTile(this.viewArmy());
+    if (focusTile === undefined) {
+      return;
+    }
+    const center = gridToWorldCenter(focusTile.position, TILE_SIZE);
+    this.cameras.main.centerOn(center.x, center.y);
+  }
+
+  /**
+   * 指定した軍勢の本拠地へカメラを滑らかに寄せる。
+   * 4P マップでプレイヤーの手番が始まるたびに、その軍勢の本拠地を見せるのに使う。
+   * 本拠地が無ければ所有する拠点、それも無ければ何もしない。
+   */
+  private panToHeadquarters(army: TurnArmy): void {
+    const focusTile = this.findHeadquartersTile(army);
+    if (focusTile === undefined) {
+      return;
+    }
+    const { x, y } = gridToWorldCenter(focusTile.position, TILE_SIZE);
+    // 直前のカメラ移動が残っていても、確実に本拠地へ向け直す
+    this.cameras.main.pan(x, y, ENEMY_CAMERA_PAN_MS, 'Quad.easeInOut', true);
+  }
+
+  /**
+   * カメラを寄せる先として、指定した軍勢の本拠地のマスを探す。
+   * 本拠地が無ければ(占領済みなど)その軍勢が所有する占領可能な拠点を返す。
+   */
+  private findHeadquartersTile(army: TurnArmy): TileData | undefined {
     let target: TileData | undefined;
     let fallback: TileData | undefined;
-    const army = this.viewArmy();
-
     this.map.forEachTile((tile) => {
       if (tile.owner !== army) {
         return;
@@ -848,14 +874,7 @@ export class MainScene extends Phaser.Scene {
         fallback = tile;
       }
     });
-
-    const focusTile = target ?? fallback;
-    if (focusTile === undefined) {
-      return;
-    }
-
-    const center = gridToWorldCenter(focusTile.position, TILE_SIZE);
-    this.cameras.main.centerOn(center.x, center.y);
+    return target ?? fallback;
   }
 
   /**
@@ -1645,6 +1664,8 @@ export class MainScene extends Phaser.Scene {
    * 現在の手番を始める。
    * コンピューターの軍勢なら敵軍AIを動かし、終わったら次の手番へ移す
    * (開始バナーは敵軍ターンの演出側で出す)。プレイヤーの手番なら開始バナーを出して操作を待つ。
+   * 4P マップでは、プレイヤーの手番が始まるたびにその軍勢の本拠地へカメラを寄せる
+   * (プレイヤーが複数いても、手番の軍勢がどこから始めるか分かるようにする)。
    */
   private beginCurrentTurn(): void {
     if (this.shouldRunAi()) {
@@ -1654,6 +1675,9 @@ export class MainScene extends Phaser.Scene {
       }
       this.runEnemyTurn(() => this.advanceTurn());
       return;
+    }
+    if (this.fourPlayer) {
+      this.panToHeadquarters(this.turn.currentArmy);
     }
     this.showTurnStartBanner();
   }
@@ -1742,7 +1766,7 @@ export class MainScene extends Phaser.Scene {
     // 敵軍のターンが始まったことをバナー・ジングル・BGM で知らせる
     this.showTurnStartBanner();
 
-    // 敵の行動を追ってカメラが動くため、自軍が見ていた位置へ戻せるよう控えておく
+    // 敵の行動を追ってカメラが動くため、自軍が見ていた位置へ戻せるよう控えておく(2 人で遊ぶマップのみ)
     const camera = this.cameras.main;
     const returnTo = { x: camera.scrollX, y: camera.scrollY };
 
@@ -1751,8 +1775,12 @@ export class MainScene extends Phaser.Scene {
     const finish = (): void => {
       this.enemyTurnAnimating = false;
       this.highlight.setVisible(false);
-      // 自軍のターンは、敵軍ターンに入る前に見ていた位置から再開する
-      this.panCameraToScroll(returnTo.x, returnTo.y, ENEMY_CAMERA_PAN_MS);
+      // 自軍のターンは、敵軍ターンに入る前に見ていた位置から再開する。
+      // 4P マップではコンピューターの手番が続くことがあり、戻し始めた直後の位置を次の手番が
+      // 「戻り先」として控えてしまうため戻さない(プレイヤーの手番の開始時に本拠地へ寄せる)
+      if (!this.fourPlayer) {
+        this.panCameraToScroll(returnTo.x, returnTo.y, ENEMY_CAMERA_PAN_MS);
+      }
       this.finishEnemyTurn(actions);
       onComplete();
     };
