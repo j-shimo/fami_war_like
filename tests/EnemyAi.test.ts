@@ -5,7 +5,7 @@ import { BattleManager } from '@/core/battle/BattleManager';
 import { CaptureSystem } from '@/core/economy/CaptureSystem';
 import { EconomyManager } from '@/core/economy/EconomyManager';
 import { ProductionManager } from '@/core/economy/ProductionManager';
-import { gridPosition } from '@/core/map/GridPosition';
+import { gridPosition, manhattanDistance } from '@/core/map/GridPosition';
 import { MapManager } from '@/core/map/MapManager';
 import { UnitManager } from '@/core/units/UnitManager';
 import type { UnitType } from '@/core/units/UnitType';
@@ -326,6 +326,52 @@ describe('EnemyAi.run', () => {
 
     expect(moves).toHaveLength(1);
     expect(tank.position).not.toEqual(gridPosition(1, 0));
+  });
+
+  it('拠点の隣が味方で埋まっていても、占領できないユニットは拠点の上に乗らない', () => {
+    // 中立都市(1,1)の隣は、中立の工場 2 つと、行動済みの味方の戦車 2 台でふさがっている
+    // (工場に囲まれた本拠地のように、隣の空きマスが少ない拠点)。
+    // 3 台目の戦車が都市へ乗ると歩兵の入る場所が無くなるため、2 マス手前で待つ
+    const { units, ai } = setup({
+      name: 't',
+      terrain: ['.F..', 'Fc..', '....', '....'],
+      units: [
+        { col: 2, row: 1, unitType: 'mediumTank', army: 'enemy' },
+        { col: 1, row: 2, unitType: 'mediumTank', army: 'enemy' },
+        { col: 3, row: 3, unitType: 'mediumTank', army: 'enemy' },
+      ],
+    });
+    units.getUnitAt(gridPosition(2, 1))!.hasActed = true;
+    units.getUnitAt(gridPosition(1, 2))!.hasActed = true;
+    const tank = units.getUnitAt(gridPosition(3, 3))!;
+
+    ai.run();
+
+    expect(units.getUnitAt(gridPosition(1, 1))).toBeUndefined();
+    expect(units.getUnitAt(gridPosition(1, 0))).toBeUndefined();
+    expect(units.getUnitAt(gridPosition(0, 1))).toBeUndefined();
+    expect(manhattanDistance(tank.position, gridPosition(1, 1))).toBe(2);
+  });
+
+  it('突撃型の戦闘ユニットは、中立になった本拠地(脱落した軍勢の跡)へは向かわない', () => {
+    // 西の(0,0)は 4P マップで全滅した軍勢の跡の中立の本拠地、東の(11,0)は自軍の本拠地。
+    // 中立の本拠地は勝敗に関わらず、戦車が居座ると歩兵が占領できなくなるため、
+    // 遠くても相手の本拠地のほうへ進む
+    const { units, ai } = setup(
+      {
+        name: 't',
+        terrain: ['H..........H'],
+        owners: [{ col: 11, row: 0, owner: 'player' }],
+        units: [{ col: 3, row: 0, unitType: 'mediumTank', army: 'enemy' }],
+      },
+      { behavior: HUNTER_BEHAVIOR },
+    );
+    const tank = units.getUnitAt(gridPosition(3, 0))!;
+
+    const moves = actionsOfKind(ai.run(), 'move');
+
+    expect(moves).toHaveLength(1);
+    expect(tank.position.col).toBeGreaterThan(3);
   });
 
   it('占領できる歩兵は、拠点の上で止まってそのまま占領する', () => {

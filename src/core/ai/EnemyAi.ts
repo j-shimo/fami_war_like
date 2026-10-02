@@ -230,10 +230,14 @@ const OWN_PRODUCTION_SITE_PENALTY = 2;
  * 占領できないユニット(歩兵以外)が、自軍所有でない拠点の上で足を止めることの減点。
  * 1 マスには 1 体しか立てないため、居座られると自軍の歩兵がそのマスへ入れず、
  * その拠点を永久に占領できなくなってしまう(都市は防御 2 で居心地が良いぶん起きやすい)。
- * 「1 マスぶんの前進(GOAL_WEIGHT)+ 地形防御の加点(最大 1.5)」より大きくしてあるので、
- * 目標そのものが拠点のときでも隣のマスへ退いて、歩兵に道を空ける。
+ *
+ * 移動範囲のどこで止まっても埋まらないほど大きくしてあるので、ほかに止まれるマスが
+ * 1 つでもあれば(今いるマスを含む)拠点の上には乗らない。目標そのものが拠点のときでも
+ * 隣のマスへ退いて歩兵に道を空ける。隣のマスが味方で埋まっていても、2 マス以上手前で待つ
+ * (「1 マスぶんの前進」程度の減点だと、隣が埋まった 3 体目が拠点へ乗ってしまい、
+ * 工場に囲まれた本拠地のように隣の空きマスが少ない拠点で、歩兵の入る場所が無くなる)。
  */
-const UNCAPTURED_BASE_PENALTY = 12;
+const UNCAPTURED_BASE_PENALTY = 1000;
 
 /**
  * 守りの思考パターンで、戦闘ユニットが守る拠点から離れてよい距離(マス)。
@@ -1572,11 +1576,22 @@ export class EnemyAi {
     );
   }
 
-  /** unit から経路がいちばん短い、相手軍側の本拠地の位置を返す(無ければ null) */
+  /**
+   * unit から経路がいちばん短い、相手軍側の本拠地の位置を返す(無ければ null)。
+   *
+   * 中立の本拠地(4P マップで全滅して脱落した軍勢の跡)は含めない。もう誰の本拠地でもなく、
+   * 戦闘ユニットが攻め寄せても勝敗に関わらないうえ、占領できない戦車が本拠地とその周りに
+   * 居座ると、隣り合った工場ごと歩兵が占領できなくなってしまうため。
+   * 中立の拠点は占領役の歩兵が nearestCaptureTarget で取りに行く。
+   */
   private nearestOpposingHeadquarters(unit: Unit): GridPosition | null {
     const headquarters: GridPosition[] = [];
     this.map.forEachTile((tile) => {
-      if (tile.terrainType === 'headquarters' && !this.isFriendly(tile.owner)) {
+      if (
+        tile.terrainType === 'headquarters' &&
+        tile.owner !== 'neutral' &&
+        !this.isFriendly(tile.owner)
+      ) {
         headquarters.push(tile.position);
       }
     });
