@@ -23,6 +23,7 @@
 //   - regroupRadius: 味方から離れすぎるマスへは進まず、隊列を保って押し上げる
 //   - advance: 'defendBase': 戦闘ユニットは攻め上がらず、自軍の拠点のそばで構えて守る
 // 生産では nightVisionFloor により、夜戦で視界の狭いユニットを候補から外せる。
+// nightRoster では、夜戦のときだけ偵察車などの「目」を最低限の頭数として補充する。
 // indirectPriority では自走砲・ロケット砲を優先して買う。
 // また avoidUnfavorableAttack では、1 の攻撃のうち相性で不利な組み合わせ
 // (反撃のほうが重い攻撃)を、撃破できる場合を除いてしかけない。
@@ -38,7 +39,11 @@
 // 4P マップのチーム分けで同盟を組んだ軍勢は、攻撃対象・占領目標・接近の目標にしない
 // (同盟軍のユニットは攻撃できず、同盟軍の拠点は占領できないため)。
 
-import { DEFAULT_AI_BEHAVIOR, type AiBehavior } from '@/core/ai/AiBehavior';
+import {
+  DEFAULT_AI_BEHAVIOR,
+  type AiBehavior,
+  type AiRosterEntry,
+} from '@/core/ai/AiBehavior';
 import { canAttackUnit, isWithinAttackRange } from '@/core/battle/AttackRange';
 import {
   attackBonusOf,
@@ -1822,10 +1827,24 @@ export class EnemyAi {
       return 'infantry';
     }
 
+    // 夜戦では、夜戦用の編成表(nightRoster)に足りない種別を強力なユニットより先に補充する。
+    // 視界の狭い重装備だけでは暗闇で敵を見つけられないため、目になる偵察車などを確保する。
+    // 見送り基準(powerCostRatio)より前に判断するので、安い偵察車でも買える
+    if (this.nightBattle) {
+      const nightShortage = this.rosterShortage(
+        tile,
+        this.behavior.nightRoster ?? [],
+        (type) => this.canReachAnyTarget(tile, type),
+      );
+      if (nightShortage) {
+        return nightShortage;
+      }
+    }
+
     // 編成表に足りない種別があれば、強力なユニットより先に補充する。
     // 占領役の歩兵や夜戦の目になる偵察車を切らさないための最低限の頭数。
     if (this.behavior.production === 'roster') {
-      const shortage = this.rosterShortage(tile);
+      const shortage = this.rosterShortage(tile, this.behavior.roster);
       if (shortage) {
         return shortage;
       }
@@ -2014,15 +2033,24 @@ export class EnemyAi {
   }
 
   /**
-   * 編成表(roster)で頭数が足りず、いま tile で生産できる種別を返す(足りていれば null)。
+   * 編成表(roster・nightRoster)で頭数が足りず、いま tile で生産できる種別を返す(足りていれば null)。
    * 一覧の先頭にあるものほど優先し、この拠点で作れない・資金が足りない種別は次へ送る。
+   *
+   * @param accepts 補充してよい種別かの追加条件(省略時は条件なし)
    */
-  private rosterShortage(tile: TileData): UnitType | null {
-    for (const entry of this.behavior.roster) {
+  private rosterShortage(
+    tile: TileData,
+    entries: readonly AiRosterEntry[],
+    accepts: (type: UnitType) => boolean = () => true,
+  ): UnitType | null {
+    for (const entry of entries) {
       if (this.countUnits(entry.unitType) >= entry.count) {
         continue;
       }
-      if (this.production.canProduce(this.army, tile, entry.unitType)) {
+      if (
+        this.production.canProduce(this.army, tile, entry.unitType) &&
+        accepts(entry.unitType)
+      ) {
         return entry.unitType;
       }
     }

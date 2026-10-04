@@ -67,6 +67,8 @@ describe('AI_CHARACTERS(対戦キャラクター)', () => {
     expect(charger?.behavior.infantryQuota).toBeGreaterThan(0);
     expect(charger?.behavior.routing).toBe('path');
     expect(charger?.behavior.preferNeutralCapture).toBe(true);
+    // 夜戦では、重装備の目になる偵察車を切らさない
+    expect(charger?.behavior.nightRoster).toContainEqual({ unitType: 'recon', count: 1 });
   });
 
   it('編成表をそろえてから戦力を積み上げる思考パターンのキャラクターがいる', () => {

@@ -65,6 +65,7 @@ const CHARGE_BEHAVIOR: AiBehavior = {
   nightVisionFloor: 0,
   regroupRadius: 0,
   antiAirLimit: 2,
+  nightRoster: [{ unitType: 'recon', count: 1 }],
 };
 
 /**
@@ -871,6 +872,100 @@ describe('EnemyAi.run(思考パターン)', () => {
 
     expect(produced).toHaveLength(1);
     expect(produced[0].result.unit.unitType).toBe('mediumTank');
+  });
+
+  /** 自軍の工場と、目標数(6 体)をそろえた歩兵にほかの種別を足したマップ */
+  function chargeMap(extra: readonly UnitType[] = []): MapDefinition {
+    return {
+      name: 't',
+      terrain: ['F.........c'],
+      owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      units: [...Array<UnitType>(6).fill('infantry'), ...extra].map(
+        (unitType, index) => ({
+          col: index + 1,
+          row: 0,
+          unitType,
+          army: 'enemy' as const,
+        }),
+      ),
+    };
+  }
+
+  it('夜戦では、見送り基準に届かなくても目になる偵察車を 1 台そろえる', () => {
+    // 昼戦なら資金 10000 では半額 9000 に届くユニットが買えず見送るところ(前述のテスト)。
+    // 夜戦では夜戦用の編成表に従い、偵察車(3500)を先に買う
+    const { economy, ai } = setup(chargeMap(), {
+      behavior: CHARGE_BEHAVIOR,
+      funds: 10000,
+      nightBattle: true,
+    });
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('recon');
+    expect(economy.getFunds('enemy')).toBe(6500);
+  });
+
+  it('夜戦でも、歩兵の目標数がそろうまでは偵察車より歩兵を先に買う', () => {
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F..c'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+      },
+      { behavior: CHARGE_BEHAVIOR, funds: 10000, nightBattle: true },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce');
+
+    expect(produced).toHaveLength(1);
+    expect(produced[0].result.unit.unitType).toBe('infantry');
+  });
+
+  it('夜戦で偵察車がそろっていれば、これまでどおり安いユニットは買わずに資金を貯める', () => {
+    const { economy, ai } = setup(chargeMap(['recon']), {
+      behavior: CHARGE_BEHAVIOR,
+      funds: 10000,
+      nightBattle: true,
+    });
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+    expect(economy.getFunds('enemy')).toBe(10000);
+  });
+
+  it('昼戦では夜戦用の編成表を参照せず、偵察車を買わない', () => {
+    const { economy, ai } = setup(chargeMap(), {
+      behavior: CHARGE_BEHAVIOR,
+      funds: 10000,
+    });
+
+    expect(actionsOfKind(ai.run(), 'produce')).toHaveLength(0);
+    expect(economy.getFunds('enemy')).toBe(10000);
+  });
+
+  it('夜戦用の編成表の種別でも、行き先が無ければ補充しない', () => {
+    // 工場は海に囲まれ、偵察車(装輪)では相手ユニットにも未所有の拠点にも届かない
+    // (輸送ユニットで運べる歩兵だけは行き先があるため、生産そのものは止まらない)
+    const { ai } = setup(
+      {
+        name: 't',
+        terrain: ['F~c'],
+        owners: [{ col: 0, row: 0, owner: 'enemy' }],
+        units: [],
+      },
+      {
+        behavior: { ...CHARGE_BEHAVIOR, infantryQuota: 0 },
+        funds: 10000,
+        nightBattle: true,
+      },
+    );
+
+    const produced = actionsOfKind(ai.run(), 'produce').map(
+      (action) => action.result.unit.unitType,
+    );
+
+    expect(produced).not.toContain('recon');
   });
 
   it('中立優先の思考パターンは、自軍所有の工場より中立都市を先に占領する', () => {
