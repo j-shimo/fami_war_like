@@ -138,12 +138,22 @@ describe('研究所の占領による進化', () => {
     expect(infantry.hasActed).toBe(true);
   });
 
-  it('進化しても回復はせず、現在 HP をそのまま引き継ぐ', () => {
-    const tile = makeLaboratory('neutral', 6, 'player');
-    const infantry = makeUnit('infantry', 'player', 6);
+  it('HP が減った歩兵が進化しても、新型戦車は HP 満タンで現れる', () => {
+    const tile = makeLaboratory('neutral', 7, 'player');
+    const infantry = makeUnit('infantry', 'player', 7);
+    infantry.damageRemainder = 5;
     capture.capture(infantry, tile);
     expect(infantry.unitType).toBe('newTank');
-    expect(infantry.currentHp).toBe(6);
+    expect(infantry.currentHp).toBe(infantry.maxHp);
+    expect(infantry.damageRemainder).toBe(0);
+  });
+
+  it('進化しない占領では HP は回復しない', () => {
+    const tile = makeLaboratory('neutral', 20, 'player');
+    const infantry = makeUnit('infantry', 'player', 7);
+    capture.capture(infantry, tile);
+    expect(infantry.unitType).toBe('infantry');
+    expect(infantry.currentHp).toBe(7);
   });
 
   it('占領が完了していない(耐久が残る)うちは進化しない', () => {
