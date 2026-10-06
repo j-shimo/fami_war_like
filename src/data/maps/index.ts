@@ -5,6 +5,7 @@ import { DEFAULT_MAP_GROUP, type MapGroup, type PlayerSide } from '@/core/mode/G
 import { ARC_ISLAND_ROAD_MAP } from '@/data/maps/arcIslandRoadMap';
 import { CAPE_LABORATORY_MAP } from '@/data/maps/capeLaboratoryMap';
 import { CAPTURE_MAP } from '@/data/maps/captureMap';
+import { CENTRAL_PLATEAU_MAP } from '@/data/maps/centralPlateauMap';
 import { DIAGONAL_SEA_MAP } from '@/data/maps/diagonalSeaMap';
 import { FORKED_SEA_ISLAND_MAP } from '@/data/maps/forkedSeaIslandMap';
 import { FOUR_CAMPS_ISLAND_MAP } from '@/data/maps/fourCampsIslandMap';
@@ -253,6 +254,14 @@ export const MAP_LIST: readonly ResolvedMapEntry[] = (
       description:
         '4 つの島に 4 つの軍勢が 1 島ずつ陣取る 20x24 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、島はどれも横 8 マス・縦 10 マスの細長い島。4 軍とも本拠地 1 + 工場 4 + 空港 2 + 港 2(収入 9000)・初期資金 0 から始まり、手番は 1P → 2P → 3P → 4P の順に回る。港は工場から 1〜2 マスの陣地のそばにあり、1P・3P は島の左側・2P・4P は島の右側。1P と 2P の島、3P と 4P の島は縦 4 マスの浅瀬でつながり、地上ユニットは歩いて渡れる(移動コストは歩兵 2・装軌車両 1・装輪車両 4)。北の 2 島と南の 2 島のあいだは幅 2 マスの海で、地上ユニットは輸送艦か輸送ヘリでしか渡れないが、ロケット砲なら海越しに向かいの島を撃てる。山は無く、島の中は平地が主で、都市へ向かう道路と少しの森がある。中立都市は島ごとに 6 個で、陣地と合わせて島を取り切ると収入 15000。4 つの島は鏡写しではなく形も配置も少しずつ違い、都市は手番の遅い軍ほどわずかに取りやすい。',
       // 4 人で遊ぶ 4Pマップの 3 枚目
+      group: 'four',
+    },
+    {
+      id: 'centralPlateau',
+      definition: CENTRAL_PLATEAU_MAP,
+      description:
+        '盤面の真ん中に山で囲まれた高台がある 26x26 の 4P マップ。1P が左上・2P が右上・3P が左下・4P が右下で、4 軍とも本拠地 1 + 工場 3(収入 4000)・初期資金 0 から始まり、手番は 1P → 2P → 3P → 4P の順に回る。高台の中には中立の研究所 2 個と、盤面で唯一の空港が 1 個ある。高台を囲む山には車両が入れず、上がれる入口は 4 つの峠だけ。峠は手番の遅い軍ほど近く、工場から高台の入口までは 1P 15・2P 14・3P 13・4P 12。西の研究所は 1P と 3P、東の研究所は 2P と 4P が狙う位置にある。先に高台を取った軍は残る 3 軍の的になる。陣地まわりの地形と中立都市 24 個(6 個ずつ)は 4 軍とも同じ並びで、陣地のすぐ隣の都市は 4 軍とも 1 ターンで届く。',
+      // 4 人で遊ぶ 4Pマップの 4 枚目
       group: 'four',
     },
   ] as const satisfies readonly MapEntry[]
