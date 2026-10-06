@@ -75,16 +75,13 @@ export class Unit {
   /**
    * ユニット種別を差し替える(研究所の占領による進化)。
    * 同じ 1 体として位置・ID・所属軍・行動済み状態はそのまま引き継ぎ、
-   * 現在 HP も引き継ぐ(進化しても回復はしない)。
-   * 進化先の最大 HP を超える場合だけ最大 HP まで丸める(このとき端数ダメージも消える)。
+   * HP は引き継がず、進化先の最大 HP まで全回復する(端数ダメージも消える)。
    * 進化の条件と対応表は data/unitData の LABORATORY_EVOLUTION が持つ。
    */
   evolveTo(unitType: UnitType): void {
     this.currentType = unitType;
-    if (this.currentHp > this.maxHp) {
-      this.currentHp = this.maxHp;
-      this.damageRemainder = 0;
-    }
+    this.currentHp = this.maxHp;
+    this.damageRemainder = 0;
   }
 
   /** このユニットの静的パラメータ */
